@@ -1,0 +1,76 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  dns-config.yaml — Source of truth for all DNS zones and records
+#
+#  This file is the single place to manage DNS for the lab.
+#  Running ./dns-lab/apply-dns-config.sh will apply any changes to the cluster.
+#
+#  record types supported: A, CNAME
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Internal corporate zones — simulates ADDS authoritative zones
+internal_zones:
+
+  - zone: corp.internal
+    records:
+      - name: sqlserver
+        type: A
+        value: 10.10.0.20
+      - name: webserver
+        type: A
+        value: 10.10.0.21
+      - name: fileserver
+        type: A
+        value: 10.10.0.22
+      - name: ldap
+        type: A
+        value: 10.10.0.23
+      - name: api
+        type: A
+        value: 10.10.0.24
+      - name: mydb
+        type: A
+        value: 10.10.0.25
+
+# Private Link zones — simulates ADDS hosting Azure Private DNS zones
+# In production ADDS conditionally forwards these back to Azure DNS (168.63.129.16)
+# In the lab bind9 is authoritative with the private endpoint IPs directly
+privatelink_zones:
+
+  - zone: privatelink.database.windows.net
+    records:
+      - name: mysqlserver
+        type: A
+        value: 10.20.0.10
+      - name: anotherdb
+        type: A
+        value: 10.20.0.11
+
+  - zone: privatelink.blob.core.windows.net
+    records:
+      - name: mystorageaccount
+        type: A
+        value: 10.20.0.20
+      - name: backupstorage
+        type: A
+        value: 10.20.0.21
+
+  - zone: privatelink.vaultcore.azure.net
+    records:
+      - name: mykeyvault
+        type: A
+        value: 10.20.0.30
+      - name: prodkeyvault
+        type: A
+        value: 10.20.0.31
+
+  - zone: privatelink.servicebus.windows.net
+    records:
+      - name: myservicebus
+        type: A
+        value: 10.20.0.40
+
+  - zone: privatelink.azurecr.io
+    records:
+      - name: myregistry
+        type: A
+        value: 10.20.0.50
