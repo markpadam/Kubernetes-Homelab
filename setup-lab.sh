@@ -84,10 +84,6 @@ kubectl wait --namespace ingress-nginx \
 
 success "Ingress controller ready"
 
-warn "LoadBalancer support requires 'minikube tunnel' to be running in a separate terminal."
-warn "Run this now in another tab:  minikube tunnel -p $PROFILE"
-read -rp "         Press Enter once tunnel is running (or skip if using port-forward)..."
-
 # ── Step 3: Persistent Storage ───────────────
 step "Step 3 — Enabling Persistent Storage"
 
@@ -147,42 +143,20 @@ for deploy in postgres backend frontend; do
     --timeout=180s
 done
 
-# ── /etc/hosts entry ─────────────────────────
-# Use ingress IP (requires minikube tunnel), not minikube ip
-log "Waiting for ingress address to be assigned..."
-INGRESS_IP=""
-for i in $(seq 1 24); do
-  INGRESS_IP=$(kubectl get ingress taskapp-ingress -n taskapp \
-    -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-  [[ -n "$INGRESS_IP" ]] && break
-  sleep 5
-done
+# ── Get NodePort URL ─────────────────────────
+MINIKUBE_IP=$(minikube ip -p "$PROFILE")
+APP_URL="http://$MINIKUBE_IP:30080"
 
-if [[ -z "$INGRESS_IP" ]]; then
-  warn "Could not detect ingress IP — is 'minikube tunnel -p $PROFILE' running in another terminal?"
-  INGRESS_IP=$(minikube ip -p "$PROFILE")
-  warn "Falling back to minikube IP: $INGRESS_IP (may not work for ingress)"
-fi
-
-HOSTS_ENTRY="$INGRESS_IP  taskapp.local"
-
-# Always replace stale entries to avoid wrong IP being cached
-if grep -q "taskapp.local" /etc/hosts; then
-  log "Removing stale taskapp.local entry from /etc/hosts..."
-  sudo sed -i '' '/taskapp.local/d' /etc/hosts
-fi
-
-log "Adding taskapp.local to /etc/hosts (requires sudo)..."
-echo "$HOSTS_ENTRY" | sudo tee -a /etc/hosts > /dev/null
-success "Added: $HOSTS_ENTRY" 
+success "TaskFlow is available at: $APP_URL"
 
 # ── Done ─────────────────────────────────────
 step "Lab Ready"
 
 echo -e "
 ${BOLD}  TaskFlow App${RESET}
-  URL:         ${GREEN}http://taskapp.local${RESET}
+  URL:         ${GREEN}$APP_URL${RESET}
   Alt access:  kubectl port-forward svc/frontend 8080:80 -n taskapp
+               then open http://localhost:8080
 
 ${BOLD}  Grafana${RESET}
   Command:     kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
@@ -190,6 +164,7 @@ ${BOLD}  Grafana${RESET}
   Login:       admin / $GRAFANA_PASSWORD
 
 ${BOLD}  Useful commands${RESET}
+  Open app:    minikube service frontend -n taskapp -p $PROFILE
   Pods:        kubectl get pods -n taskapp -o wide
   HPA:         kubectl get hpa -n taskapp
   Stop lab:    minikube stop -p $PROFILE
