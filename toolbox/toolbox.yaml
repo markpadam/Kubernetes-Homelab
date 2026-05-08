@@ -1,0 +1,159 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: toolbox
+---
+# ── SSH key ConfigMap ─────────────────────────────────────────────────────────
+# The setup script replaces the placeholder with your actual public key
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: toolbox-ssh-keys
+  namespace: toolbox
+data:
+  authorized_keys: "REPLACE_WITH_YOUR_PUBLIC_KEY"
+---
+# ── Toolbox Deployment ────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toolbox
+  namespace: toolbox
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: toolbox
+  template:
+    metadata:
+      labels:
+        app: toolbox
+    spec:
+      containers:
+        - name: toolbox
+          image: ubuntu:22.04
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              export DEBIAN_FRONTEND=noninteractive
+
+              apt-get update -qq && apt-get install -y -qq \
+                openssh-server \
+                curl \
+                wget \
+                dnsutils \
+                iputils-ping \
+                netcat-openbsd \
+                nmap \
+                tcpdump \
+                net-tools \
+                iproute2 \
+                traceroute \
+                vim \
+                jq \
+                git \
+                python3 \
+                python3-pip \
+                htop \
+                unzip \
+                ca-certificates \
+                gnupg \
+                lsb-release \
+                2>/dev/null
+
+              # Install kubectl
+              curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+              install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+              rm kubectl
+
+              # Install helm
+              curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash 2>/dev/null
+
+              # Configure SSH
+              mkdir -p /run/sshd /root/.ssh
+              chmod 700 /root/.ssh
+
+              # Copy in authorised key from ConfigMap
+              cp /etc/ssh-keys/authorized_keys /root/.ssh/authorized_keys
+              chmod 600 /root/.ssh/authorized_keys
+
+              # SSH daemon config
+              cat > /etc/ssh/sshd_config << 'SSHEOF'
+              Port 22
+              PermitRootLogin yes
+              PubkeyAuthentication yes
+              AuthorizedKeysFile /root/.ssh/authorized_keys
+              PasswordAuthentication no
+              ChallengeResponseAuthentication no
+              UsePAM no
+              PrintMotd no
+              AcceptEnv LANG LC_*
+              Subsystem sftp /usr/lib/openssh/sftp-server
+              SSHEOF
+
+              # Generate host keys
+              ssh-keygen -A
+
+              # Welcome message
+              cat > /etc/motd << 'MOTDEOF'
+
+                ██╗  ██╗ █████╗ ███████╗    ██╗      █████╗ ██████╗
+                ██║ ██╔╝██╔══██╗██╔════╝    ██║     ██╔══██╗██╔══██╗
+                █████╔╝ ╚█████╔╝███████╗    ██║     ███████║██████╔╝
+                ██╔═██╗ ██╔══██╗╚════██║    ██║     ██╔══██║██╔══██╗
+                ██║  ██╗╚█████╔╝███████║    ███████╗██║  ██║██████╔╝
+                ╚═╝  ╚═╝ ╚════╝ ╚══════╝    ╚══════╝╚═╝  ╚═╝╚═════╝
+
+                Kubernetes AKS Lab — Toolbox Pod
+                ─────────────────────────────────────────────────────
+                Tools: dig, nslookup, nmap, curl, wget, nc, tcpdump
+                       kubectl, helm, ping, traceroute, jq, python3
+
+                Quick tests:
+                  nslookup sqlserver.corp.internal
+                  dig mysqlserver.privatelink.database.windows.net
+                  curl http://backend.taskapp.svc.cluster.local:3000/health
+                  kubectl get pods -A
+              MOTDEOF
+
+              echo "Toolbox ready — starting SSH daemon"
+              exec /usr/sbin/sshd -D -e
+
+          ports:
+            - containerPort: 22
+          volumeMounts:
+            - name: ssh-keys
+              mountPath: /etc/ssh-keys
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            tcpSocket:
+              port: 22
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 10
+      volumes:
+        - name: ssh-keys
+          configMap:
+            name: toolbox-ssh-keys
+---
+# ── Service — NodePort so minikube service can proxy it ──────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: toolbox-ssh
+  namespace: toolbox
+spec:
+  selector:
+    app: toolbox
+  ports:
+    - name: ssh
+      port: 22
+      targetPort: 22
+      nodePort: 30022
+  type: NodePort

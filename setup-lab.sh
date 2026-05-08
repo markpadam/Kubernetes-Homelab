@@ -13,6 +13,7 @@ CPUS=2
 MEMORY=4096
 APP_DIR="Apps/multi-tier-app"
 DNS_DIR="dns-lab"
+TOOLBOX_DIR="toolbox"
 GRAFANA_PASSWORD="admin123"
 
 # ── Colours ──────────────────────────────────
@@ -39,8 +40,9 @@ command -v helm      &>/dev/null || error "Helm not found. Run: brew install hel
 
 docker info &>/dev/null || error "Docker daemon is not running. Start Docker Desktop."
 
-[[ -d "$APP_DIR" ]]  || error "App manifests not found at ./$APP_DIR — run from repo root."
-[[ -d "$DNS_DIR" ]]  || error "DNS lab not found at ./$DNS_DIR — run from repo root."
+[[ -d "$APP_DIR" ]]     || error "App manifests not found at ./$APP_DIR — run from repo root."
+[[ -d "$DNS_DIR" ]]     || error "DNS lab not found at ./$DNS_DIR — run from repo root."
+[[ -d "$TOOLBOX_DIR" ]] || error "Toolbox not found at ./$TOOLBOX_DIR — run from repo root."
 
 success "All dependencies found"
 
@@ -156,7 +158,6 @@ kubectl wait deployment bind9 \
 
 success "bind9 running"
 
-# Get bind9 ClusterIP
 BIND9_IP=$(kubectl get svc bind9 -n dns-lab -o jsonpath='{.spec.clusterIP}')
 log "bind9 ClusterIP: $BIND9_IP"
 
@@ -168,7 +169,6 @@ log "Backing up current Corefile to /tmp/corefile-backup.txt ..."
 kubectl get configmap coredns -n kube-system \
   -o jsonpath='{.data.Corefile}' > /tmp/corefile-backup.txt
 
-# Patch the base Corefile directly with stub zones prepended
 log "Patching CoreDNS Corefile with stub zones..."
 
 kubectl create configmap coredns \
@@ -234,6 +234,101 @@ kubectl rollout status deployment coredns -n kube-system --timeout=60s
 
 success "CoreDNS patched — stub zones active for corp.internal and privatelink.*"
 
+# ── Step 7: Toolbox Pod ───────────────────────
+step "Step 7 — Deploying Toolbox Pod"
+
+# Find SSH public key
+SSH_KEY_PATH=""
+for key in \
+  "$HOME/.ssh/id_ed25519.pub" \
+  "$HOME/.ssh/id_rsa.pub" \
+  "$HOME/.ssh/id_ecdsa.pub"
+do
+  if [[ -f "$key" ]]; then
+    SSH_KEY_PATH="$key"
+    break
+  fi
+done
+
+if [[ -z "$SSH_KEY_PATH" ]]; then
+  warn "No SSH public key found in ~/.ssh/"
+  read -rp "         Enter path to your public key, or press Enter to generate one: " custom_path
+  if [[ -n "$custom_path" ]]; then
+    [[ -f "$custom_path" ]] || error "Key not found at $custom_path"
+    SSH_KEY_PATH="$custom_path"
+  else
+    log "Generating new ED25519 key pair at ~/.ssh/id_ed25519 ..."
+    ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -C "aks-lab-toolbox"
+    SSH_KEY_PATH="$HOME/.ssh/id_ed25519.pub"
+  fi
+fi
+
+PUBLIC_KEY=$(cat "$SSH_KEY_PATH")
+success "Using SSH key: $SSH_KEY_PATH"
+
+# Inject public key and apply manifest
+TEMP_MANIFEST=$(mktemp /tmp/toolbox-XXXXXX.yaml)
+sed "s|REPLACE_WITH_YOUR_PUBLIC_KEY|${PUBLIC_KEY}|g" \
+  "$TOOLBOX_DIR/toolbox.yaml" > "$TEMP_MANIFEST"
+kubectl apply -f "$TEMP_MANIFEST"
+rm "$TEMP_MANIFEST"
+
+log "Waiting for toolbox pod to be ready..."
+log "(First run takes 2-3 minutes while packages install inside the container)"
+
+kubectl wait deployment toolbox \
+  --for=condition=available \
+  --namespace=toolbox \
+  --timeout=300s
+
+success "Toolbox pod running"
+
+# Start SSH port-forward
+log "Starting SSH port-forward: localhost:2222 → toolbox:22 ..."
+lsof -ti:2222 | xargs kill -9 2>/dev/null || true
+sleep 1
+
+kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox \
+  >> /tmp/toolbox-portforward.log 2>&1 &
+PF_PID=$!
+sleep 3
+
+if kill -0 "$PF_PID" 2>/dev/null; then
+  success "SSH port-forward running (PID $PF_PID)"
+else
+  warn "Port-forward may have failed — check /tmp/toolbox-portforward.log"
+  warn "To start manually: kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox &"
+fi
+
+# Update known_hosts
+ssh-keyscan -p 2222 -H localhost >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
+
+# Derive private key path
+PRIVATE_KEY="${SSH_KEY_PATH%.pub}"
+[[ -f "$PRIVATE_KEY" ]] || PRIVATE_KEY="$HOME/.ssh/id_ed25519"
+
+# Add SSH config entry if not already present
+SSH_CONFIG="$HOME/.ssh/config"
+if ! grep -q "Host aks-toolbox" "$SSH_CONFIG" 2>/dev/null; then
+  log "Adding aks-toolbox to ~/.ssh/config ..."
+  cat >> "$SSH_CONFIG" << SSHCONF
+
+Host aks-toolbox
+    HostName localhost
+    Port 2222
+    User root
+    IdentityFile $PRIVATE_KEY
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+SSHCONF
+  chmod 600 "$SSH_CONFIG"
+  success "SSH config updated"
+else
+  warn "aks-toolbox already in ~/.ssh/config — skipping."
+fi
+
+success "Toolbox ready — connect with: ssh aks-toolbox"
+
 # ── Open the app ─────────────────────────────
 step "Opening TaskFlow"
 minikube service frontend -n taskapp -p "$PROFILE"
@@ -253,14 +348,15 @@ ${BOLD}  Grafana${RESET}
 
 ${BOLD}  DNS Lab${RESET}
   bind9 IP:    $BIND9_IP (simulated ADDS)
-  Test:        kubectl run -it --rm dnstest --image=busybox:1.28 --restart=Never -- nslookup sqlserver.corp.internal
-  Zones:       corp.internal, privatelink.database.windows.net,
-               privatelink.blob.core.windows.net, privatelink.vaultcore.azure.net
-  Edit zones:  kubectl edit configmap bind9-zones -n dns-lab
-               kubectl rollout restart deployment bind9 -n dns-lab
+  Edit zones:  edit dns-lab/dns-config.yaml then run ./dns-lab/apply-dns-config.sh
   Restore DNS: kubectl create configmap coredns -n kube-system \\
                  --from-file=Corefile=/tmp/corefile-backup.txt \\
                  --dry-run=client -o yaml | kubectl apply -f -
+
+${BOLD}  Toolbox Pod${RESET}
+  SSH:         ${GREEN}ssh aks-toolbox${RESET}
+  Or:          ssh -p 2222 root@localhost
+  Re-forward:  kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox &
 
 ${BOLD}  Useful commands${RESET}
   All pods:    kubectl get pods -A

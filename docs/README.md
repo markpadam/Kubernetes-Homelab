@@ -1,198 +1,239 @@
-# Kubernetes AKS Lab — Minikube Setup
+# Kubernetes AKS Lab
 
-A local Kubernetes lab running on Minikube that simulates an AKS environment with multi-node clustering, ingress, persistent storage, and monitoring.
-
-**Requirements:** macOS, Docker Desktop, Minikube, kubectl, Helm
-
-> **macOS + Docker Driver Note:** `minikube ip` returns an address inside Docker's Linux VM (`192.168.67.x`) that macOS cannot route to directly. Always use `minikube service` or `kubectl port-forward` to access services from your Mac. Do not use `minikube tunnel` or `/etc/hosts` entries — they will not work with the Docker driver on macOS.
+A local Kubernetes lab running on Minikube that simulates an AKS environment. Includes a multi-tier demo app, simulated Active Directory DNS (bind9), CoreDNS stub zone forwarding, Prometheus/Grafana monitoring, and a persistent Ubuntu toolbox pod for network testing.
 
 ---
 
-## Step 1 — Start a Multi-Node Cluster
-
-Start a 3-node cluster (1 control plane + 2 workers) using the `aks-lab` profile to keep it isolated from other Minikube environments.
+## Quick Start
 
 ```bash
-minikube start \
-  --driver=docker \
-  --nodes=3 \
-  --cpus=2 \
-  --memory=4096 \
-  --profile=aks-lab \
-  --kubernetes-version=v1.29.0
-```
+# 1. Clone the repo and move into it
+git clone <your-repo-url>
+cd <repo-name>
 
-Verify all nodes are up:
+# 2. Start the lab (builds everything from scratch)
+./setup-lab.sh
 
-```bash
-minikube node list -p aks-lab
-kubectl get nodes
-```
+# 3. When done, tear it all down
+./teardown-lab.sh
 
-Expected output: 3 nodes, all in `Ready` state.
-
----
-
-## Step 2 — Enable Ingress
-
-Enable the NGINX ingress controller (the same default as AKS):
-
-```bash
-minikube addons enable ingress -p aks-lab
-```
-
-Verify the ingress controller pod is running:
-
-```bash
-kubectl get pods -n ingress-nginx
+# 4. To get a clean fresh environment
+./teardown-lab.sh && ./setup-lab.sh
 ```
 
 ---
 
-## Step 3 — Enable Persistent Storage
+## Access
 
-Enable the storage provisioner and CSI hostpath driver to simulate AKS `managed-csi` storage:
+| Service | How to Access | URL |
+|---|---|---|
+| TaskFlow App | `minikube service frontend -n taskapp -p aks-lab` | Opens automatically |
+| TaskFlow (alt) | `kubectl port-forward svc/frontend 8080:80 -n taskapp` | http://localhost:8080 |
+| Grafana | `kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring` | http://localhost:3000 |
+| Toolbox SSH | `ssh aks-toolbox` | — |
 
-```bash
-minikube addons enable storage-provisioner -p aks-lab
-minikube addons enable volumesnapshots -p aks-lab
-minikube addons enable csi-hostpath-driver -p aks-lab
-```
+**Grafana login:** `admin` / `admin123`
 
-Set the CSI hostpath driver as the default StorageClass and remove the default flag from the old one:
-
-```bash
-kubectl patch storageclass csi-hostpath-sc \
-  -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
-
-kubectl patch storageclass standard \
-  -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
-```
-
-Verify the default StorageClass:
-
-```bash
-kubectl get storageclass
-```
-
-`csi-hostpath-sc` should show `(default)`.
+> **macOS + Docker driver:** `minikube ip` returns an address inside Docker's Linux VM that your Mac cannot route to directly. Always use `minikube service` or `kubectl port-forward` to access services.
 
 ---
 
-## Step 4 — Install Monitoring (Prometheus + Grafana)
+## Requirements
 
-Add the Prometheus community Helm chart and install the `kube-prometheus-stack`, which includes Prometheus, Grafana, and pre-built Kubernetes dashboards:
-
-```bash
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo update
-
-helm install monitoring prometheus-community/kube-prometheus-stack \
-  --namespace monitoring \
-  --create-namespace \
-  --set grafana.adminPassword=admin123
-```
-
-Wait for all pods to be ready:
-
-```bash
-kubectl get pods -n monitoring -w
-```
-
-Access Grafana in your browser:
-
-```bash
-kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
-```
-
-Open `http://localhost:3000` and log in with `admin` / `admin123`. Kubernetes cluster dashboards are pre-loaded.
-
----
-
-## Step 5 — Deploy the Demo App (TaskFlow)
-
-Deploy the multi-tier TaskFlow app to validate the full stack — it exercises persistent storage, load balancing, ingress, and autoscaling in one shot.
-
-```bash
-kubectl apply -f Apps/multi-tier-app/
-```
-
-Watch all pods come up (takes ~60–90 seconds):
-
-```bash
-kubectl get pods -n taskapp -w
-```
-
-Open the app in your browser:
-
-```bash
-minikube service frontend -n taskapp -p aks-lab
-```
-
-This creates a localhost proxy and opens the browser automatically. This is the correct way to access services on macOS with the Docker driver.
-
-Alternatively, use port-forward:
-
-```bash
-kubectl port-forward svc/frontend 8080:80 -n taskapp
-# Open http://localhost:8080
-```
-
-### Validate each lab feature
-
-| Feature | Command |
+| Tool | Install |
 |---|---|
-| Multi-node pod spread | `kubectl get pods -n taskapp -o wide` |
-| Persistent storage | Delete the postgres pod — data survives |
-| Load balancing | UI shows which backend pod is serving |
-| HPA autoscaling | `kubectl get hpa -n taskapp` |
-| Backend health | `kubectl exec -it deploy/frontend -n taskapp -- wget -qO- http://backend:3000/health` |
+| Docker Desktop | https://www.docker.com/products/docker-desktop |
+| Minikube | `brew install minikube` |
+| kubectl | `brew install kubectl` |
+| Helm | `brew install helm` |
 
 ---
 
-## Day-to-Day Commands
+## Repo Structure
 
-```bash
-# Stop the lab without destroying it
-minikube stop -p aks-lab
-
-# Start it again
-minikube start -p aks-lab
-
-# Open the app
-minikube service frontend -n taskapp -p aks-lab
-
-# SSH into a worker node
-minikube ssh -p aks-lab -n aks-lab-m02
-
-# Check all addon status
-minikube addons list -p aks-lab
-
-# Open the Kubernetes dashboard
-minikube dashboard -p aks-lab
+```
+├── setup-lab.sh              # Start the full lab (runs all 7 steps)
+├── teardown-lab.sh           # Wipe everything cleanly
+├── README.md
+│
+├── Apps/
+│   └── multi-tier-app/       # TaskFlow demo app (frontend + backend + postgres)
+│       ├── 01-postgres.yaml
+│       ├── 02-backend.yaml
+│       ├── 03-frontend.yaml
+│       └── 04-ingress.yaml
+│
+├── dns-lab/                  # Simulated ADDS DNS (bind9 + CoreDNS config)
+│   ├── dns-config.yaml       # Source of truth for all DNS zones and records
+│   ├── apply-dns-config.sh   # Apply dns-config.yaml changes to the cluster
+│   ├── 01-bind9.yaml         # bind9 deployment
+│   └── patch-coredns.sh      # Standalone CoreDNS patcher (used by setup-lab.sh)
+│
+└── toolbox/
+    └── toolbox.yaml          # Ubuntu pod with network/DNS tools + SSH access
 ```
 
 ---
 
-## Teardown
+## What setup-lab.sh Does
+
+The setup script runs 7 steps in sequence. Each step is idempotent — rerunning it against an existing cluster skips steps that are already complete.
+
+**Step 1 — Multi-Node Cluster**
+Starts a 3-node cluster (1 control plane + 2 workers) using the `aks-lab` Minikube profile with the Docker driver.
+
+**Step 2 — Ingress**
+Enables the NGINX ingress controller add-on, equivalent to the default AKS ingress.
+
+**Step 3 — Persistent Storage**
+Enables the CSI hostpath driver and sets it as the default StorageClass, simulating AKS `managed-csi`.
+
+**Step 4 — Monitoring**
+Installs `kube-prometheus-stack` via Helm into the `monitoring` namespace, giving you Prometheus and Grafana with pre-built Kubernetes dashboards.
+
+**Step 5 — TaskFlow Demo App**
+Deploys a multi-tier task manager (Nginx frontend → Node.js API → PostgreSQL) into the `taskapp` namespace. Exercises persistent storage, load balancing, and HPA autoscaling.
+
+**Step 6 — DNS Lab**
+Deploys a bind9 pod as a simulated ADDS DNS server and patches the CoreDNS Corefile with stub zones that forward internal and privatelink domains directly to bind9 — bypassing the default upstream.
+
+**Step 7 — Toolbox Pod**
+Deploys a persistent Ubuntu pod with SSH access and a full suite of network and DNS testing tools. Injects your SSH public key at deploy time, starts a port-forward on `localhost:2222`, and adds `aks-toolbox` to `~/.ssh/config`.
+
+---
+
+## DNS Lab
+
+The DNS lab simulates the production DNS chain:
+
+```
+Pod → CoreDNS → bind9 (simulated ADDS) → IP returned     # internal / privatelink zones
+Pod → CoreDNS → upstream (Minikube default)               # public DNS
+```
+
+This mirrors the production AKS setup where CoreDNS forwards internal domains to ADDS via Cato SDN WAN.
+
+### Managing DNS Records
+
+All zones and records are defined in a single file:
 
 ```bash
-# Remove just the demo app
-kubectl delete namespace taskapp
+# Edit zones and records
+vim dns-lab/dns-config.yaml
 
-# Destroy the entire cluster
-minikube delete -p aks-lab
+# Apply changes to the running cluster
+./dns-lab/apply-dns-config.sh
+
+# Commit to git
+git add dns-lab/dns-config.yaml
+git commit -m "add new DNS record"
+```
+
+### Zones Configured
+
+| Zone | Simulates |
+|---|---|
+| `corp.internal` | Internal AD authoritative zone |
+| `privatelink.database.windows.net` | Azure SQL private endpoints |
+| `privatelink.blob.core.windows.net` | Azure Storage private endpoints |
+| `privatelink.vaultcore.azure.net` | Azure Key Vault private endpoints |
+| `privatelink.servicebus.windows.net` | Azure Service Bus private endpoints |
+| `privatelink.azurecr.io` | Azure Container Registry private endpoints |
+
+---
+
+## Toolbox Pod
+
+A persistent Ubuntu 22.04 pod with everything needed for network and DNS testing.
+
+```bash
+# Connect
+ssh aks-toolbox
+
+# Test DNS resolution
+nslookup sqlserver.corp.internal
+dig mysqlserver.privatelink.database.windows.net
+dig google.com
+
+# Test service connectivity
+curl http://backend.taskapp.svc.cluster.local:3000/health
+
+# Kubernetes access from inside the pod
+kubectl get pods -A
+```
+
+**Tools available:** `dig`, `nslookup`, `host`, `ping`, `traceroute`, `curl`, `wget`, `nc`, `nmap`, `tcpdump`, `ip`, `kubectl`, `helm`, `jq`, `python3`, `vim`, `git`, `htop`
+
+If the SSH connection drops (e.g. after a Mac sleep), restart the port-forward:
+
+```bash
+kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox &
+```
+
+---
+
+## Monitoring
+
+```bash
+# Open Grafana
+kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
+open http://localhost:3000
+# Login: admin / admin123
+```
+
+Grafana comes with pre-built dashboards for cluster CPU/memory, pod metrics, and persistent volume usage.
+
+To fix the HPA metrics warning in FreeLens/k9s, enable the metrics-server add-on:
+
+```bash
+minikube addons enable metrics-server -p aks-lab
+```
+
+---
+
+## Useful Commands
+
+```bash
+# Cluster
+kubectl get nodes -o wide
+kubectl get pods -A
+minikube status -p aks-lab
+
+# TaskFlow
+kubectl get pods -n taskapp -o wide
+kubectl get hpa -n taskapp
+kubectl logs -l app=backend -n taskapp --tail=50
+
+# DNS
+kubectl logs -l app=bind9 -n dns-lab -f
+kubectl logs -l k8s-app=kube-dns -n kube-system -f
+kubectl get configmap coredns -n kube-system -o yaml
+
+# Toolbox
+kubectl logs -l app=toolbox -n toolbox --tail=30
+kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox &
+
+# Monitoring
+kubectl get pods -n monitoring
+kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
+
+# Stop and restart without wiping
+minikube stop -p aks-lab
+minikube start -p aks-lab
 ```
 
 ---
 
 ## AKS Feature Mapping
 
-| AKS Feature | Minikube Equivalent |
+| AKS Feature | Lab Equivalent |
 |---|---|
 | Azure Load Balancer | `minikube service` (localhost proxy) |
-| managed-csi StorageClass | csi-hostpath-driver |
+| managed-csi StorageClass | CSI hostpath driver |
 | Azure Monitor | Prometheus + Grafana |
-| Horizontal Pod Autoscaler | metrics-server addon |
-| NGINX Ingress Controller | ingress addon |
-| Multi-node node pools | `--nodes=3` flag |
+| Horizontal Pod Autoscaler | metrics-server add-on |
+| NGINX Ingress Controller | ingress add-on |
+| Multi-node node pools | `--nodes=3` |
+| ADDS DNS via Cato SDN | bind9 + CoreDNS stub zones |
+| Azure Private DNS Zones | bind9 privatelink zones |
+| NodeLocal DNSCache | Not yet configured (see docs) |
