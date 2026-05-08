@@ -4,6 +4,8 @@ A local Kubernetes lab running on Minikube that simulates an AKS environment wit
 
 **Requirements:** macOS, Docker Desktop, Minikube, kubectl, Helm
 
+> **macOS + Docker Driver Note:** `minikube ip` returns an address inside Docker's Linux VM (`192.168.67.x`) that macOS cannot route to directly. Always use `minikube service` or `kubectl port-forward` to access services from your Mac. Do not use `minikube tunnel` or `/etc/hosts` entries — they will not work with the Docker driver on macOS.
+
 ---
 
 ## Step 1 — Start a Multi-Node Cluster
@@ -31,7 +33,7 @@ Expected output: 3 nodes, all in `Ready` state.
 
 ---
 
-## Step 2 — Enable Ingress / Load Balancing
+## Step 2 — Enable Ingress
 
 Enable the NGINX ingress controller (the same default as AKS):
 
@@ -39,13 +41,11 @@ Enable the NGINX ingress controller (the same default as AKS):
 minikube addons enable ingress -p aks-lab
 ```
 
-For `LoadBalancer` type services to receive an external IP (equivalent to Azure Load Balancer in AKS), run the following in a **separate terminal and leave it running** for the duration of your lab session:
+Verify the ingress controller pod is running:
 
 ```bash
-minikube tunnel -p aks-lab
+kubectl get pods -n ingress-nginx
 ```
-
-> **Note:** `minikube tunnel` requires sudo on macOS and must stay open. If you close it, LoadBalancer services will lose their external IP.
 
 ---
 
@@ -114,7 +114,7 @@ Open `http://localhost:3000` and log in with `admin` / `admin123`. Kubernetes cl
 Deploy the multi-tier TaskFlow app to validate the full stack — it exercises persistent storage, load balancing, ingress, and autoscaling in one shot.
 
 ```bash
-kubectl apply -f k8s/
+kubectl apply -f Apps/multi-tier-app/
 ```
 
 Watch all pods come up (takes ~60–90 seconds):
@@ -123,13 +123,20 @@ Watch all pods come up (takes ~60–90 seconds):
 kubectl get pods -n taskapp -w
 ```
 
-Add the local hostname so your browser can resolve it:
+Open the app in your browser:
 
 ```bash
-echo "$(minikube ip -p aks-lab)  taskapp.local" | sudo tee -a /etc/hosts
+minikube service frontend -n taskapp -p aks-lab
 ```
 
-Open the app at **http://taskapp.local**
+This creates a localhost proxy and opens the browser automatically. This is the correct way to access services on macOS with the Docker driver.
+
+Alternatively, use port-forward:
+
+```bash
+kubectl port-forward svc/frontend 8080:80 -n taskapp
+# Open http://localhost:8080
+```
 
 ### Validate each lab feature
 
@@ -139,7 +146,7 @@ Open the app at **http://taskapp.local**
 | Persistent storage | Delete the postgres pod — data survives |
 | Load balancing | UI shows which backend pod is serving |
 | HPA autoscaling | `kubectl get hpa -n taskapp` |
-| Ingress routing | `curl http://taskapp.local/api/health` |
+| Backend health | `kubectl exec -it deploy/frontend -n taskapp -- wget -qO- http://backend:3000/health` |
 
 ---
 
@@ -151,6 +158,9 @@ minikube stop -p aks-lab
 
 # Start it again
 minikube start -p aks-lab
+
+# Open the app
+minikube service frontend -n taskapp -p aks-lab
 
 # SSH into a worker node
 minikube ssh -p aks-lab -n aks-lab-m02
@@ -180,7 +190,7 @@ minikube delete -p aks-lab
 
 | AKS Feature | Minikube Equivalent |
 |---|---|
-| Azure Load Balancer | `minikube tunnel` |
+| Azure Load Balancer | `minikube service` (localhost proxy) |
 | managed-csi StorageClass | csi-hostpath-driver |
 | Azure Monitor | Prometheus + Grafana |
 | Horizontal Pod Autoscaler | metrics-server addon |

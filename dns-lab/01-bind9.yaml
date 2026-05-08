@@ -1,0 +1,229 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dns-lab
+---
+# ── Zone configuration ──────────────────────────────────────────────────────
+# Defines the zones bind9 is authoritative for.
+# Simulates ADDS being authoritative for corp.internal and privatelink zones.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bind9-config
+  namespace: dns-lab
+data:
+  named.conf: |
+    options {
+        directory "/var/cache/bind";
+        listen-on { any; };
+        allow-query { any; };
+        allow-recursion { any; };
+        forwarders {
+            8.8.8.8;       # Simulates ADDS forwarding public DNS to internet
+            8.8.4.4;
+        };
+        forward only;
+        dnssec-validation no;
+    };
+
+    # Internal corporate zone — simulates ADDS authoritative zone
+    zone "corp.internal" IN {
+        type master;
+        file "/etc/bind/zones/corp.internal.zone";
+    };
+
+    # Privatelink zone — simulates ADDS conditional forwarder back to Azure DNS
+    # In production this would forward to 168.63.129.16 (Azure DNS)
+    # In the lab we make it authoritative with fake records instead
+    zone "privatelink.database.windows.net" IN {
+        type master;
+        file "/etc/bind/zones/privatelink.database.windows.net.zone";
+    };
+
+    zone "privatelink.blob.core.windows.net" IN {
+        type master;
+        file "/etc/bind/zones/privatelink.blob.core.windows.net.zone";
+    };
+
+    zone "privatelink.vaultcore.azure.net" IN {
+        type master;
+        file "/etc/bind/zones/privatelink.vaultcore.azure.net.zone";
+    };
+
+---
+# ── Zone files ───────────────────────────────────────────────────────────────
+# Each zone file contains DNS records simulating what ADDS would serve.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bind9-zones
+  namespace: dns-lab
+data:
+  # corp.internal — simulates your internal AD zone
+  corp.internal.zone: |
+    $TTL 300
+    @   IN  SOA ns1.corp.internal. admin.corp.internal. (
+                2024010101  ; Serial
+                3600        ; Refresh
+                1800        ; Retry
+                604800      ; Expire
+                300 )       ; Minimum TTL
+
+        IN  NS  ns1.corp.internal.
+
+    ns1         IN  A   10.0.0.53
+
+    ; Simulate internal servers
+    sqlserver   IN  A   10.10.0.20
+    webserver   IN  A   10.10.0.21
+    fileserver  IN  A   10.10.0.22
+    ldap        IN  A   10.10.0.23
+    api         IN  A   10.10.0.24
+
+    ; Simulate a service that also has a private endpoint in Azure
+    mydb        IN  A   10.10.0.25
+
+  # privatelink.database.windows.net — simulates ADDS hosting the Azure private DNS zone
+  privatelink.database.windows.net.zone: |
+    $TTL 300
+    @   IN  SOA ns1.corp.internal. admin.corp.internal. (
+                2024010101
+                3600
+                1800
+                604800
+                300 )
+
+        IN  NS  ns1.corp.internal.
+
+    ; Simulates a private endpoint record for an Azure SQL server
+    ; In production this IP would be the actual private endpoint IP in your VNet
+    mysqlserver     IN  A   10.20.0.10
+    anotherdb       IN  A   10.20.0.11
+
+  # privatelink.blob.core.windows.net
+  privatelink.blob.core.windows.net.zone: |
+    $TTL 300
+    @   IN  SOA ns1.corp.internal. admin.corp.internal. (
+                2024010101
+                3600
+                1800
+                604800
+                300 )
+
+        IN  NS  ns1.corp.internal.
+
+    ; Simulates a private endpoint for an Azure Storage account
+    mystorageaccount    IN  A   10.20.0.20
+    backupstorage       IN  A   10.20.0.21
+
+  # privatelink.vaultcore.azure.net
+  privatelink.vaultcore.azure.net.zone: |
+    $TTL 300
+    @   IN  SOA ns1.corp.internal. admin.corp.internal. (
+                2024010101
+                3600
+                1800
+                604800
+                300 )
+
+        IN  NS  ns1.corp.internal.
+
+    ; Simulates a private endpoint for an Azure Key Vault
+    mykeyvault      IN  A   10.20.0.30
+    prodkeyvault    IN  A   10.20.0.31
+
+---
+# ── Bind9 Deployment ─────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bind9
+  namespace: dns-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bind9
+  template:
+    metadata:
+      labels:
+        app: bind9
+    spec:
+      containers:
+        - name: bind9
+          image: ubuntu/bind9:latest
+          ports:
+            - containerPort: 53
+              protocol: UDP
+            - containerPort: 53
+              protocol: TCP
+          env:
+            - name: BIND9_USER
+              value: root
+            - name: TZ
+              value: UTC
+          volumeMounts:
+            - name: config
+              mountPath: /etc/bind/named.conf
+              subPath: named.conf
+            - name: zones
+              mountPath: /etc/bind/zones
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              mkdir -p /etc/bind/zones
+              cp /zones-data/* /etc/bind/zones/
+              named -g -c /etc/bind/named.conf
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          readinessProbe:
+            tcpSocket:
+              port: 53
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+      volumes:
+        - name: config
+          configMap:
+            name: bind9-config
+        - name: zones
+          emptyDir: {}
+        - name: zones-data
+          configMap:
+            name: bind9-zones
+      # Override the volumeMount for zones-data to use a different path
+      initContainers:
+        - name: copy-zones
+          image: busybox
+          command: ["sh", "-c", "cp /zones-data/* /etc/bind/zones/"]
+          volumeMounts:
+            - name: zones-data
+              mountPath: /zones-data
+            - name: zones
+              mountPath: /etc/bind/zones
+
+---
+# ── Service — ClusterIP so CoreDNS can forward to it ─────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: bind9
+  namespace: dns-lab
+spec:
+  selector:
+    app: bind9
+  ports:
+    - name: dns-udp
+      port: 53
+      targetPort: 53
+      protocol: UDP
+    - name: dns-tcp
+      port: 53
+      targetPort: 53
+      protocol: TCP
+  clusterIP: 10.96.0.200    # Fixed IP so CoreDNS config stays stable

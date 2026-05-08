@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  # Internal corporate zone — forward direct to bind9 (simulated ADDS)
+  corp-internal.server: |
+    corp.internal:53 {
+        errors
+        cache 30
+        forward . 10.96.0.200
+    }
+
+  # Privatelink zones — forward direct to bind9 (simulated ADDS)
+  # In production these would hit your real ADDS which conditionally
+  # forwards privatelink.* back to Azure DNS (168.63.129.16)
+  privatelink-sql.server: |
+    privatelink.database.windows.net:53 {
+        errors
+        cache 30
+        forward . 10.96.0.200
+    }
+
+  privatelink-blob.server: |
+    privatelink.blob.core.windows.net:53 {
+        errors
+        cache 30
+        forward . 10.96.0.200
+    }
+
+  privatelink-kv.server: |
+    privatelink.vaultcore.azure.net:53 {
+        errors
+        cache 30
+        forward . 10.96.0.200
+    }

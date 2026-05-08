@@ -12,6 +12,7 @@ NODES=3
 CPUS=2
 MEMORY=4096
 APP_DIR="Apps/multi-tier-app"
+DNS_DIR="dns-lab"
 GRAFANA_PASSWORD="admin123"
 
 # ── Colours ──────────────────────────────────
@@ -38,7 +39,8 @@ command -v helm      &>/dev/null || error "Helm not found. Run: brew install hel
 
 docker info &>/dev/null || error "Docker daemon is not running. Start Docker Desktop."
 
-[[ -d "$APP_DIR" ]] || error "App manifests not found at ./$APP_DIR — make sure you're running this from the repo root."
+[[ -d "$APP_DIR" ]]  || error "App manifests not found at ./$APP_DIR — run from repo root."
+[[ -d "$DNS_DIR" ]]  || error "DNS lab not found at ./$DNS_DIR — run from repo root."
 
 success "All dependencies found"
 
@@ -96,7 +98,6 @@ log "Setting csi-hostpath-sc as default StorageClass..."
 kubectl patch storageclass csi-hostpath-sc \
   -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 
-# Remove default from standard only if it exists
 if kubectl get storageclass standard &>/dev/null; then
   kubectl patch storageclass standard \
     -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
@@ -111,7 +112,7 @@ helm repo add prometheus-community https://prometheus-community.github.io/helm-c
 helm repo update &>/dev/null
 
 if helm status monitoring -n monitoring &>/dev/null; then
-  warn "Helm release 'monitoring' already exists in namespace 'monitoring' — skipping install."
+  warn "Helm release 'monitoring' already exists — skipping install."
 else
   log "Installing kube-prometheus-stack (this takes a minute)..."
   helm install monitoring prometheus-community/kube-prometheus-stack \
@@ -123,8 +124,6 @@ else
 fi
 
 success "Monitoring stack installed"
-log "Access Grafana:  kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring"
-log "Login:           admin / $GRAFANA_PASSWORD"
 
 # ── Step 5: Deploy TaskFlow App ──────────────
 step "Step 5 — Deploying TaskFlow Demo App"
@@ -133,8 +132,6 @@ log "Applying manifests from ./$APP_DIR ..."
 kubectl apply -f "$APP_DIR/"
 
 log "Waiting for pods to be ready (up to 3 minutes)..."
-
-# Wait for each deployment individually with helpful output
 for deploy in postgres backend frontend; do
   log "  Waiting for $deploy..."
   kubectl wait deployment "$deploy" \
@@ -143,30 +140,136 @@ for deploy in postgres backend frontend; do
     --timeout=180s
 done
 
-# ── Get NodePort URL ─────────────────────────
-MINIKUBE_IP=$(minikube ip -p "$PROFILE")
-APP_URL="http://$MINIKUBE_IP:30080"
+success "TaskFlow deployed"
 
-success "TaskFlow is available at: $APP_URL"
+# ── Step 6: DNS Lab ──────────────────────────
+step "Step 6 — Deploying DNS Lab (bind9 + CoreDNS patch)"
+
+log "Deploying bind9 (simulated ADDS DNS server)..."
+kubectl apply -f "$DNS_DIR/01-bind9.yaml"
+
+log "Waiting for bind9 to be ready..."
+kubectl wait deployment bind9 \
+  --for=condition=available \
+  --namespace=dns-lab \
+  --timeout=120s
+
+success "bind9 running"
+
+# Get bind9 ClusterIP
+BIND9_IP=$(kubectl get svc bind9 -n dns-lab -o jsonpath='{.spec.clusterIP}')
+log "bind9 ClusterIP: $BIND9_IP"
+
+# Remove coredns-custom — not supported in Minikube (AKS-only feature)
+kubectl delete configmap coredns-custom -n kube-system --ignore-not-found=true 2>/dev/null || true
+
+# Back up existing Corefile
+log "Backing up current Corefile to /tmp/corefile-backup.txt ..."
+kubectl get configmap coredns -n kube-system \
+  -o jsonpath='{.data.Corefile}' > /tmp/corefile-backup.txt
+
+# Patch the base Corefile directly with stub zones prepended
+log "Patching CoreDNS Corefile with stub zones..."
+
+kubectl create configmap coredns \
+  --namespace=kube-system \
+  --dry-run=client -o yaml \
+  --from-literal=Corefile="
+# ── Stub zones — forward direct to bind9 (simulated ADDS) ──────
+corp.internal:53 {
+    errors
+    cache 30
+    forward . ${BIND9_IP}
+}
+
+privatelink.database.windows.net:53 {
+    errors
+    cache 30
+    forward . ${BIND9_IP}
+}
+
+privatelink.blob.core.windows.net:53 {
+    errors
+    cache 30
+    forward . ${BIND9_IP}
+}
+
+privatelink.vaultcore.azure.net:53 {
+    errors
+    cache 30
+    forward . ${BIND9_IP}
+}
+
+# ── Default zone ────────────────────────────────────────────────
+.:53 {
+    log
+    errors
+    health {
+       lameduck 5s
+    }
+    ready
+    kubernetes cluster.local in-addr.arpa ip6.arpa {
+       pods insecure
+       fallthrough in-addr.arpa ip6.arpa
+       ttl 30
+    }
+    prometheus :9153
+    hosts {
+       192.168.65.254 host.minikube.internal
+       fallthrough
+    }
+    forward . /etc/resolv.conf {
+       max_concurrent 1000
+    }
+    cache 30
+    loop
+    reload
+    loadbalance
+}
+" | kubectl apply -f -
+
+log "Restarting CoreDNS..."
+kubectl rollout restart deployment coredns -n kube-system
+kubectl rollout status deployment coredns -n kube-system --timeout=60s
+
+success "CoreDNS patched — stub zones active for corp.internal and privatelink.*"
+
+# ── Open the app ─────────────────────────────
+step "Opening TaskFlow"
+minikube service frontend -n taskapp -p "$PROFILE"
 
 # ── Done ─────────────────────────────────────
 step "Lab Ready"
 
 echo -e "
 ${BOLD}  TaskFlow App${RESET}
-  URL:         ${GREEN}$APP_URL${RESET}
+  Open:        minikube service frontend -n taskapp -p $PROFILE
   Alt access:  kubectl port-forward svc/frontend 8080:80 -n taskapp
-               then open http://localhost:8080
 
 ${BOLD}  Grafana${RESET}
   Command:     kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
   URL:         ${GREEN}http://localhost:3000${RESET}
   Login:       admin / $GRAFANA_PASSWORD
 
+${BOLD}  DNS Lab${RESET}
+  bind9 IP:    $BIND9_IP (simulated ADDS)
+  Test:        kubectl run -it --rm dnstest --image=busybox:1.28 --restart=Never -- nslookup sqlserver.corp.internal
+  Zones:       corp.internal, privatelink.database.windows.net,
+               privatelink.blob.core.windows.net, privatelink.vaultcore.azure.net
+  Edit zones:  kubectl edit configmap bind9-zones -n dns-lab
+               kubectl rollout restart deployment bind9 -n dns-lab
+  Restore DNS: kubectl create configmap coredns -n kube-system \\
+                 --from-file=Corefile=/tmp/corefile-backup.txt \\
+                 --dry-run=client -o yaml | kubectl apply -f -
+
 ${BOLD}  Useful commands${RESET}
-  Open app:    minikube service frontend -n taskapp -p $PROFILE
-  Pods:        kubectl get pods -n taskapp -o wide
+  All pods:    kubectl get pods -A
   HPA:         kubectl get hpa -n taskapp
   Stop lab:    minikube stop -p $PROFILE
   Destroy:     minikube delete -p $PROFILE
+
+${YELLOW}${BOLD}  Note (macOS + Docker driver)${RESET}
+  minikube ip returns an address inside Docker's Linux VM that macOS
+  cannot route to directly. Always use 'minikube service' or
+  'kubectl port-forward' to access services from your Mac.
 "
