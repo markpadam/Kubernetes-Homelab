@@ -75,6 +75,18 @@ privatelink.vaultcore.azure.net:53 {
     forward . ${BIND9_IP}
 }
 
+privatelink.servicebus.windows.net:53 {
+    errors
+    cache 30
+    forward . ${BIND9_IP}
+}
+
+privatelink.azurecr.io:53 {
+    errors
+    cache 30
+    forward . ${BIND9_IP}
+}
+
 # ── Default zone ────────────────────────────────────────────────
 .:53 {
     log

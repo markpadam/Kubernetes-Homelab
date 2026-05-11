@@ -15,7 +15,7 @@ spec:
     spec:
       initContainers:
         - name: wait-for-postgres
-          image: busybox
+          image: busybox:1.36
           command:
             [
               "sh",
@@ -24,98 +24,10 @@ spec:
             ]
       containers:
         - name: backend
-          image: node:20-alpine
-          workingDir: /app
-          command: ["sh", "-c"]
-          args:
-            - |
-              cat > server.js << 'EOF'
-              const http = require('http');
-              const { Client } = require('pg');
-
-              const client = new Client({
-                host: process.env.PGHOST,
-                database: process.env.PGDATABASE,
-                user: process.env.PGUSER,
-                password: process.env.PGPASSWORD,
-              });
-
-              async function init() {
-                await client.connect();
-                await client.query(`
-                  CREATE TABLE IF NOT EXISTS tasks (
-                    id SERIAL PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    done BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                  )
-                `);
-                console.log('DB ready');
-              }
-
-              const server = http.createServer(async (req, res) => {
-                res.setHeader('Access-Control-Allow-Origin', '*');
-                res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-                res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-                res.setHeader('Content-Type', 'application/json');
-
-                if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-
-                const url = new URL(req.url, 'http://localhost');
-
-                if (req.method === 'GET' && url.pathname === '/health') {
-                  res.writeHead(200);
-                  res.end(JSON.stringify({ status: 'ok', pod: process.env.POD_NAME }));
-                  return;
-                }
-
-                if (req.method === 'GET' && url.pathname === '/tasks') {
-                  const result = await client.query('SELECT * FROM tasks ORDER BY created_at DESC');
-                  res.writeHead(200);
-                  res.end(JSON.stringify(result.rows));
-                  return;
-                }
-
-                if (req.method === 'POST' && url.pathname === '/tasks') {
-                  let body = '';
-                  req.on('data', d => body += d);
-                  req.on('end', async () => {
-                    const { title } = JSON.parse(body);
-                    const result = await client.query(
-                      'INSERT INTO tasks (title) VALUES ($1) RETURNING *', [title]
-                    );
-                    res.writeHead(201);
-                    res.end(JSON.stringify(result.rows[0]));
-                  });
-                  return;
-                }
-
-                if (req.method === 'PUT' && url.pathname.startsWith('/tasks/')) {
-                  const id = url.pathname.split('/')[2];
-                  const result = await client.query(
-                    'UPDATE tasks SET done = NOT done WHERE id = $1 RETURNING *', [id]
-                  );
-                  res.writeHead(200);
-                  res.end(JSON.stringify(result.rows[0]));
-                  return;
-                }
-
-                if (req.method === 'DELETE' && url.pathname.startsWith('/tasks/')) {
-                  const id = url.pathname.split('/')[2];
-                  await client.query('DELETE FROM tasks WHERE id = $1', [id]);
-                  res.writeHead(204);
-                  res.end();
-                  return;
-                }
-
-                res.writeHead(404);
-                res.end(JSON.stringify({ error: 'Not found' }));
-              });
-
-              init().then(() => server.listen(3000, () => console.log('API listening on 3000')));
-              EOF
-              npm install pg 2>/dev/null || (npm init -y && npm install pg)
-              node server.js
+          image: aks-lab/backend:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 3000
           env:
             - name: PGHOST
               value: postgres
@@ -138,8 +50,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-          ports:
-            - containerPort: 3000
           resources:
             requests:
               memory: "128Mi"
@@ -151,8 +61,15 @@ spec:
             httpGet:
               path: /health
               port: 3000
-            initialDelaySeconds: 30
+            initialDelaySeconds: 10
             periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
 ---
 apiVersion: v1
 kind: Service

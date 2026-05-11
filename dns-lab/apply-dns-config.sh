@@ -25,7 +25,7 @@ step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━�
 CONFIG_FILE="dns-lab/dns-config.yaml"
 BIND9_NS="dns-lab"
 COREDNS_NS="kube-system"
-SERIAL=$(date +%Y%m%d%H)   # Use date+hour as serial so it increments on each apply
+SERIAL=$(date +%Y%m%d%H%M)   # Use date+minute as serial so it increments on each apply
 
 # ── Preflight ─────────────────────────────────────────────────
 step "Preflight Checks"

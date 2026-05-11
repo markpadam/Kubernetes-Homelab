@@ -1,0 +1,45 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update -qq && apt-get install -y -qq \
+    openssh-server \
+    curl \
+    wget \
+    dnsutils \
+    iputils-ping \
+    netcat-openbsd \
+    nmap \
+    tcpdump \
+    net-tools \
+    iproute2 \
+    traceroute \
+    vim \
+    jq \
+    git \
+    python3 \
+    python3-pip \
+    htop \
+    unzip \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN KUBECTL_VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt) && \
+    curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && \
+    rm kubectl
+
+RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+RUN mkdir -p /run/sshd /root/.ssh && chmod 700 /root/.ssh
+
+COPY sshd_config /etc/ssh/sshd_config
+COPY motd /etc/motd
+
+RUN ssh-keygen -A
+
+EXPOSE 22
+
+CMD ["/usr/sbin/sshd", "-D", "-e"]

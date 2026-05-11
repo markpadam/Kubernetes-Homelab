@@ -35,3 +35,17 @@ data:
         cache 30
         forward . 10.96.0.200
     }
+
+  privatelink-servicebus.server: |
+    privatelink.servicebus.windows.net:53 {
+        errors
+        cache 30
+        forward . 10.96.0.200
+    }
+
+  privatelink-acr.server: |
+    privatelink.azurecr.io:53 {
+        errors
+        cache 30
+        forward . 10.96.0.200
+    }

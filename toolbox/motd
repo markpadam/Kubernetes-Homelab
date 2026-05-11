@@ -1,0 +1,18 @@
+
+  ██╗  ██╗ █████╗ ███████╗    ██╗      █████╗ ██████╗
+  ██║ ██╔╝██╔══██╗██╔════╝    ██║     ██╔══██╗██╔══██╗
+  █████╔╝ ╚█████╔╝███████╗    ██║     ███████║██████╔╝
+  ██╔═██╗ ██╔══██╗╚════██║    ██║     ██╔══██║██╔══██╗
+  ██║  ██╗╚█████╔╝███████║    ███████╗██║  ██║██████╔╝
+  ╚═╝  ╚═╝ ╚════╝ ╚══════╝    ╚══════╝╚═╝  ╚═╝╚═════╝
+
+  Kubernetes AKS Lab — Toolbox Pod
+  ─────────────────────────────────────────────────────
+  Tools: dig, nslookup, nmap, curl, wget, nc, tcpdump
+         kubectl, helm, ping, traceroute, jq, python3
+
+  Quick tests:
+    nslookup sqlserver.corp.internal
+    dig mysqlserver.privatelink.database.windows.net
+    curl http://backend.taskapp.svc.cluster.local:3000/health
+    kubectl get pods -A

@@ -89,6 +89,8 @@ log "Testing privatelink zones (simulated ADDS → Azure DNS)..."
 run_test "mysqlserver.privatelink.database.windows.net"       "mysqlserver.privatelink.database.windows.net"       "10.20.0.10"
 run_test "mystorageaccount.privatelink.blob.core.windows.net" "mystorageaccount.privatelink.blob.core.windows.net" "10.20.0.20"
 run_test "mykeyvault.privatelink.vaultcore.azure.net"         "mykeyvault.privatelink.vaultcore.azure.net"         "10.20.0.30"
+run_test "myservicebus.privatelink.servicebus.windows.net"    "myservicebus.privatelink.servicebus.windows.net"    "10.20.0.40"
+run_test "myregistry.privatelink.azurecr.io"                  "myregistry.privatelink.azurecr.io"                  "10.20.0.50"
 
 echo ""
 log "Testing public DNS still resolves (via default CoreDNS forward)..."

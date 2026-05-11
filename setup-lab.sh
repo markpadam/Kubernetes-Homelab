@@ -11,7 +11,7 @@ K8S_VERSION="v1.29.0"
 NODES=3
 CPUS=2
 MEMORY=4096
-APP_DIR="Apps/multi-tier-app"
+APP_DIR="apps/multi-tier-app"
 DNS_DIR="dns-lab"
 TOOLBOX_DIR="toolbox"
 GRAFANA_PASSWORD="admin123"
@@ -75,8 +75,19 @@ log "Waiting for all nodes to be Ready..."
 kubectl wait --for=condition=Ready nodes --all --timeout=120s
 success "Cluster is up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes ready"
 
-# ── Step 2: Ingress ──────────────────────────
-step "Step 2 — Enabling Ingress"
+# ── Step 2: Build Lab Images ─────────────────
+step "Step 2 — Building Lab Images"
+
+log "Building backend image..."
+minikube image build -t aks-lab/backend:latest apps/backend/ -p "$PROFILE"
+success "Backend image built"
+
+log "Building toolbox image (packages install at build time — takes a few minutes)..."
+minikube image build -t aks-lab/toolbox:latest toolbox/ -p "$PROFILE"
+success "Toolbox image built"
+
+# ── Step 3: Ingress ──────────────────────────
+step "Step 3 — Enabling Ingress"
 
 minikube addons enable ingress -p "$PROFILE"
 
@@ -88,8 +99,8 @@ kubectl wait --namespace ingress-nginx \
 
 success "Ingress controller ready"
 
-# ── Step 3: Persistent Storage ───────────────
-step "Step 3 — Enabling Persistent Storage"
+# ── Step 4: Persistent Storage ───────────────
+step "Step 4 — Enabling Persistent Storage"
 
 minikube addons enable storage-provisioner  -p "$PROFILE"
 minikube addons enable volumesnapshots      -p "$PROFILE"
@@ -107,8 +118,8 @@ fi
 
 success "Storage configured — default StorageClass: csi-hostpath-sc"
 
-# ── Step 4: Monitoring ───────────────────────
-step "Step 4 — Installing Prometheus + Grafana"
+# ── Step 5: Monitoring ───────────────────────
+step "Step 5 — Installing Prometheus + Grafana"
 
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts &>/dev/null
 helm repo update &>/dev/null
@@ -127,8 +138,8 @@ fi
 
 success "Monitoring stack installed"
 
-# ── Step 5: Deploy TaskFlow App ──────────────
-step "Step 5 — Deploying TaskFlow Demo App"
+# ── Step 6: Deploy TaskFlow App ──────────────
+step "Step 6 — Deploying TaskFlow Demo App"
 
 log "Applying manifests from ./$APP_DIR ..."
 kubectl apply -f "$APP_DIR/"
@@ -144,8 +155,8 @@ done
 
 success "TaskFlow deployed"
 
-# ── Step 6: DNS Lab ──────────────────────────
-step "Step 6 — Deploying DNS Lab (bind9 + CoreDNS patch)"
+# ── Step 7: DNS Lab ──────────────────────────
+step "Step 7 — Deploying DNS Lab (bind9 + CoreDNS patch)"
 
 log "Deploying bind9 (simulated ADDS DNS server)..."
 kubectl apply -f "$DNS_DIR/01-bind9.yaml"
@@ -200,6 +211,18 @@ privatelink.vaultcore.azure.net:53 {
     forward . ${BIND9_IP}
 }
 
+privatelink.servicebus.windows.net:53 {
+    errors
+    cache 30
+    forward . ${BIND9_IP}
+}
+
+privatelink.azurecr.io:53 {
+    errors
+    cache 30
+    forward . ${BIND9_IP}
+}
+
 # ── Default zone ────────────────────────────────────────────────
 .:53 {
     log
@@ -234,8 +257,8 @@ kubectl rollout status deployment coredns -n kube-system --timeout=60s
 
 success "CoreDNS patched — stub zones active for corp.internal and privatelink.*"
 
-# ── Step 7: Toolbox Pod ───────────────────────
-step "Step 7 — Deploying Toolbox Pod"
+# ── Step 8: Toolbox Pod ───────────────────────
+step "Step 8 — Deploying Toolbox Pod"
 
 # Find SSH public key
 SSH_KEY_PATH=""

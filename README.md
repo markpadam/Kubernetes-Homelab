@@ -52,12 +52,16 @@ cd <repo-name>
 ## Repo Structure
 
 ```
-├── setup-lab.sh              # Start the full lab (runs all 7 steps)
+├── setup-lab.sh              # Start the full lab (runs all 8 steps)
 ├── teardown-lab.sh           # Wipe everything cleanly
 ├── README.md
 │
-├── Apps/
-│   └── multi-tier-app/       # TaskFlow demo app (frontend + backend + postgres)
+├── apps/
+│   ├── backend/              # TaskFlow backend source (built into Minikube's Docker)
+│   │   ├── Dockerfile
+│   │   ├── server.js
+│   │   └── package.json
+│   └── multi-tier-app/       # Kubernetes manifests for the TaskFlow app
 │       ├── 01-postgres.yaml
 │       ├── 02-backend.yaml
 │       ├── 03-frontend.yaml
@@ -70,6 +74,9 @@ cd <repo-name>
 │   └── patch-coredns.sh      # Standalone CoreDNS patcher (used by setup-lab.sh)
 │
 └── toolbox/
+    ├── Dockerfile            # Pre-built toolbox image (all tools installed at build time)
+    ├── sshd_config
+    ├── motd
     └── toolbox.yaml          # Ubuntu pod with network/DNS tools + SSH access
 ```
 
@@ -77,27 +84,30 @@ cd <repo-name>
 
 ## What setup-lab.sh Does
 
-The setup script runs 7 steps in sequence. Each step is idempotent — rerunning it against an existing cluster skips steps that are already complete.
+The setup script runs 8 steps in sequence. Each step is idempotent — rerunning it against an existing cluster skips steps that are already complete.
 
 **Step 1 — Multi-Node Cluster**
 Starts a 3-node cluster (1 control plane + 2 workers) using the `aks-lab` Minikube profile with the Docker driver.
 
-**Step 2 — Ingress**
+**Step 2 — Build Lab Images**
+Builds the backend API and toolbox Docker images directly into Minikube's Docker daemon (no registry required). Images are built once at setup time so pods start instantly.
+
+**Step 3 — Ingress**
 Enables the NGINX ingress controller add-on, equivalent to the default AKS ingress.
 
-**Step 3 — Persistent Storage**
+**Step 4 — Persistent Storage**
 Enables the CSI hostpath driver and sets it as the default StorageClass, simulating AKS `managed-csi`.
 
-**Step 4 — Monitoring**
+**Step 5 — Monitoring**
 Installs `kube-prometheus-stack` via Helm into the `monitoring` namespace, giving you Prometheus and Grafana with pre-built Kubernetes dashboards.
 
-**Step 5 — TaskFlow Demo App**
+**Step 6 — TaskFlow Demo App**
 Deploys a multi-tier task manager (Nginx frontend → Node.js API → PostgreSQL) into the `taskapp` namespace. Exercises persistent storage, load balancing, and HPA autoscaling.
 
-**Step 6 — DNS Lab**
+**Step 7 — DNS Lab**
 Deploys a bind9 pod as a simulated ADDS DNS server and patches the CoreDNS Corefile with stub zones that forward internal and privatelink domains directly to bind9 — bypassing the default upstream.
 
-**Step 7 — Toolbox Pod**
+**Step 8 — Toolbox Pod**
 Deploys a persistent Ubuntu pod with SSH access and a full suite of network and DNS testing tools. Injects your SSH public key at deploy time, starts a port-forward on `localhost:2222`, and adds `aks-toolbox` to `~/.ssh/config`.
 
 ---
