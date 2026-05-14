@@ -1,6 +1,6 @@
 # Kubernetes AKS Lab
 
-A local Kubernetes lab running on Minikube that simulates an AKS environment. Includes a multi-tier demo app, simulated Active Directory DNS (bind9), CoreDNS stub zone forwarding, Prometheus/Grafana monitoring, ArgoCD GitOps, and a persistent Ubuntu toolbox pod for network testing.
+A local Kubernetes lab running on Minikube that simulates an AKS environment. Includes a multi-tier demo app, simulated Active Directory DNS (bind9), CoreDNS stub zone forwarding, Prometheus/Grafana monitoring, ArgoCD (ephemeral GitOps playground), Flux (code-driven GitOps — apps survive teardown/recreate), and a persistent Ubuntu toolbox pod for network testing.
 
 ---
 
@@ -26,7 +26,7 @@ cd <repo-name>
 ## Access
 
 | Service | How to Access | URL |
-|---|---|---|
+| --- | --- | --- |
 | TaskFlow App | `minikube service frontend -n taskapp -p aks-lab` | Opens automatically |
 | TaskFlow (alt) | `kubectl port-forward svc/frontend 8081:80 -n taskapp` | <http://localhost:8081> |
 | Grafana | `kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring` | <http://localhost:3000> |
@@ -43,18 +43,19 @@ cd <repo-name>
 ## Requirements
 
 | Tool | Install |
-|---|---|
-| Docker Desktop | https://www.docker.com/products/docker-desktop |
+| --- | --- |
+| Docker Desktop | <https://www.docker.com/products/docker-desktop> |
 | Minikube | `brew install minikube` |
 | kubectl | `brew install kubectl` |
 | Helm | `brew install helm` |
+| Flux CLI | `brew install fluxcd/tap/flux` |
 
 ---
 
 ## Repo Structure
 
-```
-├── setup-lab.sh              # Start the full lab (runs all 9 steps)
+```text
+├── setup-lab.sh              # Start the full lab (runs all 10 steps)
 ├── teardown-lab.sh           # Wipe everything cleanly
 ├── README.md
 │
@@ -75,6 +76,9 @@ cd <repo-name>
 │   ├── 01-bind9.yaml         # bind9 deployment
 │   └── patch-coredns.sh      # Standalone CoreDNS patcher (used by setup-lab.sh)
 │
+├── flux-apps/                # Flux-managed apps — deployed automatically on every lab start
+│   └── kustomization.yaml    # Add your app manifests here
+│
 └── toolbox/
     ├── Dockerfile            # Pre-built toolbox image (all tools installed at build time)
     ├── sshd_config           # PrintMotd yes — MOTD shown on SSH login
@@ -86,7 +90,7 @@ cd <repo-name>
 
 ## What setup-lab.sh Does
 
-The setup script runs 9 steps in sequence. Each step is idempotent — rerunning it against an existing cluster skips steps that are already complete.
+The setup script runs 10 steps in sequence. Each step is idempotent — rerunning it against an existing cluster skips steps that are already complete.
 
 **Step 1 — Multi-Node Cluster**
 Starts a 3-node cluster (1 control plane + 2 workers) using the `aks-lab` Minikube profile with the Docker driver.
@@ -115,13 +119,16 @@ Deploys a persistent Ubuntu pod with SSH access and a full suite of network and 
 **Step 9 — ArgoCD**
 Installs ArgoCD into the `argocd` namespace using server-side apply, waits for the server to be ready, retrieves the initial admin password from the `argocd-initial-admin-secret`, and starts a background port-forward on `localhost:8080`.
 
+**Step 10 — Flux**
+Installs Flux controllers into the `flux-system` namespace, creates a `GitRepository` source pointing to this repo, and applies a `Kustomization` that watches `flux-apps/`. Any manifests committed to `flux-apps/` are automatically reconciled into the cluster within one minute of a push — on every fresh lab start they are restored without any manual intervention.
+
 ---
 
 ## DNS Lab
 
 The DNS lab simulates the production DNS chain:
 
-```
+```text
 Pod → CoreDNS → bind9 (simulated ADDS) → IP returned     # internal / privatelink zones
 Pod → CoreDNS → upstream (Minikube default)               # public DNS
 ```
@@ -147,13 +154,74 @@ git commit -m "add new DNS record"
 ### Zones Configured
 
 | Zone | Simulates |
-|---|---|
+| --- | --- |
 | `corp.internal` | Internal AD authoritative zone |
 | `privatelink.database.windows.net` | Azure SQL private endpoints |
 | `privatelink.blob.core.windows.net` | Azure Storage private endpoints |
 | `privatelink.vaultcore.azure.net` | Azure Key Vault private endpoints |
 | `privatelink.servicebus.windows.net` | Azure Service Bus private endpoints |
 | `privatelink.azurecr.io` | Azure Container Registry private endpoints |
+
+---
+
+## Flux (GitOps)
+
+Apps committed to `flux-apps/` are automatically deployed on every fresh lab start and kept in sync with the repo. This is the place for anything you want to persist across teardowns.
+
+```bash
+# Add an app — Flux reconciles within 1 minute of pushing
+vim flux-apps/my-app.yaml
+git add flux-apps/
+git commit -m "add my-app"
+git push
+
+# Check sync status
+flux get all -n flux-system
+
+# Force an immediate sync
+flux reconcile kustomization flux-apps -n flux-system
+
+# Restart the source pull if needed
+flux reconcile source git homelab -n flux-system
+```
+
+> **Token:** `setup-lab.sh` reads `GITHUB_TOKEN` from your environment. Add it to `~/.zshrc` so it's always available:
+>
+> ```bash
+> export GITHUB_TOKEN=ghp_your_token_here
+> ```
+>
+> The token only needs the **`repo`** scope (or `Contents: Read-only` for a fine-grained token).
+>
+> If you rotate your token, re-run `setup-lab.sh` or update the Kubernetes secret directly:
+>
+> ```bash
+> kubectl create secret generic flux-system -n flux-system \
+>   --from-literal=username=git \
+>   --from-literal=password=<new-token> \
+>   --dry-run=client -o yaml | kubectl apply -f -
+> ```
+
+---
+
+## ArgoCD
+
+ArgoCD is installed into the `argocd` namespace and exposed on `localhost:8080` via a background port-forward started by `setup-lab.sh`. Apps deployed via the ArgoCD UI are **ephemeral** — they are wiped on teardown. Use `flux-apps/` for anything you want to persist.
+
+```bash
+# Open the UI (self-signed cert — accept the browser warning)
+open https://localhost:8080
+# Login: admin / <password printed at end of setup>
+
+# Retrieve the password manually
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath='{.data.password}' | base64 -d && echo
+
+# Restart the port-forward if it drops
+kubectl port-forward svc/argocd-server 8080:443 -n argocd &
+```
+
+> **Note:** The `argocd-initial-admin-secret` is deleted by ArgoCD after you change the password via the UI. Once changed, use your new password.
 
 ---
 
@@ -184,27 +252,6 @@ If the SSH connection drops (e.g. after a Mac sleep), restart the port-forward:
 ```bash
 kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox &
 ```
-
----
-
-## ArgoCD
-
-ArgoCD is installed into the `argocd` namespace and exposed on `localhost:8080` via a background port-forward started by `setup-lab.sh`.
-
-```bash
-# Open the UI (self-signed cert — accept the browser warning)
-open https://localhost:8080
-# Login: admin / <password printed at end of setup>
-
-# Retrieve the password manually
-kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath='{.data.password}' | base64 -d && echo
-
-# Restart the port-forward if it drops
-kubectl port-forward svc/argocd-server 8080:443 -n argocd &
-```
-
-> **Note:** The `argocd-initial-admin-secret` is deleted by ArgoCD after you change the password via the UI. Once changed, use your new password.
 
 ---
 
@@ -258,6 +305,10 @@ kubectl get pods -n argocd
 kubectl port-forward svc/argocd-server 8080:443 -n argocd &
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d && echo
 
+# Flux
+flux get all -n flux-system
+flux reconcile kustomization flux-apps -n flux-system
+
 # Stop and restart without wiping
 minikube stop -p aks-lab
 minikube start -p aks-lab
@@ -268,7 +319,7 @@ minikube start -p aks-lab
 ## AKS Feature Mapping
 
 | AKS Feature | Lab Equivalent |
-|---|---|
+| --- | --- |
 | Azure Load Balancer | `minikube service` (localhost proxy) |
 | managed-csi StorageClass | CSI hostpath driver |
 | Azure Monitor | Prometheus + Grafana |
@@ -277,5 +328,6 @@ minikube start -p aks-lab
 | Multi-node node pools | `--nodes=3` |
 | ADDS DNS via Cato SDN | bind9 + CoreDNS stub zones |
 | Azure Private DNS Zones | bind9 privatelink zones |
-| GitOps / ArgoCD | ArgoCD (`argocd` namespace) |
+| GitOps (ephemeral) | ArgoCD (`argocd` namespace) |
+| GitOps (persistent) | Flux (`flux-system` namespace, `flux-apps/`) |
 | NodeLocal DNSCache | Not yet configured (see docs) |

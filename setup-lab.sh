@@ -15,6 +15,9 @@ APP_DIR="apps/multi-tier-app"
 DNS_DIR="dns-lab"
 TOOLBOX_DIR="toolbox"
 GRAFANA_PASSWORD="admin123"
+GITHUB_REPO="https://github.com/markpadam/Kubernetes-Homelab.git"
+GITHUB_BRANCH="main"
+FLUX_APPS_PATH="./flux-apps"
 
 # ── Colours ──────────────────────────────────
 RED='\033[0;31m'
@@ -37,6 +40,7 @@ command -v docker    &>/dev/null || error "Docker not found. Install Docker Desk
 command -v minikube  &>/dev/null || error "Minikube not found. Run: brew install minikube"
 command -v kubectl   &>/dev/null || error "kubectl not found. Run: brew install kubectl"
 command -v helm      &>/dev/null || error "Helm not found. Run: brew install helm"
+command -v flux      &>/dev/null || error "Flux CLI not found. Run: brew install fluxcd/tap/flux"
 
 docker info &>/dev/null || error "Docker daemon is not running. Start Docker Desktop."
 
@@ -404,6 +408,74 @@ fi
 
 success "ArgoCD ready — https://localhost:8080  (admin / $ARGOCD_PASSWORD)"
 
+# ── Step 10: Flux ────────────────────────────
+step "Step 10 — Installing Flux (GitOps)"
+
+# Resolve GitHub token
+if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+  read -rsp "         GitHub token (for Flux repo access): " GITHUB_TOKEN
+  echo
+fi
+[[ -n "$GITHUB_TOKEN" ]] || error "GITHUB_TOKEN is required for Flux to pull from the private repo."
+
+# Install Flux controllers
+if flux check --pre &>/dev/null && kubectl get namespace flux-system &>/dev/null; then
+  warn "Flux already installed — skipping controller install."
+else
+  log "Installing Flux controllers..."
+  flux install --namespace=flux-system --network-policy=false
+fi
+
+# Create / update the auth secret for the private repo
+log "Applying repo auth secret..."
+kubectl create secret generic flux-system \
+  --namespace=flux-system \
+  --from-literal=username=git \
+  --from-literal=password="$GITHUB_TOKEN" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Apply the GitRepository source
+log "Applying GitRepository source..."
+kubectl apply -f - <<EOF
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: homelab
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: ${GITHUB_REPO}
+  ref:
+    branch: ${GITHUB_BRANCH}
+  secretRef:
+    name: flux-system
+EOF
+
+# Apply the Kustomization that watches flux-apps/
+log "Applying Kustomization for flux-apps/..."
+kubectl apply -f - <<EOF
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: flux-apps
+  namespace: flux-system
+spec:
+  interval: 5m
+  path: ${FLUX_APPS_PATH}
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: homelab
+EOF
+
+log "Waiting for Flux GitRepository to be ready..."
+kubectl wait gitrepository/homelab \
+  --for=condition=ready \
+  --namespace=flux-system \
+  --timeout=120s
+
+success "Flux installed — watching ${GITHUB_REPO} @ ${FLUX_APPS_PATH}"
+
 # ── Open the app ─────────────────────────────
 step "Opening TaskFlow"
 # minikube service blocks on macOS Docker driver, so run the tunnel in the background,
@@ -443,6 +515,12 @@ ${BOLD}  ArgoCD${RESET}
   URL:         ${GREEN}https://localhost:8080${RESET}
   Login:       admin / $ARGOCD_PASSWORD
   Re-forward:  kubectl port-forward svc/argocd-server 8080:443 -n argocd &
+
+${BOLD}  Flux (GitOps)${RESET}
+  Watching:    $GITHUB_REPO @ $FLUX_APPS_PATH
+  Add apps:    commit manifests to flux-apps/ and push — Flux syncs within 1 min
+  Status:      flux get all -n flux-system
+  Force sync:  flux reconcile kustomization flux-apps -n flux-system
 
 ${BOLD}  Toolbox Pod${RESET}
   SSH:         ${GREEN}ssh aks-toolbox${RESET}
