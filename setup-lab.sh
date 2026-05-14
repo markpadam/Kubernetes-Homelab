@@ -86,6 +86,17 @@ log "Building toolbox image (packages install at build time — takes a few minu
 minikube image build -t aks-lab/toolbox:latest toolbox/ -p "$PROFILE"
 success "Toolbox image built"
 
+# minikube image build only loads into the primary node; distribute to workers
+log "Distributing images to worker nodes..."
+for IMAGE in aks-lab/backend:latest aks-lab/toolbox:latest; do
+  TARFILE=$(mktemp /tmp/minikube-image-XXXXXX.tar)
+  minikube ssh -p "$PROFILE" -- "docker save ${IMAGE} -o /tmp/_img.tar"
+  minikube cp -p "$PROFILE" "${PROFILE}:/tmp/_img.tar" "$TARFILE"
+  minikube image load "$TARFILE" -p "$PROFILE"
+  rm -f "$TARFILE"
+done
+success "Images distributed to all nodes"
+
 # ── Step 3: Ingress ──────────────────────────
 step "Step 3 — Enabling Ingress"
 
