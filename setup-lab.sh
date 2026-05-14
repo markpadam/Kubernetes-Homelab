@@ -11,7 +11,7 @@ K8S_VERSION="v1.29.0"
 NODES=3
 CPUS=2
 MEMORY=4096
-APP_DIR="Apps/multi-tier-app"
+APP_DIR="Apps/taskflow"
 DNS_DIR="dns-lab"
 TOOLBOX_DIR="toolbox"
 GRAFANA_PASSWORD="admin123"
@@ -83,16 +83,20 @@ success "Cluster is up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ')
 step "Step 2 — Building Lab Images"
 
 log "Building backend image..."
-minikube image build -t aks-lab/backend:latest Apps/backend/ -p "$PROFILE"
+minikube image build -t aks-lab/backend:latest Apps/taskflow/backend/ -p "$PROFILE"
 success "Backend image built"
 
 log "Building toolbox image (packages install at build time — takes a few minutes)..."
 minikube image build -t aks-lab/toolbox:latest toolbox/ -p "$PROFILE"
 success "Toolbox image built"
 
+log "Building blob-explorer image..."
+minikube image build -t aks-lab/blob-explorer:latest Apps/blob-explorer/ -p "$PROFILE"
+success "Blob-explorer image built"
+
 # minikube image build only loads into the primary node; distribute to workers
 log "Distributing images to worker nodes..."
-for IMAGE in aks-lab/backend:latest aks-lab/toolbox:latest; do
+for IMAGE in aks-lab/backend:latest aks-lab/toolbox:latest aks-lab/blob-explorer:latest; do
   TARFILE=$(mktemp /tmp/minikube-image-XXXXXX.tar)
   minikube ssh -p "$PROFILE" -- "docker save ${IMAGE} -o /tmp/_img.tar"
   minikube cp -p "$PROFILE" "${PROFILE}:/tmp/_img.tar" "$TARFILE"
@@ -532,6 +536,11 @@ ${BOLD}  Flux (GitOps)${RESET}
   Add apps:    commit manifests to flux-apps/ and push — Flux syncs within 1 min
   Status:      flux get all -n flux-system
   Force sync:  flux reconcile kustomization flux-apps -n flux-system
+
+${BOLD}  Blob Explorer (Azurite)${RESET}
+  Forward:     kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer &
+  URL:         ${GREEN}http://localhost:8082${RESET}
+  Storage:     Azurite running in azure-storage namespace (Blob :10000, Queue :10001, Table :10002)
 
 ${BOLD}  Toolbox Pod${RESET}
   SSH:         ${GREEN}ssh aks-toolbox${RESET}

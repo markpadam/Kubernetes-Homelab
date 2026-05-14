@@ -44,6 +44,7 @@ step "Restoring Port-Forwards"
 log "Clearing stale port-forwards..."
 lsof -ti:2222 | xargs kill -9 2>/dev/null || true
 lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+lsof -ti:8082 | xargs kill -9 2>/dev/null || true
 sleep 1
 
 # Toolbox SSH — localhost:2222
@@ -82,6 +83,18 @@ else
   warn "Could not determine frontend URL — run manually: minikube service frontend -n taskapp -p $PROFILE"
 fi
 
+# Blob Explorer — localhost:8082
+log "Starting Blob Explorer port-forward: localhost:8082 → blob-explorer:80 ..."
+kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer \
+  >> /tmp/blob-explorer-portforward.log 2>&1 &
+BLOB_PID=$!
+sleep 3
+if kill -0 "$BLOB_PID" 2>/dev/null; then
+  success "Blob Explorer port-forward running (PID $BLOB_PID)"
+else
+  warn "Blob Explorer port-forward may have failed — check /tmp/blob-explorer-portforward.log"
+fi
+
 # Retrieve ArgoCD password for the summary
 ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<password-already-changed>")
@@ -106,6 +119,10 @@ ${BOLD}  ArgoCD${RESET}
 ${BOLD}  Toolbox Pod${RESET}
   SSH:         ${GREEN}ssh aks-toolbox${RESET}
   Or:          ssh -p 2222 root@localhost
+
+${BOLD}  Blob Explorer (Azurite)${RESET}
+  URL:         ${GREEN}http://localhost:8082${RESET}
+  Re-forward:  kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer &
 
 ${BOLD}  Flux${RESET}
   Status:      flux get all -n flux-system

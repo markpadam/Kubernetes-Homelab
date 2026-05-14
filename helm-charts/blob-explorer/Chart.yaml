@@ -1,0 +1,6 @@
+apiVersion: v2
+name: blob-explorer
+description: ASP.NET Core app for exploring Azure Blob Storage. Talks to Azurite in the lab — swap the connection string for real Azure Storage in production.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

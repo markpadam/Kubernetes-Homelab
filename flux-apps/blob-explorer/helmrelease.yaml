@@ -1,0 +1,23 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: blob-explorer
+  namespace: flux-system
+spec:
+  targetNamespace: blob-explorer
+  interval: 5m
+  chart:
+    spec:
+      chart: helm-charts/blob-explorer
+      sourceRef:
+        kind: GitRepository
+        name: homelab
+        namespace: flux-system
+      interval: 1m
+  install:
+    createNamespace: false
+  values:
+    image:
+      repository: aks-lab/blob-explorer
+      tag: latest
+      pullPolicy: Never

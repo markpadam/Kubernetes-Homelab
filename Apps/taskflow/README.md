@@ -30,23 +30,11 @@ Browser
 
 ## Deploy
 
+TaskFlow is deployed automatically by `setup-lab.sh` from `Apps/taskflow/`. To deploy manually:
+
 ```bash
-# 1. Make sure your lab is running
-minikube status -p aks-lab
-
-# 2. Make sure ingress and tunnel are ready
-minikube addons enable ingress -p aks-lab
-# In a separate terminal:
-minikube tunnel -p aks-lab
-
-# 3. Deploy everything
-kubectl apply -f k8s/
-
-# 4. Watch everything come up
+kubectl apply -f Apps/taskflow/
 kubectl get pods -n taskapp -w
-
-# 5. Add the local hostname (run once)
-echo "$(minikube ip -p aks-lab)  taskapp.local" | sudo tee -a /etc/hosts
 ```
 
 ---

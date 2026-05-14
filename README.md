@@ -1,6 +1,6 @@
 # Kubernetes AKS Lab
 
-A local Kubernetes lab running on Minikube that simulates an AKS environment. Includes a multi-tier demo app, simulated Active Directory DNS (bind9), CoreDNS stub zone forwarding, Prometheus/Grafana monitoring, ArgoCD (ephemeral GitOps playground), Flux (code-driven GitOps — apps survive teardown/recreate), and a persistent Ubuntu toolbox pod for network testing.
+A local Kubernetes lab running on Minikube that simulates an AKS environment. Includes a multi-tier demo app, simulated Active Directory DNS (bind9), CoreDNS stub zone forwarding, Prometheus/Grafana monitoring, ArgoCD (ephemeral GitOps playground), Flux (code-driven GitOps — apps survive teardown/recreate), Azurite (Azure Storage emulator), a .NET Blob Explorer app deployed via Helm and Flux, and a persistent Ubuntu toolbox pod for network testing.
 
 ---
 
@@ -31,10 +31,12 @@ cd <repo-name>
 | TaskFlow (alt) | `kubectl port-forward svc/frontend 8081:80 -n taskapp` | <http://localhost:8081> |
 | Grafana | `kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring` | <http://localhost:3000> |
 | ArgoCD | `kubectl port-forward svc/argocd-server 8080:443 -n argocd` | <https://localhost:8080> |
+| Blob Explorer | `kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer` | <http://localhost:8082> |
 | Toolbox SSH | `ssh aks-toolbox` | — |
 
 **Grafana login:** `admin` / `admin123`  
-**ArgoCD login:** `admin` / *(printed at end of setup — stored in `argocd-initial-admin-secret`)*
+**ArgoCD login:** `admin` / *(printed at end of setup — stored in `argocd-initial-admin-secret`)*  
+**Blob Explorer:** no login — upload, list, download and delete blobs via the UI
 
 > **macOS + Docker driver:** `minikube ip` returns an address inside Docker's Linux VM that your Mac cannot route to directly. Always use `minikube service` or `kubectl port-forward` to access services.
 
@@ -60,15 +62,16 @@ cd <repo-name>
 ├── README.md
 │
 ├── Apps/
-│   ├── backend/              # TaskFlow backend source (built into Minikube's Docker)
-│   │   ├── Dockerfile
-│   │   ├── server.js
-│   │   └── package.json
-│   └── multi-tier-app/       # Kubernetes manifests for the TaskFlow app
-│       ├── 01-postgres.yaml
-│       ├── 02-backend.yaml
-│       ├── 03-frontend.yaml
-│       └── 04-ingress.yaml
+│   ├── taskflow/             # TaskFlow demo app (manifests + backend source)
+│   │   ├── backend/          # Node.js backend source (built into Minikube's Docker)
+│   │   │   ├── Dockerfile
+│   │   │   ├── server.js
+│   │   │   └── package.json
+│   │   ├── 01-postgres.yaml
+│   │   ├── 02-backend.yaml
+│   │   ├── 03-frontend.yaml
+│   │   └── 04-ingress.yaml
+│   └── blob-explorer/        # ASP.NET Core app source + Dockerfile
 │
 ├── dns-lab/                  # Simulated ADDS DNS (bind9 + CoreDNS config)
 │   ├── dns-config.yaml       # Source of truth for all DNS zones and records
@@ -77,7 +80,12 @@ cd <repo-name>
 │   └── patch-coredns.sh      # Standalone CoreDNS patcher (used by setup-lab.sh)
 │
 ├── flux-apps/                # Flux-managed apps — deployed automatically on every lab start
-│   └── kustomization.yaml    # Add your app manifests here
+│   ├── kustomization.yaml
+│   ├── azurite/              # Azure Storage emulator (Blob, Queue, Table)
+│   └── blob-explorer/        # HelmRelease for the .NET Blob Explorer app
+│
+└── helm-charts/
+    └── blob-explorer/        # Helm chart for the .NET Blob Explorer app
 │
 └── toolbox/
     ├── Dockerfile            # Pre-built toolbox image (all tools installed at build time)
@@ -204,6 +212,46 @@ flux reconcile source git homelab -n flux-system
 
 ---
 
+## Blob Explorer + Azurite (Azure Storage)
+
+Azurite is the official Microsoft Azure Storage emulator. It runs in the `azure-storage` namespace and is deployed automatically by Flux on every lab start. The Blob Explorer is an ASP.NET Core app that talks to Azurite using the real `Azure.Storage.Blobs` SDK — the same code and connection string pattern you'd use against a real Azure Storage account.
+
+```bash
+# Access the UI
+kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer &
+open http://localhost:8082
+```
+
+From the UI you can upload files, list blobs, download, and delete — all via the `uploads` container.
+
+### Azurite endpoints (from inside the cluster)
+
+| Service | Endpoint |
+| --- | --- |
+| Blob | `http://azurite.azure-storage.svc.cluster.local:10000` |
+| Queue | `http://azurite.azure-storage.svc.cluster.local:10001` |
+| Table | `http://azurite.azure-storage.svc.cluster.local:10002` |
+
+### Connection string
+
+```text
+DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OtLdTWBP4y6bW8hGo1E/GkHUFAf4fRHtPIJCRflFiX+BPxP4lSM5A==;BlobEndpoint=http://azurite.azure-storage.svc.cluster.local:10000/devstoreaccount1;
+```
+
+This is Azurite's fixed well-known default — not real credentials. To point the app at a real Azure Storage account, override `azureStorage.connectionString` in the Helm values.
+
+### How it maps to production
+
+| Lab | Azure |
+| --- | --- |
+| Azurite pod | Azure Storage Account |
+| `devstoreaccount1` | Your storage account name |
+| Well-known key | Storage account access key / managed identity |
+| `AZURE_STORAGE_CONNECTION_STRING` env var | App Service / AKS env var or Key Vault reference |
+| Blob Explorer Helm chart | Your production app Helm chart |
+
+---
+
 ## ArgoCD
 
 ArgoCD is installed into the `argocd` namespace and exposed on `localhost:8080` via a background port-forward started by `setup-lab.sh`. Apps deployed via the ArgoCD UI are **ephemeral** — they are wiped on teardown. Use `flux-apps/` for anything you want to persist.
@@ -309,6 +357,11 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.pas
 flux get all -n flux-system
 flux reconcile kustomization flux-apps -n flux-system
 
+# Blob Explorer + Azurite
+kubectl get pods -n blob-explorer
+kubectl get pods -n azure-storage
+kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer &
+
 # Stop and restart without wiping
 minikube stop -p aks-lab
 minikube start -p aks-lab
@@ -330,4 +383,6 @@ minikube start -p aks-lab
 | Azure Private DNS Zones | bind9 privatelink zones |
 | GitOps (ephemeral) | ArgoCD (`argocd` namespace) |
 | GitOps (persistent) | Flux (`flux-system` namespace, `flux-apps/`) |
+| Azure Storage Account | Azurite (`azure-storage` namespace) |
+| App deployed via Helm + GitOps | Blob Explorer (Helm chart + Flux HelmRelease) |
 | NodeLocal DNSCache | Not yet configured (see docs) |
