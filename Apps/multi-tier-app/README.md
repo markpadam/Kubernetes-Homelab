@@ -68,8 +68,8 @@ kubectl get svc frontend -n taskapp
 
 **Via port-forward (no tunnel needed):**
 ```bash
-kubectl port-forward svc/frontend 8080:80 -n taskapp
-# Open http://localhost:8080
+kubectl port-forward svc/frontend 8081:80 -n taskapp
+# Open http://localhost:8081
 ```
 
 ---

@@ -1,6 +1,6 @@
 # Kubernetes AKS Lab
 
-A local Kubernetes lab running on Minikube that simulates an AKS environment. Includes a multi-tier demo app, simulated Active Directory DNS (bind9), CoreDNS stub zone forwarding, Prometheus/Grafana monitoring, and a persistent Ubuntu toolbox pod for network testing.
+A local Kubernetes lab running on Minikube that simulates an AKS environment. Includes a multi-tier demo app, simulated Active Directory DNS (bind9), CoreDNS stub zone forwarding, Prometheus/Grafana monitoring, ArgoCD GitOps, and a persistent Ubuntu toolbox pod for network testing.
 
 ---
 
@@ -28,11 +28,13 @@ cd <repo-name>
 | Service | How to Access | URL |
 |---|---|---|
 | TaskFlow App | `minikube service frontend -n taskapp -p aks-lab` | Opens automatically |
-| TaskFlow (alt) | `kubectl port-forward svc/frontend 8080:80 -n taskapp` | http://localhost:8080 |
-| Grafana | `kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring` | http://localhost:3000 |
+| TaskFlow (alt) | `kubectl port-forward svc/frontend 8081:80 -n taskapp` | <http://localhost:8081> |
+| Grafana | `kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring` | <http://localhost:3000> |
+| ArgoCD | `kubectl port-forward svc/argocd-server 8080:443 -n argocd` | <https://localhost:8080> |
 | Toolbox SSH | `ssh aks-toolbox` | — |
 
-**Grafana login:** `admin` / `admin123`
+**Grafana login:** `admin` / `admin123`  
+**ArgoCD login:** `admin` / *(printed at end of setup — stored in `argocd-initial-admin-secret`)*
 
 > **macOS + Docker driver:** `minikube ip` returns an address inside Docker's Linux VM that your Mac cannot route to directly. Always use `minikube service` or `kubectl port-forward` to access services.
 
@@ -52,7 +54,7 @@ cd <repo-name>
 ## Repo Structure
 
 ```
-├── setup-lab.sh              # Start the full lab (runs all 8 steps)
+├── setup-lab.sh              # Start the full lab (runs all 9 steps)
 ├── teardown-lab.sh           # Wipe everything cleanly
 ├── README.md
 │
@@ -75,8 +77,8 @@ cd <repo-name>
 │
 └── toolbox/
     ├── Dockerfile            # Pre-built toolbox image (all tools installed at build time)
-    ├── sshd_config
-    ├── motd
+    ├── sshd_config           # PrintMotd yes — MOTD shown on SSH login
+    ├── motd                  # Banner displayed on SSH connect
     └── toolbox.yaml          # Ubuntu pod with network/DNS tools + SSH access
 ```
 
@@ -84,7 +86,7 @@ cd <repo-name>
 
 ## What setup-lab.sh Does
 
-The setup script runs 8 steps in sequence. Each step is idempotent — rerunning it against an existing cluster skips steps that are already complete.
+The setup script runs 9 steps in sequence. Each step is idempotent — rerunning it against an existing cluster skips steps that are already complete.
 
 **Step 1 — Multi-Node Cluster**
 Starts a 3-node cluster (1 control plane + 2 workers) using the `aks-lab` Minikube profile with the Docker driver.
@@ -108,7 +110,10 @@ Deploys a multi-tier task manager (Nginx frontend → Node.js API → PostgreSQL
 Deploys a bind9 pod as a simulated ADDS DNS server and patches the CoreDNS Corefile with stub zones that forward internal and privatelink domains directly to bind9 — bypassing the default upstream.
 
 **Step 8 — Toolbox Pod**
-Deploys a persistent Ubuntu pod with SSH access and a full suite of network and DNS testing tools. Injects your SSH public key at deploy time, starts a port-forward on `localhost:2222`, and adds `aks-toolbox` to `~/.ssh/config`.
+Deploys a persistent Ubuntu pod with SSH access and a full suite of network and DNS testing tools. Injects your SSH public key at deploy time, starts a port-forward on `localhost:2222`, and adds `aks-toolbox` to `~/.ssh/config`. The MOTD banner is displayed on every SSH login.
+
+**Step 9 — ArgoCD**
+Installs ArgoCD into the `argocd` namespace using server-side apply, waits for the server to be ready, retrieves the initial admin password from the `argocd-initial-admin-secret`, and starts a background port-forward on `localhost:8080`.
 
 ---
 
@@ -182,6 +187,27 @@ kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox &
 
 ---
 
+## ArgoCD
+
+ArgoCD is installed into the `argocd` namespace and exposed on `localhost:8080` via a background port-forward started by `setup-lab.sh`.
+
+```bash
+# Open the UI (self-signed cert — accept the browser warning)
+open https://localhost:8080
+# Login: admin / <password printed at end of setup>
+
+# Retrieve the password manually
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath='{.data.password}' | base64 -d && echo
+
+# Restart the port-forward if it drops
+kubectl port-forward svc/argocd-server 8080:443 -n argocd &
+```
+
+> **Note:** The `argocd-initial-admin-secret` is deleted by ArgoCD after you change the password via the UI. Once changed, use your new password.
+
+---
+
 ## Monitoring
 
 ```bash
@@ -227,6 +253,11 @@ kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox &
 kubectl get pods -n monitoring
 kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
 
+# ArgoCD
+kubectl get pods -n argocd
+kubectl port-forward svc/argocd-server 8080:443 -n argocd &
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d && echo
+
 # Stop and restart without wiping
 minikube stop -p aks-lab
 minikube start -p aks-lab
@@ -246,4 +277,5 @@ minikube start -p aks-lab
 | Multi-node node pools | `--nodes=3` |
 | ADDS DNS via Cato SDN | bind9 + CoreDNS stub zones |
 | Azure Private DNS Zones | bind9 privatelink zones |
+| GitOps / ArgoCD | ArgoCD (`argocd` namespace) |
 | NodeLocal DNSCache | Not yet configured (see docs) |

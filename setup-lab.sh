@@ -363,6 +363,47 @@ fi
 
 success "Toolbox ready — connect with: ssh aks-toolbox"
 
+# ── Step 9: ArgoCD ───────────────────────────
+step "Step 9 — Installing ArgoCD"
+
+if kubectl get deployment argocd-server -n argocd &>/dev/null; then
+  warn "ArgoCD already installed — skipping."
+else
+  if ! kubectl get namespace argocd &>/dev/null; then
+    kubectl create namespace argocd
+  fi
+  log "Applying ArgoCD manifests (server-side apply)..."
+  kubectl apply -n argocd --server-side --force-conflicts \
+    -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+fi
+
+log "Waiting for ArgoCD server to be ready (may take a few minutes)..."
+kubectl wait deployment argocd-server \
+  --for=condition=available \
+  --namespace=argocd \
+  --timeout=300s
+
+ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<password-already-changed>")
+
+log "Starting ArgoCD port-forward: localhost:8080 → argocd-server:443 ..."
+lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+sleep 1
+
+kubectl port-forward svc/argocd-server 8080:443 -n argocd \
+  >> /tmp/argocd-portforward.log 2>&1 &
+ARGOCD_PF_PID=$!
+sleep 3
+
+if kill -0 "$ARGOCD_PF_PID" 2>/dev/null; then
+  success "ArgoCD port-forward running (PID $ARGOCD_PF_PID)"
+else
+  warn "ArgoCD port-forward may have failed — check /tmp/argocd-portforward.log"
+  warn "To start manually: kubectl port-forward svc/argocd-server 8080:443 -n argocd &"
+fi
+
+success "ArgoCD ready — https://localhost:8080  (admin / $ARGOCD_PASSWORD)"
+
 # ── Open the app ─────────────────────────────
 step "Opening TaskFlow"
 # minikube service blocks on macOS Docker driver, so run the tunnel in the background,
@@ -384,7 +425,7 @@ step "Lab Ready"
 echo -e "
 ${BOLD}  TaskFlow App${RESET}
   Open:        minikube service frontend -n taskapp -p $PROFILE
-  Alt access:  kubectl port-forward svc/frontend 8080:80 -n taskapp
+  Alt access:  kubectl port-forward svc/frontend 8081:80 -n taskapp
 
 ${BOLD}  Grafana${RESET}
   Command:     kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
@@ -397,6 +438,11 @@ ${BOLD}  DNS Lab${RESET}
   Restore DNS: kubectl create configmap coredns -n kube-system \\
                  --from-file=Corefile=/tmp/corefile-backup.txt \\
                  --dry-run=client -o yaml | kubectl apply -f -
+
+${BOLD}  ArgoCD${RESET}
+  URL:         ${GREEN}https://localhost:8080${RESET}
+  Login:       admin / $ARGOCD_PASSWORD
+  Re-forward:  kubectl port-forward svc/argocd-server 8080:443 -n argocd &
 
 ${BOLD}  Toolbox Pod${RESET}
   SSH:         ${GREEN}ssh aks-toolbox${RESET}
