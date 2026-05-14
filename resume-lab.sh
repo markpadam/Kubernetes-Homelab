@@ -40,60 +40,26 @@ success "Cluster up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') no
 # ── Port-forwards ─────────────────────────────
 step "Restoring Port-Forwards"
 
-# Kill any stale port-forwards from a previous session
-log "Clearing stale port-forwards..."
-lsof -ti:2222 | xargs kill -9 2>/dev/null || true
-lsof -ti:8080 | xargs kill -9 2>/dev/null || true
-lsof -ti:8082 | xargs kill -9 2>/dev/null || true
-sleep 1
+_start_portforward() {
+  local name="$1" port="$2" cmd="$3" log="$4"
+  lsof -ti:"$port" | xargs kill -9 2>/dev/null || true
+  sleep 1
+  eval "$cmd >> $log 2>&1 &"
+  local pid=$!
+  sleep 2
+  if kill -0 "$pid" 2>/dev/null; then
+    success "$name port-forward running (PID $pid) — localhost:$port"
+  else
+    warn "$name port-forward may have failed — check $log"
+  fi
+}
 
-# Toolbox SSH — localhost:2222
-log "Starting SSH port-forward: localhost:2222 → toolbox:22 ..."
-kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox \
-  >> /tmp/toolbox-portforward.log 2>&1 &
-TOOLBOX_PID=$!
-sleep 3
-if kill -0 "$TOOLBOX_PID" 2>/dev/null; then
-  success "Toolbox SSH port-forward running (PID $TOOLBOX_PID)"
-else
-  warn "Toolbox SSH port-forward may have failed — check /tmp/toolbox-portforward.log"
-fi
-
-# ArgoCD — localhost:8080
-log "Starting ArgoCD port-forward: localhost:8080 → argocd-server:443 ..."
-kubectl port-forward svc/argocd-server 8080:443 -n argocd \
-  >> /tmp/argocd-portforward.log 2>&1 &
-ARGOCD_PID=$!
-sleep 3
-if kill -0 "$ARGOCD_PID" 2>/dev/null; then
-  success "ArgoCD port-forward running (PID $ARGOCD_PID)"
-else
-  warn "ArgoCD port-forward may have failed — check /tmp/argocd-portforward.log"
-fi
-
-# Frontend — minikube tunnel (background, macOS Docker driver workaround)
-log "Starting frontend tunnel..."
-minikube service frontend -n taskapp -p "$PROFILE" --url > /tmp/minikube-frontend-url.txt 2>&1 &
-TUNNEL_PID=$!
-sleep 4
-FRONTEND_URL=$(grep -oE 'http://[^ ]+' /tmp/minikube-frontend-url.txt | head -1)
-if [[ -n "$FRONTEND_URL" ]]; then
-  success "Frontend tunnel running (PID $TUNNEL_PID) — $FRONTEND_URL"
-else
-  warn "Could not determine frontend URL — run manually: minikube service frontend -n taskapp -p $PROFILE"
-fi
-
-# Blob Explorer — localhost:8082
-log "Starting Blob Explorer port-forward: localhost:8082 → blob-explorer:80 ..."
-kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer \
-  >> /tmp/blob-explorer-portforward.log 2>&1 &
-BLOB_PID=$!
-sleep 3
-if kill -0 "$BLOB_PID" 2>/dev/null; then
-  success "Blob Explorer port-forward running (PID $BLOB_PID)"
-else
-  warn "Blob Explorer port-forward may have failed — check /tmp/blob-explorer-portforward.log"
-fi
+log "Clearing stale port-forwards and starting fresh..."
+_start_portforward "Toolbox SSH"   2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"                                  /tmp/toolbox-portforward.log
+_start_portforward "ArgoCD"        8080 "kubectl port-forward svc/argocd-server 8080:443 -n argocd"                                 /tmp/argocd-portforward.log
+_start_portforward "TaskFlow"      8081 "kubectl port-forward svc/frontend 8081:80 -n taskapp"                                      /tmp/taskflow-portforward.log
+_start_portforward "Grafana"       3000 "kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring"                         /tmp/grafana-portforward.log
+_start_portforward "Blob Explorer" 8082 "kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer"             /tmp/blob-explorer-portforward.log
 
 # Retrieve ArgoCD password for the summary
 ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
@@ -103,26 +69,15 @@ ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
 step "Lab Resumed"
 
 echo -e "
-${BOLD}  TaskFlow App${RESET}
-  Open:        ${GREEN}${FRONTEND_URL:-run: minikube service frontend -n taskapp -p $PROFILE}${RESET}
-  Alt access:  kubectl port-forward svc/frontend 8081:80 -n taskapp
-
-${BOLD}  Grafana${RESET}
-  Command:     kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
-  URL:         ${GREEN}http://localhost:3000${RESET}
-  Login:       admin / $GRAFANA_PASSWORD
-
-${BOLD}  ArgoCD${RESET}
-  URL:         ${GREEN}https://localhost:8080${RESET}
-  Login:       admin / $ARGOCD_PASSWORD
+${BOLD}  Service URLs${RESET}
+  TaskFlow:      ${GREEN}http://taskflow.aks-lab.local:8081${RESET}
+  Grafana:       ${GREEN}http://grafana.aks-lab.local:3000${RESET}       login: admin / $GRAFANA_PASSWORD
+  ArgoCD:        ${GREEN}https://argocd.aks-lab.local:8080${RESET}      login: admin / $ARGOCD_PASSWORD
+  Blob Explorer: ${GREEN}http://blob-explorer.aks-lab.local:8082${RESET}
 
 ${BOLD}  Toolbox Pod${RESET}
   SSH:         ${GREEN}ssh aks-toolbox${RESET}
   Or:          ssh -p 2222 root@localhost
-
-${BOLD}  Blob Explorer (Azurite)${RESET}
-  URL:         ${GREEN}http://localhost:8082${RESET}
-  Re-forward:  kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer &
 
 ${BOLD}  Flux${RESET}
   Status:      flux get all -n flux-system

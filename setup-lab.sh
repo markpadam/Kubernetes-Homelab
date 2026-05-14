@@ -491,33 +491,81 @@ kubectl wait gitrepository/homelab \
 
 success "Flux installed — watching ${GITHUB_REPO} @ ${FLUX_APPS_PATH}"
 
-# ── Open the app ─────────────────────────────
-step "Opening TaskFlow"
-# minikube service blocks on macOS Docker driver, so run the tunnel in the background,
-# wait briefly for the URL file to populate, then open it.
-minikube service frontend -n taskapp -p "$PROFILE" --url > /tmp/minikube-frontend-url.txt 2>&1 &
-TUNNEL_PID=$!
-sleep 4
-FRONTEND_URL=$(grep -oE 'http://[^ ]+' /tmp/minikube-frontend-url.txt | head -1)
-if [[ -n "$FRONTEND_URL" ]]; then
-  success "Frontend tunnel running in background (PID $TUNNEL_PID) — $FRONTEND_URL"
-  open "$FRONTEND_URL" 2>/dev/null || true
-else
-  warn "Could not determine frontend URL — run manually: minikube service frontend -n taskapp -p $PROFILE"
-fi
+# ── Port-Forwards ────────────────────────────
+step "Starting Port-Forwards"
+
+_start_portforward() {
+  local name="$1" port="$2" cmd="$3" log="$4"
+  lsof -ti:"$port" | xargs kill -9 2>/dev/null || true
+  sleep 1
+  eval "$cmd >> $log 2>&1 &"
+  local pid=$!
+  sleep 2
+  if kill -0 "$pid" 2>/dev/null; then
+    success "$name port-forward running (PID $pid) — localhost:$port"
+  else
+    warn "$name port-forward may have failed — check $log"
+  fi
+}
+
+_start_portforward "TaskFlow"     8081 "kubectl port-forward svc/frontend 8081:80 -n taskapp"                                       /tmp/taskflow-portforward.log
+_start_portforward "Grafana"      3000 "kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring"                          /tmp/grafana-portforward.log
+_start_portforward "Blob Explorer" 8082 "kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer"             /tmp/blob-explorer-portforward.log
+
+# ── Local DNS (/etc/hosts) ───────────────────
+step "Configuring Local DNS"
+
+_add_hosts_entry() {
+  local host="$1"
+  if grep -qF "127.0.0.1 $host" /etc/hosts; then
+    warn "$host already in /etc/hosts — skipping"
+  else
+    echo "127.0.0.1 $host" | sudo tee -a /etc/hosts > /dev/null
+    success "Added $host → /etc/hosts"
+  fi
+}
+
+log "Adding aks-lab.local entries to /etc/hosts (sudo required)..."
+_add_hosts_entry "taskflow.aks-lab.local"
+_add_hosts_entry "grafana.aks-lab.local"
+_add_hosts_entry "argocd.aks-lab.local"
+_add_hosts_entry "blob-explorer.aks-lab.local"
+
+# ── Safari Bookmarks ─────────────────────────
+step "Generating Safari Bookmarks"
+
+cat > lab-bookmarks.html << 'EOF'
+<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<!-- Import into Safari: File → Import From → Bookmarks HTML File -->
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<TITLE>AKS Lab</TITLE>
+<H1>Bookmarks</H1>
+<DL><p>
+    <DT><H3>aks-lab</H3>
+    <DL><p>
+        <DT><A HREF="http://taskflow.aks-lab.local:8081">TaskFlow</A>
+        <DT><A HREF="http://grafana.aks-lab.local:3000">Grafana</A>
+        <DT><A HREF="https://argocd.aks-lab.local:8080">ArgoCD</A>
+        <DT><A HREF="http://blob-explorer.aks-lab.local:8082">Blob Explorer</A>
+    </DL><p>
+</DL><p>
+EOF
+
+success "Bookmarks written to lab-bookmarks.html"
+log "Import into Safari: File → Import From → Bookmarks HTML File"
 
 # ── Done ─────────────────────────────────────
 step "Lab Ready"
 
 echo -e "
-${BOLD}  TaskFlow App${RESET}
-  Open:        minikube service frontend -n taskapp -p $PROFILE
-  Alt access:  kubectl port-forward svc/frontend 8081:80 -n taskapp
+${BOLD}  Service URLs${RESET}
+  TaskFlow:      ${GREEN}http://taskflow.aks-lab.local:8081${RESET}
+  Grafana:       ${GREEN}http://grafana.aks-lab.local:3000${RESET}       login: admin / $GRAFANA_PASSWORD
+  ArgoCD:        ${GREEN}https://argocd.aks-lab.local:8080${RESET}      login: admin / $ARGOCD_PASSWORD
+  Blob Explorer: ${GREEN}http://blob-explorer.aks-lab.local:8082${RESET}
 
-${BOLD}  Grafana${RESET}
-  Command:     kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
-  URL:         ${GREEN}http://localhost:3000${RESET}
-  Login:       admin / $GRAFANA_PASSWORD
+${BOLD}  Safari Bookmarks${RESET}
+  File → Import From → Bookmarks HTML File → lab-bookmarks.html
 
 ${BOLD}  DNS Lab${RESET}
   bind9 IP:    $BIND9_IP (simulated ADDS)
@@ -526,21 +574,11 @@ ${BOLD}  DNS Lab${RESET}
                  --from-file=Corefile=/tmp/corefile-backup.txt \\
                  --dry-run=client -o yaml | kubectl apply -f -
 
-${BOLD}  ArgoCD${RESET}
-  URL:         ${GREEN}https://localhost:8080${RESET}
-  Login:       admin / $ARGOCD_PASSWORD
-  Re-forward:  kubectl port-forward svc/argocd-server 8080:443 -n argocd &
-
 ${BOLD}  Flux (GitOps)${RESET}
   Watching:    $GITHUB_REPO @ $FLUX_APPS_PATH
   Add apps:    commit manifests to flux-apps/ and push — Flux syncs within 1 min
   Status:      flux get all -n flux-system
   Force sync:  flux reconcile kustomization flux-apps -n flux-system
-
-${BOLD}  Blob Explorer (Azurite)${RESET}
-  Forward:     kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer &
-  URL:         ${GREEN}http://localhost:8082${RESET}
-  Storage:     Azurite running in azure-storage namespace (Blob :10000, Queue :10001, Table :10002)
 
 ${BOLD}  Toolbox Pod${RESET}
   SSH:         ${GREEN}ssh aks-toolbox${RESET}

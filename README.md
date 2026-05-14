@@ -25,18 +25,23 @@ cd <repo-name>
 
 ## Access
 
-| Service | How to Access | URL |
+All services use stable ports and friendly local DNS names added to `/etc/hosts` by `setup-lab.sh`.
+
+| Service | Local URL | Login |
 | --- | --- | --- |
-| TaskFlow App | `minikube service frontend -n taskapp -p aks-lab` | Opens automatically |
-| TaskFlow (alt) | `kubectl port-forward svc/frontend 8081:80 -n taskapp` | <http://localhost:8081> |
-| Grafana | `kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring` | <http://localhost:3000> |
-| ArgoCD | `kubectl port-forward svc/argocd-server 8080:443 -n argocd` | <https://localhost:8080> |
-| Blob Explorer | `kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer` | <http://localhost:8082> |
+| TaskFlow | <http://taskflow.aks-lab.local:8081> | — |
+| Grafana | <http://grafana.aks-lab.local:3000> | admin / admin123 |
+| ArgoCD | <https://argocd.aks-lab.local:8080> | admin / *(printed at setup end)* |
+| Blob Explorer | <http://blob-explorer.aks-lab.local:8082> | — |
 | Toolbox SSH | `ssh aks-toolbox` | — |
 
-**Grafana login:** `admin` / `admin123`  
-**ArgoCD login:** `admin` / *(printed at end of setup — stored in `argocd-initial-admin-secret`)*  
-**Blob Explorer:** no login — upload, list, download and delete blobs via the UI
+### Safari Bookmarks
+
+`setup-lab.sh` generates `lab-bookmarks.html` in the repo root. Import it once:
+
+> **Safari → File → Import From → Bookmarks HTML File → select `lab-bookmarks.html`**
+
+This creates an **aks-lab** folder in your Favourites bar with all four services. The `/etc/hosts` entries are permanent so the URLs work every time the lab is running.
 
 > **macOS + Docker driver:** `minikube ip` returns an address inside Docker's Linux VM that your Mac cannot route to directly. Always use `minikube service` or `kubectl port-forward` to access services.
 
