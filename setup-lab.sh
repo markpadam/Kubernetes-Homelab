@@ -365,7 +365,18 @@ success "Toolbox ready — connect with: ssh aks-toolbox"
 
 # ── Open the app ─────────────────────────────
 step "Opening TaskFlow"
-minikube service frontend -n taskapp -p "$PROFILE"
+# minikube service blocks on macOS Docker driver, so run the tunnel in the background,
+# wait briefly for the URL file to populate, then open it.
+minikube service frontend -n taskapp -p "$PROFILE" --url > /tmp/minikube-frontend-url.txt 2>&1 &
+TUNNEL_PID=$!
+sleep 4
+FRONTEND_URL=$(grep -oE 'http://[^ ]+' /tmp/minikube-frontend-url.txt | head -1)
+if [[ -n "$FRONTEND_URL" ]]; then
+  success "Frontend tunnel running in background (PID $TUNNEL_PID) — $FRONTEND_URL"
+  open "$FRONTEND_URL" 2>/dev/null || true
+else
+  warn "Could not determine frontend URL — run manually: minikube service frontend -n taskapp -p $PROFILE"
+fi
 
 # ── Done ─────────────────────────────────────
 step "Lab Ready"
