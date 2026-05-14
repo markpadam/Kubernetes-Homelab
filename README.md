@@ -40,14 +40,6 @@ All services use stable ports and friendly local DNS names added to `/etc/hosts`
 
 `setup-lab.sh` and `resume-lab.sh` both generate and auto-open a local dashboard at `/tmp/lab-dashboard.html`. It shows all service links, live credentials (including the current ArgoCD password), copy-to-clipboard commands, and infrastructure info.
 
-### Safari Bookmarks
-
-`setup-lab.sh` generates `lab-bookmarks.html` in the repo root. Import it once:
-
-> **Safari → File → Import From → Bookmarks HTML File → select `lab-bookmarks.html`**
-
-This creates an **aks-lab** folder in your Favourites bar with all four services. The `/etc/hosts` entries are permanent so the URLs work every time the lab is running.
-
 > **macOS + Docker driver:** `minikube ip` returns an address inside Docker's Linux VM that your Mac cannot route to directly. Always use `minikube service` or `kubectl port-forward` to access services.
 
 ---

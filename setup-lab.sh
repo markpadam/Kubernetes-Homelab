@@ -555,30 +555,6 @@ _add_hosts_entry "argocd.aks-lab.local"
 _add_hosts_entry "blob-explorer.aks-lab.local"
 _add_hosts_entry "vault.aks-lab.local"
 
-# ── Safari Bookmarks ─────────────────────────
-step "Generating Safari Bookmarks"
-
-cat > lab-bookmarks.html << 'EOF'
-<!DOCTYPE NETSCAPE-Bookmark-file-1>
-<!-- Import into Safari: File → Import From → Bookmarks HTML File -->
-<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
-<TITLE>AKS Lab</TITLE>
-<H1>Bookmarks</H1>
-<DL><p>
-    <DT><H3>aks-lab</H3>
-    <DL><p>
-        <DT><A HREF="http://taskflow.aks-lab.local:8081">TaskFlow</A>
-        <DT><A HREF="http://grafana.aks-lab.local:3000">Grafana</A>
-        <DT><A HREF="https://argocd.aks-lab.local:8080">ArgoCD</A>
-        <DT><A HREF="http://blob-explorer.aks-lab.local:8082">Blob Explorer</A>
-        <DT><A HREF="http://vault.aks-lab.local:8200/ui">HashiCorp Vault</A>
-    </DL><p>
-</DL><p>
-EOF
-
-success "Bookmarks written to lab-bookmarks.html"
-log "Import into Safari: File → Import From → Bookmarks HTML File"
-
 # ── Dashboard ─────────────────────────────────
 step "Generating Dashboard"
 
@@ -748,9 +724,6 @@ ${BOLD}  Vault (Azure Key Vault equivalent)${RESET}
   KV v2 path:  vault kv list ${VAULT_KV_PATH}/azure-services
   K8s auth:    ${VAULT_AUTH_PATH}/login
   Logs:        /tmp/vault-dev.log, /tmp/vault-terraform-apply.log
-
-${BOLD}  Safari Bookmarks${RESET}
-  File → Import From → Bookmarks HTML File → lab-bookmarks.html
 
 ${BOLD}  DNS Lab${RESET}
   bind9 IP:    $BIND9_IP (simulated ADDS)
