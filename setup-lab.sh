@@ -42,7 +42,7 @@ command -v kubectl   &>/dev/null || error "kubectl not found. Run: brew install 
 command -v helm      &>/dev/null || error "Helm not found. Run: brew install helm"
 command -v flux      &>/dev/null || error "Flux CLI not found. Run: brew install fluxcd/tap/flux"
 command -v terraform &>/dev/null || error "Terraform not found. Run: brew install terraform"
-command -v vault     &>/dev/null || error "Vault CLI not found. Run: brew install vault"
+command -v vault     &>/dev/null || error "Vault CLI not found. Run: brew install hashicorp/tap/vault"
 
 docker info &>/dev/null || error "Docker daemon is not running. Start Docker Desktop."
 

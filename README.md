@@ -54,7 +54,7 @@ All services use stable ports and friendly local DNS names added to `/etc/hosts`
 | Helm | `brew install helm` |
 | Flux CLI | `brew install fluxcd/tap/flux` |
 | Terraform | `brew install terraform` |
-| Vault CLI | `brew install vault` |
+| Vault CLI | `brew install hashicorp/tap/vault` |
 
 ---
 
