@@ -1,6 +1,6 @@
 # Kubernetes AKS Lab
 
-A local Kubernetes lab running on Minikube that simulates an AKS environment. Includes a multi-tier demo app, simulated Active Directory DNS (bind9), CoreDNS stub zone forwarding, Prometheus/Grafana monitoring, ArgoCD (ephemeral GitOps playground), Flux (code-driven GitOps — apps survive teardown/recreate), Azurite (Azure Storage emulator), a .NET Blob Explorer app deployed via Helm and Flux, and a persistent Ubuntu toolbox pod for network testing.
+A local Kubernetes lab running on Minikube that simulates an AKS environment. Includes a multi-tier demo app, simulated Active Directory DNS (bind9), CoreDNS stub zone forwarding, Prometheus/Grafana monitoring, ArgoCD (ephemeral GitOps playground), Flux (code-driven GitOps — apps survive teardown/recreate), Azurite (Azure Storage emulator), a .NET Blob Explorer app deployed via Helm and Flux, HashiCorp Vault in dev mode (Azure Key Vault equivalent, with Kubernetes auth), and a persistent Ubuntu toolbox pod for network testing.
 
 ---
 
@@ -33,6 +33,7 @@ All services use stable ports and friendly local DNS names added to `/etc/hosts`
 | Grafana | <http://grafana.aks-lab.local:3000> | admin / admin123 |
 | ArgoCD | <https://argocd.aks-lab.local:8080> | admin / *(printed at setup end)* |
 | Blob Explorer | <http://blob-explorer.aks-lab.local:8082> | — |
+| Vault UI | <http://vault.aks-lab.local:8200/ui> | token: root |
 | Toolbox SSH | `ssh aks-toolbox` | — |
 
 ### Dashboard
@@ -60,6 +61,8 @@ This creates an **aks-lab** folder in your Favourites bar with all four services
 | kubectl | `brew install kubectl` |
 | Helm | `brew install helm` |
 | Flux CLI | `brew install fluxcd/tap/flux` |
+| Terraform | `brew install terraform` |
+| Vault CLI | `brew install vault` |
 
 ---
 
@@ -93,8 +96,18 @@ This creates an **aks-lab** folder in your Favourites bar with all four services
 │   ├── azurite/              # Azure Storage emulator (Blob, Queue, Table)
 │   └── blob-explorer/        # HelmRelease for the .NET Blob Explorer app
 │
-└── helm-charts/
-    └── blob-explorer/        # Helm chart for the .NET Blob Explorer app
+├── helm-charts/
+│   └── blob-explorer/        # Helm chart for the .NET Blob Explorer app
+│
+├── terraform/
+│   └── local-mac/            # HashiCorp Vault in dev mode (Azure Key Vault equivalent)
+│       ├── main.tf           # Vault dev server lifecycle + Kubernetes reviewer account
+│       ├── vault_config.tf   # KV v2, policies, Kubernetes auth backend
+│       ├── variables.tf
+│       ├── outputs.tf
+│       ├── versions.tf
+│       └── scripts/
+│           └── get-k8s-config.py   # Reads cluster CA cert + reviewer JWT for Vault
 │
 └── toolbox/
     ├── Dockerfile            # Pre-built toolbox image (all tools installed at build time)
@@ -138,6 +151,9 @@ Installs ArgoCD into the `argocd` namespace using server-side apply, waits for t
 
 **Step 10 — Flux**
 Installs Flux controllers into the `flux-system` namespace, creates a `GitRepository` source pointing to this repo, and applies a `Kustomization` that watches `flux-apps/`. Any manifests committed to `flux-apps/` are automatically reconciled into the cluster within one minute of a push — on every fresh lab start they are restored without any manual intervention.
+
+**Step 11 — HashiCorp Vault**
+Runs `terraform init` and `terraform apply` in `terraform/local-mac/`. This starts a Vault dev server as a background process on the Mac, creates a dedicated Kubernetes reviewer service account (used by Vault to validate pod tokens via the TokenReview API), mounts a KV v2 secrets engine, and configures the Kubernetes auth backend so pods in the `taskapp`, `blob-explorer`, and `azure-storage` namespaces can authenticate without embedding credentials. The Vault UI is available at `http://vault.aks-lab.local:8200/ui` with token `root`.
 
 ---
 
@@ -261,6 +277,74 @@ This is Azurite's fixed well-known default — not real credentials. To point th
 
 ---
 
+## HashiCorp Vault
+
+Vault runs in dev mode as a background process on your Mac — the lab equivalent of Azure Key Vault. It is provisioned automatically by `setup-lab.sh` (Step 11) via Terraform and reconfigured by `resume-lab.sh` if the process has stopped (e.g. after a Mac restart).
+
+```bash
+# Open the UI (token: root)
+open http://vault.aks-lab.local:8200/ui
+
+# CLI access
+export VAULT_ADDR=http://127.0.0.1:8200
+export VAULT_TOKEN=root
+vault status
+
+# List and read secrets
+vault kv list secret/azure-services
+vault kv put secret/azure-services/my-secret value=hello
+vault kv get secret/azure-services/my-secret
+
+# Check the Kubernetes auth backend
+vault auth list
+vault read auth/kubernetes/config
+
+# View what was applied by Terraform
+cd terraform/local-mac
+terraform output
+```
+
+Vault data is **in-memory only** — secrets are wiped when the Vault process stops (Mac restart, `pkill vault`, `terraform destroy`). This matches the ephemeral nature of the lab.
+
+### Kubernetes Auth (pod authentication)
+
+Pods in the `taskapp`, `blob-explorer`, and `azure-storage` namespaces can authenticate with Vault using their service account tokens — no passwords embedded in pod specs.
+
+```bash
+# Test from inside a pod (equivalent to how an app would authenticate)
+kubectl run vault-test -n blob-explorer --rm -it \
+  --image=hashicorp/vault:latest \
+  --restart=Never -- \
+  vault write auth/kubernetes/login \
+    role=azure-services \
+    jwt="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+```
+
+### Azure Key Vault mapping
+
+| Lab | Azure |
+| --- | --- |
+| HashiCorp Vault dev mode | Azure Key Vault |
+| KV v2 `secret/` mount | Key Vault secrets store |
+| `azure-services` policy | Key Vault access policy / RBAC role |
+| Kubernetes auth backend | AKS Workload Identity / Managed Identity |
+| Reviewer service account | Azure's OIDC token validation infrastructure |
+| `vault kv get secret/azure-services/my-secret` | `az keyvault secret show --name my-secret` |
+
+### Terraform
+
+The Vault infrastructure is defined in `terraform/local-mac/` and is fully reproducible:
+
+```bash
+cd terraform/local-mac
+terraform init
+terraform plan
+terraform apply
+terraform destroy   # stops Vault and removes K8s reviewer resources
+```
+
+---
+
 ## ArgoCD
 
 ArgoCD is installed into the `argocd` namespace and exposed on `localhost:8080` via a background port-forward started by `setup-lab.sh`. Apps deployed via the ArgoCD UI are **ephemeral** — they are wiped on teardown. Use `flux-apps/` for anything you want to persist.
@@ -371,6 +455,16 @@ kubectl get pods -n blob-explorer
 kubectl get pods -n azure-storage
 kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer &
 
+# Vault
+export VAULT_ADDR=http://127.0.0.1:8200
+export VAULT_TOKEN=root
+vault status
+vault kv list secret/azure-services
+vault kv put secret/azure-services/my-secret value=hello
+vault kv get secret/azure-services/my-secret
+vault auth list
+cd terraform/local-mac && terraform output
+
 # Stop and restart without wiping
 minikube stop -p aks-lab
 minikube start -p aks-lab
@@ -394,4 +488,7 @@ minikube start -p aks-lab
 | GitOps (persistent) | Flux (`flux-system` namespace, `flux-apps/`) |
 | Azure Storage Account | Azurite (`azure-storage` namespace) |
 | App deployed via Helm + GitOps | Blob Explorer (Helm chart + Flux HelmRelease) |
+| Azure Key Vault | HashiCorp Vault dev mode (KV v2 + Kubernetes auth) |
+| Key Vault access policy / RBAC | `azure-services` Vault policy |
+| AKS Workload Identity | Vault Kubernetes auth backend |
 | NodeLocal DNSCache | Not yet configured (see docs) |

@@ -41,6 +41,8 @@ command -v minikube  &>/dev/null || error "Minikube not found. Run: brew install
 command -v kubectl   &>/dev/null || error "kubectl not found. Run: brew install kubectl"
 command -v helm      &>/dev/null || error "Helm not found. Run: brew install helm"
 command -v flux      &>/dev/null || error "Flux CLI not found. Run: brew install fluxcd/tap/flux"
+command -v terraform &>/dev/null || error "Terraform not found. Run: brew install terraform"
+command -v vault     &>/dev/null || error "Vault CLI not found. Run: brew install vault"
 
 docker info &>/dev/null || error "Docker daemon is not running. Start Docker Desktop."
 
@@ -491,6 +493,27 @@ kubectl wait gitrepository/homelab \
 
 success "Flux installed — watching ${GITHUB_REPO} @ ${FLUX_APPS_PATH}"
 
+# ── Step 11: Vault ───────────────────────────
+step "Step 11 — HashiCorp Vault (Azure Key Vault equivalent)"
+
+VAULT_ADDR="http://127.0.0.1:8200"
+VAULT_TOKEN="root"
+VAULT_KV_PATH="secret"
+VAULT_AUTH_PATH="kubernetes"
+
+log "Initialising Terraform providers (first run downloads ~100 MB)..."
+terraform -chdir=terraform/local-mac init -upgrade -reconfigure -input=false \
+  > /tmp/vault-terraform-init.log 2>&1
+
+log "Applying Vault configuration (starts dev server + configures K8s auth)..."
+terraform -chdir=terraform/local-mac apply -auto-approve -input=false \
+  >> /tmp/vault-terraform-apply.log 2>&1
+
+success "Vault ready — ${VAULT_ADDR}/ui  (token: ${VAULT_TOKEN})"
+log "  KV v2 secrets:  ${VAULT_KV_PATH}/azure-services/*"
+log "  K8s auth path:  ${VAULT_AUTH_PATH}/login"
+log "  Full log:       /tmp/vault-terraform-apply.log"
+
 # ── Port-Forwards ────────────────────────────
 step "Starting Port-Forwards"
 
@@ -530,6 +553,7 @@ _add_hosts_entry "taskflow.aks-lab.local"
 _add_hosts_entry "grafana.aks-lab.local"
 _add_hosts_entry "argocd.aks-lab.local"
 _add_hosts_entry "blob-explorer.aks-lab.local"
+_add_hosts_entry "vault.aks-lab.local"
 
 # ── Safari Bookmarks ─────────────────────────
 step "Generating Safari Bookmarks"
@@ -547,6 +571,7 @@ cat > lab-bookmarks.html << 'EOF'
         <DT><A HREF="http://grafana.aks-lab.local:3000">Grafana</A>
         <DT><A HREF="https://argocd.aks-lab.local:8080">ArgoCD</A>
         <DT><A HREF="http://blob-explorer.aks-lab.local:8082">Blob Explorer</A>
+        <DT><A HREF="http://vault.aks-lab.local:8200/ui">HashiCorp Vault</A>
     </DL><p>
 </DL><p>
 EOF
@@ -578,7 +603,7 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
     .dot { width: 10px; height: 10px; background: var(--green); border-radius: 50%; box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; flex-shrink: 0; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
     .section-title { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; margin-top: 24px; }
-    .services { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
+    .services { display: grid; grid-template-columns: repeat(5,1fr); gap: 12px; }
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-decoration: none; color: var(--text); display: block; transition: border-color .15s, transform .15s; }
     .card:hover { border-color: var(--blue); transform: translateY(-2px); }
     .card-name { font-weight: 600; font-size: 15px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
@@ -587,6 +612,7 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
     .card-open { font-size: 12px; color: var(--blue); }
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .three-col { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+    .four-col { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; }
     .panel { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; height: 100%; }
     .row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
     .row:last-child { border-bottom: none; }
@@ -628,6 +654,11 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
     <div class="card-url">blob-explorer.aks-lab.local:8082</div>
     <div class="card-open">Open ↗</div>
   </a>
+  <a class="card" href="http://vault.aks-lab.local:8200/ui" target="_blank">
+    <div class="card-name"><span class="card-dot"></span>HashiCorp Vault</div>
+    <div class="card-url">vault.aks-lab.local:8200/ui</div>
+    <div class="card-open">Open ↗</div>
+  </a>
 </div>
 
 <div class="section-title">Credentials &amp; Toolbox</div>
@@ -635,6 +666,7 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
   <div class="panel">
     <div class="row"><span class="row-label">Grafana</span><span class="row-val">admin / $GRAFANA_PASSWORD</span></div>
     <div class="row"><span class="row-label">ArgoCD</span><span class="row-val">admin / $ARGOCD_PASSWORD</span></div>
+    <div class="row"><span class="row-label">Vault</span><span class="row-val">token: $VAULT_TOKEN</span></div>
   </div>
   <div class="panel">
     <div class="cmd-row">ssh aks-toolbox<button class="copy-btn" onclick="cp(this,'ssh aks-toolbox')">copy</button></div>
@@ -649,9 +681,12 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
 <div class="cmd-row">flux get all -n flux-system<button class="copy-btn" onclick="cp(this,'flux get all -n flux-system')">copy</button></div>
 <div class="cmd-row">flux reconcile kustomization flux-apps -n flux-system<button class="copy-btn" onclick="cp(this,'flux reconcile kustomization flux-apps -n flux-system')">copy</button></div>
 <div class="cmd-row">minikube stop -p $PROFILE<button class="copy-btn" onclick="cp(this,'minikube stop -p $PROFILE')">copy</button></div>
+<div class="cmd-row">vault status<button class="copy-btn" onclick="cp(this,'vault status')">copy</button></div>
+<div class="cmd-row">vault kv list $VAULT_KV_PATH/azure-services<button class="copy-btn" onclick="cp(this,'vault kv list $VAULT_KV_PATH/azure-services')">copy</button></div>
+<div class="cmd-row">export VAULT_ADDR=$VAULT_ADDR VAULT_TOKEN=$VAULT_TOKEN<button class="copy-btn" onclick="cp(this,'export VAULT_ADDR=$VAULT_ADDR VAULT_TOKEN=$VAULT_TOKEN')">copy</button></div>
 
 <div class="section-title">Infrastructure</div>
-<div class="three-col">
+<div class="four-col">
   <div class="panel">
     <div class="row"><span class="row-label">Repo</span><span class="row-val" style="font-size:11px">$GITHUB_REPO</span></div>
     <div class="row"><span class="row-label">Branch</span><span class="row-val">$GITHUB_BRANCH</span></div>
@@ -672,6 +707,13 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
     <div class="row"><span class="row-label">Queue</span><span class="row-val">:10001</span></div>
     <div class="row"><span class="row-label">Table</span><span class="row-val">:10002</span></div>
     <div class="row" style="border:none; padding-top:10px; font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.06em; text-transform:uppercase">Azure Storage</div>
+  </div>
+  <div class="panel">
+    <div class="row"><span class="row-label">Address</span><span class="row-val" style="font-size:11px">$VAULT_ADDR</span></div>
+    <div class="row"><span class="row-label">KV path</span><span class="row-val">$VAULT_KV_PATH/data/*</span></div>
+    <div class="row"><span class="row-label">K8s auth</span><span class="row-val">$VAULT_AUTH_PATH</span></div>
+    <div class="row"><span class="row-label">Logs</span><span class="row-val" style="font-size:11px">/tmp/vault-dev.log</span></div>
+    <div class="row" style="border:none; padding-top:10px; font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.06em; text-transform:uppercase">HashiCorp Vault</div>
   </div>
 </div>
 
@@ -700,6 +742,12 @@ ${BOLD}  Service URLs${RESET}
   Grafana:       ${GREEN}http://grafana.aks-lab.local:3000${RESET}       login: admin / $GRAFANA_PASSWORD
   ArgoCD:        ${GREEN}https://argocd.aks-lab.local:8080${RESET}      login: admin / $ARGOCD_PASSWORD
   Blob Explorer: ${GREEN}http://blob-explorer.aks-lab.local:8082${RESET}
+  Vault UI:      ${GREEN}http://vault.aks-lab.local:8200/ui${RESET}        token: ${VAULT_TOKEN}
+
+${BOLD}  Vault (Azure Key Vault equivalent)${RESET}
+  KV v2 path:  vault kv list ${VAULT_KV_PATH}/azure-services
+  K8s auth:    ${VAULT_AUTH_PATH}/login
+  Logs:        /tmp/vault-dev.log, /tmp/vault-terraform-apply.log
 
 ${BOLD}  Safari Bookmarks${RESET}
   File → Import From → Bookmarks HTML File → lab-bookmarks.html
