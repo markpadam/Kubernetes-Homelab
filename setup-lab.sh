@@ -11,7 +11,7 @@ K8S_VERSION="v1.29.0"
 NODES=3
 CPUS=2
 MEMORY=4096
-APP_DIR="apps/multi-tier-app"
+APP_DIR="Apps/multi-tier-app"
 DNS_DIR="dns-lab"
 TOOLBOX_DIR="toolbox"
 GRAFANA_PASSWORD="admin123"
@@ -83,7 +83,7 @@ success "Cluster is up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ')
 step "Step 2 — Building Lab Images"
 
 log "Building backend image..."
-minikube image build -t aks-lab/backend:latest apps/backend/ -p "$PROFILE"
+minikube image build -t aks-lab/backend:latest Apps/backend/ -p "$PROFILE"
 success "Backend image built"
 
 log "Building toolbox image (packages install at build time — takes a few minutes)..."
@@ -367,6 +367,13 @@ fi
 
 success "Toolbox ready — connect with: ssh aks-toolbox"
 
+# ── Resolve GitHub token (used by ArgoCD + Flux) ──
+if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+  read -rsp "         GitHub token (for ArgoCD + Flux repo access): " GITHUB_TOKEN
+  echo
+fi
+[[ -n "$GITHUB_TOKEN" ]] || error "GITHUB_TOKEN is required for ArgoCD and Flux to access the private repo."
+
 # ── Step 9: ArgoCD ───────────────────────────
 step "Step 9 — Installing ArgoCD"
 
@@ -406,17 +413,21 @@ else
   warn "To start manually: kubectl port-forward svc/argocd-server 8080:443 -n argocd &"
 fi
 
+log "Registering private repo credentials with ArgoCD..."
+kubectl create secret generic argocd-repo-homelab \
+  --namespace=argocd \
+  --from-literal=type=git \
+  --from-literal=url="$GITHUB_REPO" \
+  --from-literal=username=git \
+  --from-literal=password="$GITHUB_TOKEN" \
+  --dry-run=client -o yaml \
+  | kubectl label --local -f - 'argocd.argoproj.io/secret-type=repository' -o yaml \
+  | kubectl apply -f -
+
 success "ArgoCD ready — https://localhost:8080  (admin / $ARGOCD_PASSWORD)"
 
 # ── Step 10: Flux ────────────────────────────
 step "Step 10 — Installing Flux (GitOps)"
-
-# Resolve GitHub token
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  read -rsp "         GitHub token (for Flux repo access): " GITHUB_TOKEN
-  echo
-fi
-[[ -n "$GITHUB_TOKEN" ]] || error "GITHUB_TOKEN is required for Flux to pull from the private repo."
 
 # Install Flux controllers
 if flux check --pre &>/dev/null && kubectl get namespace flux-system &>/dev/null; then

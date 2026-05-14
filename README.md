@@ -59,7 +59,7 @@ cd <repo-name>
 ├── teardown-lab.sh           # Wipe everything cleanly
 ├── README.md
 │
-├── apps/
+├── Apps/
 │   ├── backend/              # TaskFlow backend source (built into Minikube's Docker)
 │   │   ├── Dockerfile
 │   │   ├── server.js
