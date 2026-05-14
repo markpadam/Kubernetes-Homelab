@@ -35,6 +35,10 @@ All services use stable ports and friendly local DNS names added to `/etc/hosts`
 | Blob Explorer | <http://blob-explorer.aks-lab.local:8082> | — |
 | Toolbox SSH | `ssh aks-toolbox` | — |
 
+### Dashboard
+
+`setup-lab.sh` and `resume-lab.sh` both generate and auto-open a local dashboard at `/tmp/lab-dashboard.html`. It shows all service links, live credentials (including the current ArgoCD password), copy-to-clipboard commands, and infrastructure info.
+
 ### Safari Bookmarks
 
 `setup-lab.sh` generates `lab-bookmarks.html` in the repo root. Import it once:

@@ -10,6 +10,9 @@ set -euo pipefail
 
 PROFILE="aks-lab"
 GRAFANA_PASSWORD="admin123"
+GITHUB_REPO="https://github.com/markpadam/Kubernetes-Homelab.git"
+GITHUB_BRANCH="main"
+FLUX_APPS_PATH="./flux-apps"
 
 # ── Colours ──────────────────────────────────
 RED='\033[0;31m'
@@ -61,9 +64,147 @@ _start_portforward "TaskFlow"      8081 "kubectl port-forward svc/frontend 8081:
 _start_portforward "Grafana"       3000 "kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring"                         /tmp/grafana-portforward.log
 _start_portforward "Blob Explorer" 8082 "kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer"             /tmp/blob-explorer-portforward.log
 
-# Retrieve ArgoCD password for the summary
+# Retrieve runtime values for the dashboard
 ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<password-already-changed>")
+BIND9_IP=$(kubectl get svc bind9 -n dns-lab -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "unavailable")
+
+# ── Dashboard ────────────────────────────────
+step "Generating Dashboard"
+
+cat > /tmp/lab-dashboard.html << HTMLEOF
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AKS Lab Dashboard</title>
+  <style>
+    :root {
+      --bg: #0d1117; --card: #161b22; --border: #30363d;
+      --text: #c9d1d9; --muted: #8b949e;
+      --green: #3fb950; --blue: #58a6ff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 32px; max-width: 1100px; margin: 0 auto; }
+    .header { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+    .header h1 { font-size: 22px; font-weight: 700; }
+    .badge { background: #1f6feb22; border: 1px solid #1f6feb55; color: var(--blue); padding: 3px 10px; border-radius: 20px; font-size: 12px; font-family: monospace; }
+    .dot { width: 10px; height: 10px; background: var(--green); border-radius: 50%; box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; flex-shrink: 0; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+    .section-title { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; margin-top: 24px; }
+    .services { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-decoration: none; color: var(--text); display: block; transition: border-color .15s, transform .15s; }
+    .card:hover { border-color: var(--blue); transform: translateY(-2px); }
+    .card-name { font-weight: 600; font-size: 15px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+    .card-url { font-size: 12px; color: var(--muted); font-family: monospace; margin-bottom: 12px; }
+    .card-open { font-size: 12px; color: var(--blue); }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .three-col { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; height: 100%; }
+    .row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .row:last-child { border-bottom: none; }
+    .row-label { color: var(--muted); }
+    .row-val { font-family: monospace; }
+    .cmd-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px; font-family: monospace; font-size: 13px; }
+    .copy-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: pointer; flex-shrink: 0; margin-left: 12px; transition: color .1s, border-color .1s; }
+    .copy-btn:hover { color: var(--blue); border-color: var(--blue); }
+    .copy-btn.copied { color: var(--green); border-color: var(--green); }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="dot"></div>
+  <h1>AKS Lab</h1>
+  <span class="badge">$PROFILE</span>
+</div>
+
+<div class="section-title">Services</div>
+<div class="services">
+  <a class="card" href="http://taskflow.aks-lab.local:8081" target="_blank">
+    <div class="card-name"><span class="card-dot"></span>TaskFlow</div>
+    <div class="card-url">taskflow.aks-lab.local:8081</div>
+    <div class="card-open">Open ↗</div>
+  </a>
+  <a class="card" href="http://grafana.aks-lab.local:3000" target="_blank">
+    <div class="card-name"><span class="card-dot"></span>Grafana</div>
+    <div class="card-url">grafana.aks-lab.local:3000</div>
+    <div class="card-open">Open ↗</div>
+  </a>
+  <a class="card" href="https://argocd.aks-lab.local:8080" target="_blank">
+    <div class="card-name"><span class="card-dot"></span>ArgoCD</div>
+    <div class="card-url">argocd.aks-lab.local:8080</div>
+    <div class="card-open">Open ↗</div>
+  </a>
+  <a class="card" href="http://blob-explorer.aks-lab.local:8082" target="_blank">
+    <div class="card-name"><span class="card-dot"></span>Blob Explorer</div>
+    <div class="card-url">blob-explorer.aks-lab.local:8082</div>
+    <div class="card-open">Open ↗</div>
+  </a>
+</div>
+
+<div class="section-title">Credentials &amp; Toolbox</div>
+<div class="two-col">
+  <div class="panel">
+    <div class="row"><span class="row-label">Grafana</span><span class="row-val">admin / $GRAFANA_PASSWORD</span></div>
+    <div class="row"><span class="row-label">ArgoCD</span><span class="row-val">admin / $ARGOCD_PASSWORD</span></div>
+  </div>
+  <div class="panel">
+    <div class="cmd-row">ssh aks-toolbox<button class="copy-btn" onclick="cp(this,'ssh aks-toolbox')">copy</button></div>
+    <div class="cmd-row">ssh -p 2222 root@localhost<button class="copy-btn" onclick="cp(this,'ssh -p 2222 root@localhost')">copy</button></div>
+  </div>
+</div>
+
+<div class="section-title">Quick Commands</div>
+<div class="cmd-row">kubectl get pods -A<button class="copy-btn" onclick="cp(this,'kubectl get pods -A')">copy</button></div>
+<div class="cmd-row">kubectl get nodes -o wide<button class="copy-btn" onclick="cp(this,'kubectl get nodes -o wide')">copy</button></div>
+<div class="cmd-row">kubectl get hpa -n taskapp<button class="copy-btn" onclick="cp(this,'kubectl get hpa -n taskapp')">copy</button></div>
+<div class="cmd-row">flux get all -n flux-system<button class="copy-btn" onclick="cp(this,'flux get all -n flux-system')">copy</button></div>
+<div class="cmd-row">flux reconcile kustomization flux-apps -n flux-system<button class="copy-btn" onclick="cp(this,'flux reconcile kustomization flux-apps -n flux-system')">copy</button></div>
+<div class="cmd-row">minikube stop -p $PROFILE<button class="copy-btn" onclick="cp(this,'minikube stop -p $PROFILE')">copy</button></div>
+
+<div class="section-title">Infrastructure</div>
+<div class="three-col">
+  <div class="panel">
+    <div class="row"><span class="row-label">Repo</span><span class="row-val" style="font-size:11px">$GITHUB_REPO</span></div>
+    <div class="row"><span class="row-label">Branch</span><span class="row-val">$GITHUB_BRANCH</span></div>
+    <div class="row"><span class="row-label">Path</span><span class="row-val">$FLUX_APPS_PATH</span></div>
+    <div class="row"><span class="row-label">Interval</span><span class="row-val">1 min</span></div>
+    <div class="row" style="border:none; padding-top:10px; font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.06em; text-transform:uppercase">Flux GitOps</div>
+  </div>
+  <div class="panel">
+    <div class="row"><span class="row-label">bind9 IP</span><span class="row-val">$BIND9_IP</span></div>
+    <div class="row"><span class="row-label">Zone</span><span class="row-val">corp.internal</span></div>
+    <div class="row"><span class="row-label">Zone</span><span class="row-val">privatelink.*</span></div>
+    <div class="row"><span class="row-label">Edit</span><span class="row-val" style="font-size:11px">dns-lab/dns-config.yaml</span></div>
+    <div class="row" style="border:none; padding-top:10px; font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.06em; text-transform:uppercase">DNS Lab</div>
+  </div>
+  <div class="panel">
+    <div class="row"><span class="row-label">Emulator</span><span class="row-val">Azurite</span></div>
+    <div class="row"><span class="row-label">Blob</span><span class="row-val">:10000</span></div>
+    <div class="row"><span class="row-label">Queue</span><span class="row-val">:10001</span></div>
+    <div class="row"><span class="row-label">Table</span><span class="row-val">:10002</span></div>
+    <div class="row" style="border:none; padding-top:10px; font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.06em; text-transform:uppercase">Azure Storage</div>
+  </div>
+</div>
+
+<script>
+  function cp(btn, text) {
+    navigator.clipboard.writeText(text).then(function() {
+      btn.textContent = 'copied';
+      btn.classList.add('copied');
+      setTimeout(function() { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1500);
+    });
+  }
+</script>
+</body>
+</html>
+HTMLEOF
+
+success "Dashboard written to /tmp/lab-dashboard.html"
+open /tmp/lab-dashboard.html
 
 # ── Done ─────────────────────────────────────
 step "Lab Resumed"
