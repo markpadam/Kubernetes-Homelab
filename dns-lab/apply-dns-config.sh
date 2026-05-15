@@ -108,6 +108,8 @@ SERIAL = "${SERIAL}"
 zones = parse_dns_config("${CONFIG_FILE}")
 
 # ── Resolve svc:name/namespace values to ClusterIPs ──
+import subprocess
+
 def resolve_svc(value):
     """Return ClusterIP for 'svc:name/namespace', else return value unchanged."""
     if not value.startswith('svc:'):
