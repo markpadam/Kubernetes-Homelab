@@ -8,7 +8,7 @@
 #   - container       — each step runs in its own pod/container
 #
 # Submit this with:
-#   kubectl apply -f 01-hello-world.yaml
+#   kubectl create -f 01-hello-world.yaml
 #   argo watch -n argo @latest          # watch it run
 #   argo logs -n argo @latest           # view output
 #

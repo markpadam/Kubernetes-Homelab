@@ -8,7 +8,7 @@
 #       as booleans, and each step only runs when its flag is "true"
 #
 # Submit with default values:
-#   kubectl apply -f 02-parameters.yaml
+#   kubectl create -f 02-parameters.yaml
 #
 # Submit with custom values (CLI):
 #   argo submit -n argo 02-parameters.yaml \
