@@ -506,13 +506,70 @@ terraform -chdir=terraform/local-mac init -input=false \
   2>&1 | tee /tmp/vault-terraform-init.log
 
 log "Applying Vault configuration (starts dev server + configures K8s auth)..."
-terraform -chdir=terraform/local-mac apply -auto-approve -input=false \
+# If the cluster was recreated the K8s reviewer secret will be gone even though
+# Terraform state thinks it still exists — force-replace so it gets recreated.
+VAULT_REPLACE_FLAGS=""
+if ! kubectl get secret vault-reviewer-token -n kube-system &>/dev/null; then
+  log "vault-reviewer-token not found — forcing K8s reviewer recreation..."
+  VAULT_REPLACE_FLAGS="-replace=null_resource.k8s_vault_reviewer"
+fi
+terraform -chdir=terraform/local-mac apply -auto-approve -input=false $VAULT_REPLACE_FLAGS \
   2>&1 | tee /tmp/vault-terraform-apply.log
 
 success "Vault ready — ${VAULT_ADDR}/ui  (token: ${VAULT_TOKEN})"
 log "  KV v2 secrets:  ${VAULT_KV_PATH}/azure-services/*"
 log "  K8s auth path:  ${VAULT_AUTH_PATH}/login"
 log "  Full log:       /tmp/vault-terraform-apply.log"
+
+# ── Step 12: Argo Workflows ──────────────────
+step "Step 12 — Installing Argo Workflows"
+
+ARGO_VERSION="v3.6.5"
+ARGO_NS="argo"
+
+if kubectl get deployment workflow-controller -n "$ARGO_NS" &>/dev/null; then
+  warn "Argo Workflows already installed — skipping."
+else
+  log "Creating argo namespace..."
+  kubectl create namespace "$ARGO_NS" 2>/dev/null || true
+
+  log "Applying Argo Workflows ${ARGO_VERSION} (server-side apply — takes a minute)..."
+  kubectl apply -n "$ARGO_NS" --server-side --force-conflicts \
+    -f "https://github.com/argoproj/argo-workflows/releases/download/${ARGO_VERSION}/quick-start-minimal.yaml" \
+    2>&1 | tee /tmp/argo-workflows-install.log
+fi
+
+log "Waiting for workflow-controller to be ready..."
+kubectl wait deployment workflow-controller \
+  --for=condition=available \
+  --namespace="$ARGO_NS" \
+  --timeout=180s
+
+log "Waiting for argo-server to be ready..."
+kubectl wait deployment argo-server \
+  --for=condition=available \
+  --namespace="$ARGO_NS" \
+  --timeout=180s
+
+# Disable TLS and enable server auth mode (no SSO needed for the lab)
+if ! kubectl get deployment argo-server -n "$ARGO_NS" \
+    -o jsonpath='{.spec.template.spec.containers[0].args}' | grep -q 'auth-mode=server'; then
+  log "Patching argo-server: disabling TLS, enabling server auth mode..."
+  kubectl patch deployment argo-server -n "$ARGO_NS" --type=json -p='[
+    {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--auth-mode=server"},
+    {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--secure=false"}
+  ]'
+  log "Waiting for patched argo-server to be ready..."
+  kubectl wait deployment argo-server \
+    --for=condition=available \
+    --namespace="$ARGO_NS" \
+    --timeout=300s
+fi
+
+ARGO_WORKFLOWS_TOKEN=$(kubectl -n "$ARGO_NS" exec deploy/argo-server -- argo auth token 2>/dev/null \
+  || echo "<run: kubectl -n argo exec deploy/argo-server -- argo auth token>")
+
+success "Argo Workflows ready — http://argo-workflows.aks-lab.local:2746"
 
 # ── Port-Forwards ────────────────────────────
 step "Starting Port-Forwards"
@@ -533,7 +590,8 @@ _start_portforward() {
 
 _start_portforward "TaskFlow"     8081 "kubectl port-forward svc/frontend 8081:80 -n taskapp"                                       /tmp/taskflow-portforward.log
 _start_portforward "Grafana"      3000 "kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring"                          /tmp/grafana-portforward.log
-_start_portforward "Blob Explorer" 8082 "kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer"             /tmp/blob-explorer-portforward.log
+_start_portforward "Blob Explorer"    8082 "kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer"      /tmp/blob-explorer-portforward.log
+_start_portforward "Argo Workflows"  2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                               /tmp/argo-workflows-portforward.log
 
 # ── Local DNS (/etc/hosts) ───────────────────
 step "Configuring Local DNS"
@@ -554,6 +612,7 @@ _add_hosts_entry "grafana.aks-lab.local"
 _add_hosts_entry "argocd.aks-lab.local"
 _add_hosts_entry "blob-explorer.aks-lab.local"
 _add_hosts_entry "vault.aks-lab.local"
+_add_hosts_entry "argo-workflows.aks-lab.local"
 
 # ── Dashboard ─────────────────────────────────
 step "Generating Dashboard"
@@ -579,7 +638,7 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
     .dot { width: 10px; height: 10px; background: var(--green); border-radius: 50%; box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; flex-shrink: 0; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
     .section-title { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; margin-top: 24px; }
-    .services { display: grid; grid-template-columns: repeat(5,1fr); gap: 12px; }
+    .services { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px,1fr)); gap: 12px; }
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-decoration: none; color: var(--text); display: block; transition: border-color .15s, transform .15s; }
     .card:hover { border-color: var(--blue); transform: translateY(-2px); }
     .card-name { font-weight: 600; font-size: 15px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
@@ -635,6 +694,11 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
     <div class="card-url">vault.aks-lab.local:8200/ui</div>
     <div class="card-open">Open ↗</div>
   </a>
+  <a class="card" href="http://argo-workflows.aks-lab.local:2746" target="_blank">
+    <div class="card-name"><span class="card-dot"></span>Argo Workflows</div>
+    <div class="card-url">argo-workflows.aks-lab.local:2746</div>
+    <div class="card-open">Open ↗</div>
+  </a>
 </div>
 
 <div class="section-title">Credentials &amp; Toolbox</div>
@@ -643,6 +707,7 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
     <div class="row"><span class="row-label">Grafana</span><span class="row-val">admin / $GRAFANA_PASSWORD</span></div>
     <div class="row"><span class="row-label">ArgoCD</span><span class="row-val">admin / $ARGOCD_PASSWORD</span></div>
     <div class="row"><span class="row-label">Vault</span><span class="row-val">token: $VAULT_TOKEN</span></div>
+    <div class="row"><span class="row-label">Argo Workflows</span><span class="row-val" style="font-size:11px;word-break:break-all">$ARGO_WORKFLOWS_TOKEN</span></div>
   </div>
   <div class="panel">
     <div class="cmd-row">ssh aks-toolbox<button class="copy-btn" onclick="cp(this,'ssh aks-toolbox')">copy</button></div>
@@ -719,6 +784,7 @@ ${BOLD}  Service URLs${RESET}
   ArgoCD:        ${GREEN}https://argocd.aks-lab.local:8080${RESET}      login: admin / $ARGOCD_PASSWORD
   Blob Explorer: ${GREEN}http://blob-explorer.aks-lab.local:8082${RESET}
   Vault UI:      ${GREEN}http://vault.aks-lab.local:8200/ui${RESET}        token: ${VAULT_TOKEN}
+  Argo Workflows: ${GREEN}http://argo-workflows.aks-lab.local:2746${RESET}
 
 ${BOLD}  Vault (Azure Key Vault equivalent)${RESET}
   KV v2 path:  vault kv list ${VAULT_KV_PATH}/azure-services

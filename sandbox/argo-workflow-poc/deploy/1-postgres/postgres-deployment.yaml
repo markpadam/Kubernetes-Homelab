@@ -1,0 +1,120 @@
+---
+# PostgreSQL Secret for Argo Workflows
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argo-postgres-creds
+  namespace: jeragm-poc
+  labels:
+    app: argo-postgres
+type: Opaque
+stringData:
+  username: argo
+  password: argo123!@#
+
+---
+# PostgreSQL PersistentVolumeClaim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: argo-postgres-pvc
+  namespace: jeragm-poc
+  labels:
+    app: argo-postgres
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# PostgreSQL Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argo-postgres
+  namespace: jeragm-poc
+  labels:
+    app: argo-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: argo-postgres
+  template:
+    metadata:
+      labels:
+        app: argo-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: argo-postgres-creds
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: argo-postgres-creds
+                  key: password
+            - name: POSTGRES_DB
+              value: argo_workflows
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - argo
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - argo
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: argo-postgres-pvc
+
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: argo-postgres-postgresql
+  namespace: jeragm-poc
+  labels:
+    app: argo-postgres
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres
+  selector:
+    app: argo-postgres

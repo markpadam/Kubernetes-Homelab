@@ -2,6 +2,8 @@
 
 A local Kubernetes lab running on Minikube that simulates an AKS environment. Includes a multi-tier demo app, simulated Active Directory DNS (bind9), CoreDNS stub zone forwarding, Prometheus/Grafana monitoring, ArgoCD (ephemeral GitOps playground), Flux (code-driven GitOps — apps survive teardown/recreate), Azurite (Azure Storage emulator), a .NET Blob Explorer app deployed via Helm and Flux, HashiCorp Vault in dev mode (Azure Key Vault equivalent, with Kubernetes auth), and a persistent Ubuntu toolbox pod for network testing.
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for full diagrams — cluster layout, GitOps flow, Vault/secrets architecture, and DNS resolution chain.
+
 ---
 
 ## Quick Start

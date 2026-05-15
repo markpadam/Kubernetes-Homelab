@@ -66,7 +66,8 @@ _start_portforward "Toolbox SSH"   2222 "kubectl port-forward svc/toolbox-ssh 22
 _start_portforward "ArgoCD"        8080 "kubectl port-forward svc/argocd-server 8080:443 -n argocd"                                 /tmp/argocd-portforward.log
 _start_portforward "TaskFlow"      8081 "kubectl port-forward svc/frontend 8081:80 -n taskapp"                                      /tmp/taskflow-portforward.log
 _start_portforward "Grafana"       3000 "kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring"                         /tmp/grafana-portforward.log
-_start_portforward "Blob Explorer" 8082 "kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer"             /tmp/blob-explorer-portforward.log
+_start_portforward "Blob Explorer"   8082 "kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer"      /tmp/blob-explorer-portforward.log
+_start_portforward "Argo Workflows" 2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                               /tmp/argo-workflows-portforward.log
 
 # ── Vault ─────────────────────────────────────
 step "Restoring Vault"
@@ -101,6 +102,8 @@ fi
 ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<password-already-changed>")
 BIND9_IP=$(kubectl get svc bind9 -n dns-lab -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "unavailable")
+ARGO_WORKFLOWS_TOKEN=$(kubectl -n argo exec deploy/argo-server -- argo auth token 2>/dev/null \
+  || echo "<run: kubectl -n argo exec deploy/argo-server -- argo auth token>")
 
 # ── Dashboard ────────────────────────────────
 step "Generating Dashboard"
@@ -126,7 +129,7 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
     .dot { width: 10px; height: 10px; background: var(--green); border-radius: 50%; box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; flex-shrink: 0; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
     .section-title { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; margin-top: 24px; }
-    .services { display: grid; grid-template-columns: repeat(5,1fr); gap: 12px; }
+    .services { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px,1fr)); gap: 12px; }
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-decoration: none; color: var(--text); display: block; transition: border-color .15s, transform .15s; }
     .card:hover { border-color: var(--blue); transform: translateY(-2px); }
     .card-name { font-weight: 600; font-size: 15px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
@@ -182,6 +185,11 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
     <div class="card-url">vault.aks-lab.local:8200/ui</div>
     <div class="card-open">Open ↗</div>
   </a>
+  <a class="card" href="http://argo-workflows.aks-lab.local:2746" target="_blank">
+    <div class="card-name"><span class="card-dot"></span>Argo Workflows</div>
+    <div class="card-url">argo-workflows.aks-lab.local:2746</div>
+    <div class="card-open">Open ↗</div>
+  </a>
 </div>
 
 <div class="section-title">Credentials &amp; Toolbox</div>
@@ -190,6 +198,7 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
     <div class="row"><span class="row-label">Grafana</span><span class="row-val">admin / $GRAFANA_PASSWORD</span></div>
     <div class="row"><span class="row-label">ArgoCD</span><span class="row-val">admin / $ARGOCD_PASSWORD</span></div>
     <div class="row"><span class="row-label">Vault</span><span class="row-val">token: $VAULT_TOKEN</span></div>
+    <div class="row"><span class="row-label">Argo Workflows</span><span class="row-val" style="font-size:11px;word-break:break-all">$ARGO_WORKFLOWS_TOKEN</span></div>
   </div>
   <div class="panel">
     <div class="cmd-row">ssh aks-toolbox<button class="copy-btn" onclick="cp(this,'ssh aks-toolbox')">copy</button></div>
@@ -264,8 +273,9 @@ ${BOLD}  Service URLs${RESET}
   TaskFlow:      ${GREEN}http://taskflow.aks-lab.local:8081${RESET}
   Grafana:       ${GREEN}http://grafana.aks-lab.local:3000${RESET}       login: admin / $GRAFANA_PASSWORD
   ArgoCD:        ${GREEN}https://argocd.aks-lab.local:8080${RESET}      login: admin / $ARGOCD_PASSWORD
-  Blob Explorer: ${GREEN}http://blob-explorer.aks-lab.local:8082${RESET}
-  Vault UI:      ${GREEN}http://vault.aks-lab.local:8200/ui${RESET}        token: ${VAULT_TOKEN}
+  Blob Explorer:  ${GREEN}http://blob-explorer.aks-lab.local:8082${RESET}
+  Vault UI:       ${GREEN}http://vault.aks-lab.local:8200/ui${RESET}       token: ${VAULT_TOKEN}
+  Argo Workflows: ${GREEN}http://argo-workflows.aks-lab.local:2746${RESET}
 
 ${BOLD}  Toolbox Pod${RESET}
   SSH:         ${GREEN}ssh aks-toolbox${RESET}

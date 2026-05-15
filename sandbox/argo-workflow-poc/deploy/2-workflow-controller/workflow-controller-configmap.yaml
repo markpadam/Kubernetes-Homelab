@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workflow-controller-configmap
+  namespace: jeragm-poc
+data:
+  # PostgreSQL persistence for workflow archives
+  persistence: |
+    archive: true
+    postgresql:
+      host: argo-postgres-postgresql.jeragm-poc.svc.cluster.local
+      port: 5432
+      database: argo_workflows
+      tableName: argo_workflows
+      userNameSecret:
+        name: argo-postgres-creds
+        key: username
+      passwordSecret:
+        name: argo-postgres-creds
+        key: password
+  # SSO Configuration for the Argo server.
+  # You must also start argo server with `--auth-mode sso`.
+  # https://argo-workflows.readthedocs.io/en/latest/argo-server-auth-mode/
+  # SSO Configuration for the Argo server
+  sso: |
+    # OIDC issuer URL (Directory / Tenant ID for Azure)
+    issuer: https://login.microsoftonline.com/ceb24f8a-927b-4ff0-b5d2-1d38878821c2/v2.0
+    # Optional alternate issuer URLs
+    issuerAlias: https://login.microsoftonline.com/ceb24f8a-927b-4ff0-b5d2-1d38878821c2/v2.0
+    # Session expiry (optional)
+    sessionExpiry: 240h
+    # Client ID secret
+    clientId:
+      name: client-id-secret
+      key: client-id-key
+    # Client Secret
+    clientSecret:
+      name: client-secret-secret
+      key: client-secret-key
+    # Redirect URL exposed by Argo Server
+    redirectUrl: https://localhost:2746/oauth2/callback
+    # Additional scopes required for Azure SSO + RBAC
+    scopes:
+      - email
+      - profile
+    # RBAC enablement
+    rbac:
+      enabled: true
+    # Filter groups at OIDC level - only allow specific Azure group
+    filterGroupsRegex:
+      - "5b8d3623-9aa5-4fcd-9d83-21e1426c8e6f"
+      - "973c344f-785f-4d12-b07e-43fbd3401fa5"
+    # Skip TLS verification for testing (not recommended in prod)
+    insecureSkipVerify: true

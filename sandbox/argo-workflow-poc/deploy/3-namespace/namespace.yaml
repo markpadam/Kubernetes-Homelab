@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ddh-poc
+  labels:
+    name: ddh-poc
+    purpose: digital-data-hub-workloads

@@ -1,0 +1,135 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ddh-ui-admin
+  namespace: jeragm-poc
+  annotations:
+    workflows.argoproj.io/rbac-rule: "'5b8d3623-9aa5-4fcd-9d83-21e1426c8e6f' in groups"
+    workflows.argoproj.io/rbac-rule-precedence: "100"
+  labels:
+    app: ddh-ui-admin
+    persona: ddh-admin
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ddh-ui-admin.service-account-token
+  namespace: jeragm-poc
+  annotations:
+    kubernetes.io/service-account.name: ddh-ui-admin
+  labels:
+    app: ddh-ui-admin
+    persona: ddh-admin
+type: kubernetes.io/service-account-token
+
+---
+# Role for DDH namespace ONLY - Full control over DDH workflows
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ddh-ui-admin-ddh
+  namespace: ddh-poc
+  labels:
+    app: ddh-ui-admin
+    persona: ddh-admin
+rules:
+  # ------------------------------------------------------------
+  # Workflows - Full CRUD
+  # ------------------------------------------------------------
+  - apiGroups: ["argoproj.io"]
+    resources:
+      - workflows
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - patch
+      - update
+
+  # ------------------------------------------------------------
+  # WorkflowTemplates - Full CRUD
+  # ------------------------------------------------------------
+  - apiGroups: ["argoproj.io"]
+    resources:
+      - workflowtemplates
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - patch
+      - update
+      - delete
+
+  # ------------------------------------------------------------
+  # CronWorkflows - Full CRUD
+  # ------------------------------------------------------------
+  - apiGroups: ["argoproj.io"]
+    resources:
+      - cronworkflows
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - patch
+      - update
+      - delete
+
+  # ------------------------------------------------------------
+  # Internal Argo Objects (for UI rendering)
+  # ------------------------------------------------------------
+  - apiGroups: ["argoproj.io"]
+    resources:
+      - workflowtaskresults
+      - workflowtasksets
+      - workflowartifactgctasks
+    verbs:
+      - get
+      - list
+      - watch
+
+  # ------------------------------------------------------------
+  # Kubernetes Pods + Logs (for troubleshooting)
+  # ------------------------------------------------------------
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/log
+    verbs:
+      - get
+      - list
+      - watch
+
+  # ------------------------------------------------------------
+  # ServiceAccounts (read-only)
+  # ------------------------------------------------------------
+  - apiGroups: [""]
+    resources:
+      - serviceaccounts
+    verbs:
+      - get
+      - list
+      - watch
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ddh-ui-admin-ddh
+  namespace: ddh-poc
+  labels:
+    app: ddh-ui-admin
+    persona: ddh-admin
+subjects:
+  - kind: ServiceAccount
+    name: ddh-ui-admin
+    namespace: jeragm-poc
+roleRef:
+  kind: Role
+  name: ddh-ui-admin-ddh
+  apiGroup: rbac.authorization.k8s.io
+
