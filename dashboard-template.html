@@ -40,9 +40,14 @@
     .run-btn { background: #1f6feb22; border: 1px solid #1f6feb55; color: var(--blue); border-radius: 6px; padding: 7px 14px; font-size: 13px; cursor: pointer; transition: background .15s, border-color .15s; }
     .run-btn:hover { background: #1f6feb44; border-color: var(--blue); }
     .run-btn:disabled { opacity: .5; cursor: not-allowed; }
-    .run-btn-warn { background: #d2940022; border: 1px solid #d2940055; color: #e3a317; border-radius: 6px; padding: 7px 14px; font-size: 13px; cursor: pointer; transition: background .15s, border-color .15s; }
-    .run-btn-warn:hover { background: #d2940044; border-color: #e3a317; }
-    .run-btn-warn:disabled { opacity: .5; cursor: not-allowed; }
+    .run-btn-green { background: #3fb95022; border: 2px solid #3fb95088; color: #3fb950; border-radius: 6px; padding: 8px 20px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s; box-shadow: 0 0 8px #3fb95033; }
+    .run-btn-green:hover { background: #3fb95033; border-color: #3fb950; box-shadow: 0 0 14px #3fb95066; }
+    .run-btn-green:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
+    .run-btn-red { background: #f8514922; border: 2px solid #f8514988; color: #f85149; border-radius: 6px; padding: 8px 20px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s; box-shadow: 0 0 8px #f8514933; }
+    .run-btn-red:hover { background: #f8514933; border-color: #f85149; box-shadow: 0 0 14px #f8514966; }
+    .run-btn-red:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
+    .lab-controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
+    .lab-controls-divider { width: 1px; height: 32px; background: var(--border); flex-shrink: 0; }
     #terminal { background: #010409; border: 1px solid var(--border); border-radius: 8px; padding: 16px; min-height: 180px; max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; color: #c9d1d9; margin-top: 10px; }
     .term-idle { color: var(--muted); font-style: italic; }
     .term-done { color: var(--green); }
@@ -173,14 +178,15 @@
 </div>
 
 <div class="section-title">Lab Scripts</div>
-<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-  <button class="run-btn" onclick="runScript('resume')">Resume Lab</button>
+<div class="lab-controls">
+  <button class="run-btn-green" onclick="runScript('resume')">▶ Resume Lab</button>
+  <button class="run-btn-red" onclick="runScript('pause')">■ Pause Lab</button>
+  <div class="lab-controls-divider"></div>
   <button class="run-btn" onclick="runScript('dns')">Apply DNS</button>
   <button class="run-btn" onclick="runScript('flux-sync')">Flux Sync</button>
   <button class="run-btn" onclick="runScript('pods')">Pod Status</button>
   <button class="run-btn" onclick="runScript('nodes')">Node Status</button>
   <button class="run-btn" onclick="runScript('hpa')">HPA Status</button>
-  <button class="run-btn-warn" onclick="runScript('pause')">Pause Lab</button>
 </div>
 <div id="terminal"><span class="term-idle">Select a script above to run it...</span></div>
 
@@ -197,7 +203,7 @@
     if (_es) { _es.close(); _es = null; }
     var term = document.getElementById('terminal');
     term.textContent = '';
-    var btns = document.querySelectorAll('.run-btn, .run-btn-warn');
+    var btns = document.querySelectorAll('.run-btn, .run-btn-green, .run-btn-red');
     btns.forEach(function(b) { b.disabled = true; });
     var hdr = document.createElement('span');
     hdr.className = 'term-done';
