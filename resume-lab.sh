@@ -32,6 +32,23 @@ warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*"; }
 error()   { echo -e "${RED}${BOLD}[✗]${RESET} $*"; exit 1; }
 step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
 
+# ── Ensure Docker is running ──────────────────
+step "Checking Docker"
+
+if ! docker info &>/dev/null; then
+  log "Docker daemon not running — launching Docker Desktop..."
+  open -a Docker
+  log "Waiting for Docker to be ready (up to 60s)..."
+  for i in $(seq 1 60); do
+    docker info &>/dev/null && break
+    sleep 1
+  done
+  docker info &>/dev/null || error "Docker failed to start after 60s. Open Docker Desktop manually and retry."
+  success "Docker daemon ready"
+else
+  success "Docker daemon already running"
+fi
+
 # ── Start cluster ─────────────────────────────
 step "Starting Cluster"
 

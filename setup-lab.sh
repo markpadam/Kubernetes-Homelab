@@ -44,7 +44,17 @@ command -v flux      &>/dev/null || error "Flux CLI not found. Run: brew install
 command -v terraform &>/dev/null || error "Terraform not found. Run: brew install terraform"
 command -v vault     &>/dev/null || error "Vault CLI not found. Run: brew install hashicorp/tap/vault"
 
-docker info &>/dev/null || error "Docker daemon is not running. Start Docker Desktop."
+if ! docker info &>/dev/null; then
+  log "Docker daemon not running — launching Docker Desktop..."
+  open -a Docker
+  log "Waiting for Docker to be ready (up to 60s)..."
+  for i in $(seq 1 60); do
+    docker info &>/dev/null && break
+    sleep 1
+  done
+  docker info &>/dev/null || error "Docker failed to start after 60s. Open Docker Desktop manually and retry."
+  success "Docker daemon ready"
+fi
 
 [[ -d "$APP_DIR" ]]     || error "App manifests not found at ./$APP_DIR — run from repo root."
 [[ -d "$DNS_DIR" ]]     || error "DNS lab not found at ./$DNS_DIR — run from repo root."
@@ -375,8 +385,21 @@ success "Toolbox ready — connect with: ssh aks-toolbox"
 
 # ── Resolve GitHub token (used by ArgoCD + Flux) ──
 if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+  GITHUB_TOKEN=$(security find-generic-password -a "$USER" -s "aks-lab-github-token" -w 2>/dev/null || true)
+  GITHUB_TOKEN="${GITHUB_TOKEN//[$'\t\r\n ']}"  # strip any whitespace
+  [[ -n "$GITHUB_TOKEN" ]] && log "GitHub token loaded from macOS Keychain"
+fi
+if [[ -z "${GITHUB_TOKEN:-}" ]]; then
   read -rsp "         GitHub token (for ArgoCD + Flux repo access): " GITHUB_TOKEN
   echo
+  if [[ -n "$GITHUB_TOKEN" ]]; then
+    security delete-generic-password -a "$USER" -s "aks-lab-github-token" 2>/dev/null || true
+    if security add-generic-password -a "$USER" -s "aks-lab-github-token" -w "$GITHUB_TOKEN" 2>/dev/null; then
+      success "GitHub token saved to macOS Keychain"
+    else
+      warn "Could not save token to Keychain — you will be prompted again next run"
+    fi
+  fi
 fi
 [[ -n "$GITHUB_TOKEN" ]] || error "GITHUB_TOKEN is required for ArgoCD and Flux to access the private repo."
 
