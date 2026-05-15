@@ -1,0 +1,86 @@
+# ── Phase 5: CronWorkflow ─────────────────────────────────────────────────────
+#
+# Concepts covered:
+#   - CronWorkflow         — a persistent schedule that fires Workflow runs automatically
+#   - workflowTemplateRef  — references the WorkflowTemplate from Phase 4 by name
+#                            (no template logic lives here — it's just a trigger)
+#   - concurrencyPolicy    — what to do if the previous run hasn't finished yet
+#   - isManualRun override — the CronWorkflow passes is-manual-run=false so the
+#                            WorkflowTemplate knows it was triggered automatically
+#
+# This is EXACTLY the production POC pattern:
+#   ddh-calendar-uploader-cron.yaml → workflowTemplateRef → ddh-calendar-uploader-common-template
+#   04-cron-workflow.yaml           → workflowTemplateRef → lab-report-runner
+#
+# Apply (prerequisite: 03-workflow-template.yaml must already be applied):
+#   kubectl apply -f 04-cron-workflow.yaml
+#
+# Check the schedule:
+#   kubectl get cronworkflow -n argo
+#   argo cron list -n argo
+#
+# Trigger a run immediately (without waiting for the schedule):
+#   argo cron trigger lab-report-cron -n argo
+#
+# Watch the triggered run:
+#   argo watch -n argo @latest
+#
+# Suspend the cron (stops future fires, does not cancel running pods):
+#   argo cron suspend lab-report-cron -n argo
+#
+# Resume the cron:
+#   argo cron resume lab-report-cron -n argo
+#
+# Delete:
+#   kubectl delete cronworkflow lab-report-cron -n argo
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: lab-report-cron
+  namespace: argo
+  labels:
+    app: lab-demo
+spec:
+  # Cron expression — fires every 3 minutes so you can observe it quickly.
+  # Change to something like "0 6 * * 1-5" for a real Mon-Fri 06:00 schedule.
+  # Argo v3.6+ supports an array of schedules (multiple expressions for one CronWorkflow).
+  schedules:
+    - "*/3 * * * *"
+
+  timezone: "Europe/London"
+
+  # What to do if a previous run is still running when the next fire time arrives.
+  #   Allow   — start a new run alongside the existing one (parallel)
+  #   Forbid  — skip this fire, keep the existing run
+  #   Replace — cancel the existing run and start a fresh one (POC uses this)
+  concurrencyPolicy: Replace
+
+  # How many completed/failed Workflow objects to keep in the cluster for inspection.
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+
+  workflowSpec:
+    # Reference the WorkflowTemplate by name — no template logic lives here.
+    # This is the workflowTemplateRef pattern from the POC.
+    workflowTemplateRef:
+      name: lab-report-runner
+
+    # Override arguments from the WorkflowTemplate.
+    # Only set what differs from the template defaults.
+    arguments:
+      parameters:
+        # Tell the WorkflowTemplate this is an automated run.
+        # The worker template will print "Mode: Automated" instead of "Mode: Manual".
+        - name: is-manual-run
+          value: "false"
+
+        # Enable all three reports for the scheduled run.
+        # For a manual UI submission you'd pick which ones via the dropdown.
+        - name: run-summary
+          value: "true"
+        - name: run-cleanup
+          value: "true"
+        - name: run-audit
+          value: "true"
