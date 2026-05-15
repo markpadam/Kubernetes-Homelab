@@ -18,6 +18,8 @@ ANSI      = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
 # Scripts and commands the dashboard is allowed to run.
 # Keys match the name in GET /exec/<name>.
+_PROFILE = os.environ.get("PROFILE", "aks-lab")
+
 COMMANDS = {
     "resume":    ["bash", str(REPO_ROOT / "resume-lab.sh")],
     "dns":       ["bash", str(REPO_ROOT / "dns-lab/apply-dns-config.sh")],
@@ -25,6 +27,7 @@ COMMANDS = {
     "pods":      ["kubectl", "get", "pods", "-A", "-o", "wide"],
     "nodes":     ["kubectl", "get", "nodes", "-o", "wide"],
     "hpa":       ["kubectl", "get", "hpa", "-A"],
+    "pause":     ["minikube", "stop", "-p", _PROFILE],
 }
 
 _running: dict = {}
