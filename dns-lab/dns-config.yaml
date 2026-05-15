@@ -41,13 +41,13 @@ internal_zones:
         value: 10.105.102.35
       - name: servicebus      # → RabbitMQ AMQP (service-bus ns, port 5672)
         type: A
-        value: svc:rabbitmq/service-bus
+        value: svc:servicebus/service-bus
       - name: registry        # → Docker Registry (container-registry ns, port 5000)
         type: A
         value: svc:registry/container-registry
       - name: cosmosdb        # → MongoDB (cosmos-db ns, port 27017)
         type: A
-        value: svc:mongodb/cosmos-db
+        value: svc:cosmosdb/cosmos-db
 
 # Private Link zones — simulates ADDS hosting Azure Private DNS zones
 # In production ADDS conditionally forwards these back to Azure DNS (168.63.129.16)
@@ -85,10 +85,10 @@ privatelink_zones:
     records:
       - name: myservicebus  # → RabbitMQ (service-bus ns, port 5672 AMQP / 5671 AMQPS)
         type: A
-        value: svc:rabbitmq/service-bus
+        value: svc:servicebus/service-bus
       - name: myeventhub    # → RabbitMQ (same instance — Event Hub shares Service Bus protocol)
         type: A
-        value: svc:rabbitmq/service-bus
+        value: svc:servicebus/service-bus
 
   - zone: privatelink.azurecr.io
     records:
@@ -100,7 +100,7 @@ privatelink_zones:
     records:
       - name: mycosmosdb   # → MongoDB (cosmos-db ns, port 27017)
         type: A
-        value: svc:mongodb/cosmos-db
+        value: svc:cosmosdb/cosmos-db
       - name: mycosmosdb-eastus  # → MongoDB (secondary-region endpoint pattern)
         type: A
-        value: svc:mongodb/cosmos-db
+        value: svc:cosmosdb/cosmos-db

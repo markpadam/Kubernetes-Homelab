@@ -91,21 +91,21 @@
     <div class="card-url">argo-workflows.aks-lab.local:2746</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
-  <a class="card" href="http://localhost:15672" target="_blank">
-    <div class="card-name"><span class="card-dot"></span>RabbitMQ</div>
-    <div class="card-url">localhost:15672</div>
-    <div class="card-open">Open &#x2197;</div>
-  </a>
+  <div class="card">
+    <div class="card-name"><span class="card-dot"></span>Service Bus</div>
+    <div class="card-url">localhost:5672</div>
+    <div class="card-open" style="color:var(--muted)">AMQP &#x2014; use Azure SDK</div>
+  </div>
   <div class="card">
     <div class="card-name"><span class="card-dot"></span>Container Registry</div>
     <div class="card-url">localhost:5000</div>
     <div class="card-open" style="color:var(--muted)">HTTP API &#x2014; use Docker CLI</div>
   </div>
-  <div class="card">
-    <div class="card-name"><span class="card-dot"></span>Cosmos DB (Mongo)</div>
-    <div class="card-url">localhost:27017</div>
-    <div class="card-open" style="color:var(--muted)">TCP &#x2014; use MongoDB client</div>
-  </div>
+  <a class="card" href="http://localhost:1234" target="_blank">
+    <div class="card-name"><span class="card-dot"></span>Cosmos DB</div>
+    <div class="card-url">localhost:1234 (Explorer)</div>
+    <div class="card-open">Open &#x2197;</div>
+  </a>
 </div>
 
 <div class="section-title">Credentials &amp; Toolbox</div>
@@ -115,8 +115,8 @@
     <div class="row"><span class="row-label">ArgoCD</span><span class="row-val">admin / ${ARGOCD_PASSWORD}</span></div>
     <div class="row"><span class="row-label">Vault</span><span class="row-val">token: ${VAULT_TOKEN}</span></div>
     <div class="row"><span class="row-label">Azure SQL</span><span class="row-val">sa / AksLab!SqlDev1</span></div>
-    <div class="row"><span class="row-label">RabbitMQ</span><span class="row-val">lab / AksLab!Rabbit1</span></div>
-    <div class="row"><span class="row-label">MongoDB</span><span class="row-val">admin / AksLab!Mongo1</span></div>
+    <div class="row"><span class="row-label">Service Bus</span><span class="row-val" style="font-size:11px">SAS_KEY_VALUE · UseDevelopmentEmulator=true</span></div>
+    <div class="row"><span class="row-label">Cosmos DB</span><span class="row-val" style="font-size:11px">well-known key · http://localhost:8081</span></div>
     <div class="row"><span class="row-label">Registry</span><span class="row-val" style="color:var(--muted)">no auth</span></div>
     <div class="row"><span class="row-label">Argo Workflows</span><span class="row-val" style="font-size:11px;word-break:break-all">${ARGO_WORKFLOWS_TOKEN}</span></div>
   </div>

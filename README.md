@@ -36,9 +36,9 @@ All services use stable ports and friendly local DNS names added to `/etc/hosts`
 | ArgoCD | <https://argocd.aks-lab.local:8080> | admin / *(printed at setup end)* |
 | Blob Explorer | <http://blob-explorer.aks-lab.local:8082> | — |
 | Vault UI | <http://vault.aks-lab.local:8200/ui> | token: root |
-| RabbitMQ Management | <http://localhost:15672> | lab / AksLab!Rabbit1 |
+| Service Bus (AMQP) | `localhost:5672` | SAS_KEY_VALUE / UseDevelopmentEmulator=true |
 | Container Registry | `localhost:5000` | no auth |
-| Cosmos DB (MongoDB) | `localhost:27017` | admin / AksLab!Mongo1 |
+| Cosmos DB (NoSQL) | `localhost:8081` · Explorer: `localhost:1234` | well-known key |
 | Toolbox SSH | `ssh aks-toolbox` | — |
 
 ### Dashboard
@@ -92,9 +92,9 @@ All services use stable ports and friendly local DNS names added to `/etc/hosts`
 │   ├── kustomization.yaml
 │   ├── azurite/              # Azure Storage emulator (Blob, Queue, Table)
 │   ├── azure-sql/            # Azure SQL Edge (ARM64 SQL Server equivalent)
-│   ├── service-bus/          # RabbitMQ (Azure Service Bus equivalent, AMQP)
+│   ├── service-bus/          # Microsoft Service Bus Emulator (AMQP, backed by Azure SQL Edge)
 │   ├── container-registry/   # Docker Registry v2 (Azure Container Registry equivalent)
-│   ├── cosmos-db/            # MongoDB 7 (Cosmos DB MongoDB API equivalent)
+│   ├── cosmos-db/            # Microsoft Cosmos DB Emulator (NoSQL API + Explorer UI, ARM64)
 │   └── blob-explorer/        # HelmRelease for the .NET Blob Explorer app
 │
 ├── helm-charts/
@@ -193,9 +193,9 @@ git commit -m "add new DNS record"
 | `privatelink.database.windows.net` | Azure SQL private endpoints | Azure SQL Edge (`mssql.azure-sql`) |
 | `privatelink.blob.core.windows.net` | Azure Storage private endpoints | Azurite (`azurite.azure-storage`) |
 | `privatelink.vaultcore.azure.net` | Azure Key Vault private endpoints | Vault on Mac host |
-| `privatelink.servicebus.windows.net` | Azure Service Bus private endpoints | RabbitMQ (`rabbitmq.service-bus`) |
+| `privatelink.servicebus.windows.net` | Azure Service Bus private endpoints | Service Bus Emulator (`servicebus.service-bus`) |
 | `privatelink.azurecr.io` | Azure Container Registry private endpoints | Docker Registry (`registry.container-registry`) |
-| `privatelink.documents.azure.com` | Azure Cosmos DB private endpoints | MongoDB (`mongodb.cosmos-db`) |
+| `privatelink.documents.azure.com` | Azure Cosmos DB private endpoints | Cosmos DB Emulator (`cosmosdb.cosmos-db`) |
 
 DNS records using `svc:name/namespace` in dns-config.yaml are resolved to ClusterIPs automatically when `apply-dns-config.sh` runs. If a service isn't running yet, that record is skipped with a warning — re-run `./dns-lab/apply-dns-config.sh` after the service comes up.
 
@@ -480,25 +480,32 @@ minikube start -p aks-lab
 
 Three additional Azure-equivalent services are deployed by Flux and available to all apps in the cluster.
 
-### Azure Service Bus → RabbitMQ
+### Azure Service Bus → Official Microsoft Service Bus Emulator
 
-RabbitMQ runs in the `service-bus` namespace and speaks AMQP 1.0 — the same protocol as Azure Service Bus. Apps connect using the standard Azure Service Bus SDK with an AMQP connection string.
+The official Microsoft Service Bus Emulator runs in the `service-bus` namespace and uses the existing **Azure SQL Edge** pod as its backing store. Queues and topics are declared in the `servicebus-config` ConfigMap.
+
+> **ARM64 note:** The image is AMD64-only and runs via Docker's Rosetta layer on Apple Silicon — functional but slower to start than native images.
 
 | Detail | Value |
 | --- | --- |
-| AMQP endpoint (in-cluster) | `amqp://rabbitmq.service-bus.svc.cluster.local:5672` |
-| Management UI | `http://localhost:15672` (via port-forward) |
-| Login | lab / AksLab!Rabbit1 |
+| AMQP (in-cluster) | `sb://servicebus.service-bus.svc.cluster.local` port 5672 |
+| AMQP (from Mac) | `sb://localhost` (via port-forward on 5672) |
+| SAS key | `SAS_KEY_VALUE` (literal string — accepted with `UseDevelopmentEmulator=true`) |
+| Default queue | `queue.1` in namespace `sbemulatorns` |
+| Default topic / subscription | `topic.1` / `subscription.1` |
 | DNS alias | `servicebus.corp.internal` / `myservicebus.privatelink.servicebus.windows.net` |
-| Secret | `rabbitmq-secret` in `service-bus` namespace |
+| Secret | `servicebus-secret` in `service-bus` namespace |
 
 ```bash
-# Check RabbitMQ status
-kubectl get pods -n service-bus
-kubectl logs -l app=rabbitmq -n service-bus --tail=30
+# Connection string (from Mac via port-forward)
+Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;EntityPath=queue.1
 
-# Re-start port-forward if dropped
-kubectl port-forward svc/rabbitmq 5672:5672 15672:15672 -n service-bus &
+# Health check
+curl http://localhost:5300/health
+
+# Add queues/topics — edit ConfigMap and restart
+kubectl edit configmap servicebus-config -n service-bus
+kubectl rollout restart deployment/servicebus -n service-bus
 ```
 
 ### Azure Container Registry → Docker Registry v2
@@ -531,26 +538,32 @@ kubectl run test --image=registry.container-registry.svc.cluster.local:5000/myap
 > minikube start -p aks-lab --insecure-registry="registry.container-registry.svc.cluster.local:5000"
 > ```
 
-### Azure Cosmos DB → MongoDB 7
+### Azure Cosmos DB → Official Microsoft Cosmos DB Emulator
 
-MongoDB runs in the `cosmos-db` namespace using the same MongoDB-wire-protocol that Cosmos DB's MongoDB API exposes. Apps using the Cosmos DB SDK with a MongoDB connection string work without any code changes.
+The official Linux Cosmos DB Emulator (`vnext-preview`) runs **natively on ARM64** — no Rosetta needed. It exposes the full NoSQL API with a built-in Data Explorer UI.
+
+> **MongoDB API note:** The Linux emulator supports the **NoSQL API only**. The MongoDB-wire-protocol compatibility layer is not available in the Linux version — use the Cosmos DB NoSQL SDK.
 
 | Detail | Value |
 | --- | --- |
-| Connection (in-cluster) | `mongodb://admin:AksLab%21Mongo1@mongodb.cosmos-db.svc.cluster.local:27017` |
-| Connection (from Mac) | `mongodb://admin:AksLab%21Mongo1@localhost:27017` (via port-forward) |
-| Login | admin / AksLab!Mongo1 |
+| NoSQL API (in-cluster) | `http://cosmosdb.cosmos-db.svc.cluster.local:8081` |
+| NoSQL API (from Mac) | `http://localhost:8081` (via port-forward) |
+| Data Explorer | `http://localhost:1234` |
+| Account key | `C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==` (well-known default) |
 | DNS alias | `cosmosdb.corp.internal` / `mycosmosdb.privatelink.documents.azure.com` |
-| Secret | `mongodb-secret` in `cosmos-db` namespace (includes connection string) |
+| Secret | `cosmosdb-secret` in `cosmos-db` namespace (includes connection string) |
 | Storage | 5 Gi PVC |
 
 ```bash
-# Connect with mongosh
-mongosh "mongodb://admin:AksLab\!Mongo1@localhost:27017"
+# Connection string (in-cluster NoSQL)
+AccountEndpoint=http://cosmosdb.cosmos-db.svc.cluster.local:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==;
+
+# Open Data Explorer
+open http://localhost:1234
 
 # Check pod status
 kubectl get pods -n cosmos-db
-kubectl logs -l app=mongodb -n cosmos-db --tail=30
+kubectl logs -l app=cosmosdb -n cosmos-db --tail=30
 ```
 
 ---
@@ -574,7 +587,7 @@ kubectl logs -l app=mongodb -n cosmos-db --tail=30
 | Azure Key Vault | HashiCorp Vault dev mode (KV v2 + Kubernetes auth) |
 | Key Vault access policy / RBAC | `azure-services` Vault policy |
 | AKS Workload Identity | Vault Kubernetes auth backend |
-| Azure Service Bus | RabbitMQ (`service-bus` namespace, AMQP 1.0) |
+| Azure Service Bus | Microsoft Service Bus Emulator (`service-bus` namespace, backed by Azure SQL Edge) |
 | Azure Container Registry | Docker Registry v2 (`container-registry` namespace) |
-| Azure Cosmos DB | MongoDB 7 (`cosmos-db` namespace, Cosmos MongoDB API) |
+| Azure Cosmos DB | Microsoft Cosmos DB Emulator (`cosmos-db` namespace, NoSQL API + Explorer) |
 | NodeLocal DNSCache | Not yet configured (see docs) |

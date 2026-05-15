@@ -1,11 +1,18 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: mongodb
+  name: cosmosdb
   namespace: cosmos-db
 spec:
   selector:
-    app: mongodb
+    app: cosmosdb
   ports:
-    - port: 27017
-      targetPort: 27017
+    - name: nosql
+      port: 8081
+      targetPort: 8081
+    - name: health
+      port: 8080
+      targetPort: 8080
+    - name: explorer
+      port: 1234
+      targetPort: 1234

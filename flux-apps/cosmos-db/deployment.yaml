@@ -1,57 +1,63 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mongodb
+  name: cosmosdb
   namespace: cosmos-db
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: mongodb
+      app: cosmosdb
   strategy:
     type: Recreate
   template:
     metadata:
       labels:
-        app: mongodb
+        app: cosmosdb
     spec:
       containers:
-        - name: mongodb
-          image: mongo:7
+        - name: cosmosdb
+          image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
           ports:
-            - containerPort: 27017
+            - containerPort: 8081
+              name: nosql
+            - containerPort: 8080
+              name: health
+            - containerPort: 1234
+              name: explorer
           env:
-            - name: MONGO_INITDB_ROOT_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: mongodb-secret
-                  key: username
-            - name: MONGO_INITDB_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: mongodb-secret
-                  key: password
+            - name: PROTOCOL
+              value: "http"
+            - name: GATEWAY_PUBLIC_ENDPOINT
+              value: "cosmosdb.cosmos-db.svc.cluster.local"
+            - name: DATA_PATH
+              value: "/usr/cosmos/data"
+            - name: ENABLE_TELEMETRY
+              value: "false"
           resources:
             requests:
-              memory: "256Mi"
+              memory: "512Mi"
               cpu: "250m"
             limits:
-              memory: "512Mi"
-              cpu: "500m"
+              memory: "2Gi"
+              cpu: "1000m"
           readinessProbe:
-            exec:
-              command: ["mongosh", "--eval", "db.runCommand('ping').ok", "--quiet"]
-            initialDelaySeconds: 15
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 20
             periodSeconds: 10
+            failureThreshold: 10
           livenessProbe:
-            exec:
-              command: ["mongosh", "--eval", "db.runCommand('ping').ok", "--quiet"]
-            initialDelaySeconds: 30
+            httpGet:
+              path: /alive
+              port: 8080
+            initialDelaySeconds: 40
             periodSeconds: 20
           volumeMounts:
-            - name: mongodb-data
-              mountPath: /data/db
+            - name: cosmos-data
+              mountPath: /usr/cosmos/data
       volumes:
-        - name: mongodb-data
+        - name: cosmos-data
           persistentVolumeClaim:
-            claimName: mongodb-data
+            claimName: cosmosdb-data

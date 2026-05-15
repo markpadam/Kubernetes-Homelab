@@ -1,15 +1,15 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: rabbitmq
+  name: servicebus
   namespace: service-bus
 spec:
   selector:
-    app: rabbitmq
+    app: servicebus
   ports:
     - name: amqp
       port: 5672
       targetPort: 5672
     - name: management
-      port: 15672
-      targetPort: 15672
+      port: 5300
+      targetPort: 5300
