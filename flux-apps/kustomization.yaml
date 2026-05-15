@@ -4,3 +4,6 @@ resources:
   - azurite/
   - azure-sql/
   - blob-explorer/
+  - service-bus/
+  - container-registry/
+  - cosmos-db/

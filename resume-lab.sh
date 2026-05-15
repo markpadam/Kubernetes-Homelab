@@ -86,6 +86,10 @@ _start_portforward "Grafana"       3000 "kubectl port-forward svc/monitoring-gra
 _start_portforward "Blob Explorer"   8082 "kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer"      /tmp/blob-explorer-portforward.log
 _start_portforward "Argo Workflows" 2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                               /tmp/argo-workflows-portforward.log
 _start_portforward "Azure SQL"      1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"                                /tmp/azure-sql-portforward.log
+_start_portforward "RabbitMQ AMQP" 5672 "kubectl port-forward svc/rabbitmq 5672:5672 -n service-bus"                          /tmp/rabbitmq-portforward.log
+_start_portforward "RabbitMQ Mgmt" 15672 "kubectl port-forward svc/rabbitmq 15672:15672 -n service-bus"                       /tmp/rabbitmq-mgmt-portforward.log
+_start_portforward "Registry"      5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"                   /tmp/registry-portforward.log
+_start_portforward "MongoDB"       27017 "kubectl port-forward svc/mongodb 27017:27017 -n cosmos-db"                           /tmp/mongodb-portforward.log
 
 # ── Vault ─────────────────────────────────────
 step "Restoring Vault"

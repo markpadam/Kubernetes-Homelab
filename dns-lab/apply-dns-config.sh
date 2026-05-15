@@ -107,6 +107,36 @@ def parse_dns_config(filepath):
 SERIAL = "${SERIAL}"
 zones = parse_dns_config("${CONFIG_FILE}")
 
+# ── Resolve svc:name/namespace values to ClusterIPs ──
+def resolve_svc(value):
+    """Return ClusterIP for 'svc:name/namespace', else return value unchanged."""
+    if not value.startswith('svc:'):
+        return value
+    parts = value[4:].split('/', 1)
+    if len(parts) != 2:
+        print(f"WARNING: malformed svc reference '{value}', skipping", file=sys.stderr)
+        return None
+    svc_name, namespace = parts
+    result = subprocess.run(
+        ['kubectl', 'get', 'svc', svc_name, '-n', namespace,
+         '-o', 'jsonpath={.spec.clusterIP}'],
+        capture_output=True, text=True
+    )
+    ip = result.stdout.strip()
+    if not ip:
+        print(f"WARNING: could not resolve {value} — service not running yet, skipping record", file=sys.stderr)
+        return None
+    print(f"  resolved {value} → {ip}")
+    return ip
+
+for z in zones:
+    resolved = []
+    for r in z['records']:
+        ip = resolve_svc(r['value'])
+        if ip is not None:
+            resolved.append({**r, 'value': ip})
+    z['records'] = resolved
+
 # ── Build bind9 zone ConfigMap data ──
 zone_data = {}
 for z in zones:

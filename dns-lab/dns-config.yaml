@@ -5,9 +5,13 @@
 #  Running ./dns-lab/apply-dns-config.sh will apply any changes to the cluster.
 #
 #  Cluster service IPs (update if services are recreated):
-#    mssql.azure-sql          10.105.102.35
-#    azurite.azure-storage    10.107.219.75
-#    host.minikube.internal   192.168.65.254  (Mac host — Vault runs here)
+#    mssql.azure-sql             10.105.102.35
+#    azurite.azure-storage       10.107.219.75
+#    host.minikube.internal      192.168.65.254  (Mac host — Vault runs here)
+#
+#  For values prefixed with "svc:", apply-dns-config.sh looks up the ClusterIP
+#  automatically via kubectl. Run ./dns-lab/apply-dns-config.sh after new
+#  services come up to pick up their IPs.
 #
 #  record types supported: A, CNAME
 # ─────────────────────────────────────────────────────────────────────────────
@@ -35,6 +39,15 @@ internal_zones:
       - name: mydb            # → Azure SQL Edge (mssql.azure-sql, port 1433)
         type: A
         value: 10.105.102.35
+      - name: servicebus      # → RabbitMQ AMQP (service-bus ns, port 5672)
+        type: A
+        value: svc:rabbitmq/service-bus
+      - name: registry        # → Docker Registry (container-registry ns, port 5000)
+        type: A
+        value: svc:registry/container-registry
+      - name: cosmosdb        # → MongoDB (cosmos-db ns, port 27017)
+        type: A
+        value: svc:mongodb/cosmos-db
 
 # Private Link zones — simulates ADDS hosting Azure Private DNS zones
 # In production ADDS conditionally forwards these back to Azure DNS (168.63.129.16)
@@ -70,12 +83,24 @@ privatelink_zones:
 
   - zone: privatelink.servicebus.windows.net
     records:
-      - name: myservicebus  # NO CLUSTER SERVICE — placeholder only
+      - name: myservicebus  # → RabbitMQ (service-bus ns, port 5672 AMQP / 5671 AMQPS)
         type: A
-        value: 10.20.0.40
+        value: svc:rabbitmq/service-bus
+      - name: myeventhub    # → RabbitMQ (same instance — Event Hub shares Service Bus protocol)
+        type: A
+        value: svc:rabbitmq/service-bus
 
   - zone: privatelink.azurecr.io
     records:
-      - name: myregistry    # NO CLUSTER SERVICE — placeholder only
+      - name: myregistry    # → Docker Registry (container-registry ns, port 5000)
         type: A
-        value: 10.20.0.50
+        value: svc:registry/container-registry
+
+  - zone: privatelink.documents.azure.com
+    records:
+      - name: mycosmosdb   # → MongoDB (cosmos-db ns, port 27017)
+        type: A
+        value: svc:mongodb/cosmos-db
+      - name: mycosmosdb-eastus  # → MongoDB (secondary-region endpoint pattern)
+        type: A
+        value: svc:mongodb/cosmos-db

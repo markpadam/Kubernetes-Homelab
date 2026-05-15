@@ -646,6 +646,10 @@ _start_portforward "Grafana"      3000 "kubectl port-forward svc/monitoring-graf
 _start_portforward "Blob Explorer"    8082 "kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer"      /tmp/blob-explorer-portforward.log
 _start_portforward "Argo Workflows"  2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                               /tmp/argo-workflows-portforward.log
 _start_portforward "Azure SQL"       1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"                                /tmp/azure-sql-portforward.log
+_start_portforward "RabbitMQ AMQP"  5672 "kubectl port-forward svc/rabbitmq 5672:5672 -n service-bus"                          /tmp/rabbitmq-portforward.log
+_start_portforward "RabbitMQ Mgmt" 15672 "kubectl port-forward svc/rabbitmq 15672:15672 -n service-bus"                        /tmp/rabbitmq-mgmt-portforward.log
+_start_portforward "Registry"       5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"                   /tmp/registry-portforward.log
+_start_portforward "MongoDB"       27017 "kubectl port-forward svc/mongodb 27017:27017 -n cosmos-db"                           /tmp/mongodb-portforward.log
 
 # ── Local DNS (/etc/hosts) ───────────────────
 step "Configuring Local DNS"
@@ -706,6 +710,9 @@ ${BOLD}  Service URLs${RESET}
   ArgoCD:        ${GREEN}https://argocd.aks-lab.local:8080${RESET}      login: admin / $ARGOCD_PASSWORD
   Blob Explorer: ${GREEN}http://blob-explorer.aks-lab.local:8082${RESET}
   Azure SQL:     ${GREEN}localhost:1433${RESET}                         login: sa / AksLab!SqlDev1
+  RabbitMQ Mgmt: ${GREEN}http://localhost:15672${RESET}                  login: lab / AksLab!Rabbit1
+  Registry:      ${GREEN}localhost:5000${RESET}                          (no auth — push via localhost:5000/img:tag)
+  MongoDB:       ${GREEN}localhost:27017${RESET}                         login: admin / AksLab!Mongo1
   Vault UI:      ${GREEN}http://vault.aks-lab.local:8200/ui${RESET}        token: ${VAULT_TOKEN}
   Argo Workflows: ${GREEN}http://argo-workflows.aks-lab.local:2746${RESET}
 

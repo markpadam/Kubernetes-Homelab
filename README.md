@@ -36,6 +36,9 @@ All services use stable ports and friendly local DNS names added to `/etc/hosts`
 | ArgoCD | <https://argocd.aks-lab.local:8080> | admin / *(printed at setup end)* |
 | Blob Explorer | <http://blob-explorer.aks-lab.local:8082> | — |
 | Vault UI | <http://vault.aks-lab.local:8200/ui> | token: root |
+| RabbitMQ Management | <http://localhost:15672> | lab / AksLab!Rabbit1 |
+| Container Registry | `localhost:5000` | no auth |
+| Cosmos DB (MongoDB) | `localhost:27017` | admin / AksLab!Mongo1 |
 | Toolbox SSH | `ssh aks-toolbox` | — |
 
 ### Dashboard
@@ -88,6 +91,10 @@ All services use stable ports and friendly local DNS names added to `/etc/hosts`
 ├── flux-apps/                # Flux-managed apps — deployed automatically on every lab start
 │   ├── kustomization.yaml
 │   ├── azurite/              # Azure Storage emulator (Blob, Queue, Table)
+│   ├── azure-sql/            # Azure SQL Edge (ARM64 SQL Server equivalent)
+│   ├── service-bus/          # RabbitMQ (Azure Service Bus equivalent, AMQP)
+│   ├── container-registry/   # Docker Registry v2 (Azure Container Registry equivalent)
+│   ├── cosmos-db/            # MongoDB 7 (Cosmos DB MongoDB API equivalent)
 │   └── blob-explorer/        # HelmRelease for the .NET Blob Explorer app
 │
 ├── helm-charts/
@@ -180,14 +187,17 @@ git commit -m "add new DNS record"
 
 ### Zones Configured
 
-| Zone | Simulates |
-| --- | --- |
-| `corp.internal` | Internal AD authoritative zone |
-| `privatelink.database.windows.net` | Azure SQL private endpoints |
-| `privatelink.blob.core.windows.net` | Azure Storage private endpoints |
-| `privatelink.vaultcore.azure.net` | Azure Key Vault private endpoints |
-| `privatelink.servicebus.windows.net` | Azure Service Bus private endpoints |
-| `privatelink.azurecr.io` | Azure Container Registry private endpoints |
+| Zone | Simulates | Resolved to |
+| --- | --- | --- |
+| `corp.internal` | Internal AD authoritative zone | various |
+| `privatelink.database.windows.net` | Azure SQL private endpoints | Azure SQL Edge (`mssql.azure-sql`) |
+| `privatelink.blob.core.windows.net` | Azure Storage private endpoints | Azurite (`azurite.azure-storage`) |
+| `privatelink.vaultcore.azure.net` | Azure Key Vault private endpoints | Vault on Mac host |
+| `privatelink.servicebus.windows.net` | Azure Service Bus private endpoints | RabbitMQ (`rabbitmq.service-bus`) |
+| `privatelink.azurecr.io` | Azure Container Registry private endpoints | Docker Registry (`registry.container-registry`) |
+| `privatelink.documents.azure.com` | Azure Cosmos DB private endpoints | MongoDB (`mongodb.cosmos-db`) |
+
+DNS records using `svc:name/namespace` in dns-config.yaml are resolved to ClusterIPs automatically when `apply-dns-config.sh` runs. If a service isn't running yet, that record is skipped with a warning — re-run `./dns-lab/apply-dns-config.sh` after the service comes up.
 
 ---
 
@@ -466,6 +476,85 @@ minikube start -p aks-lab
 
 ---
 
+## Shared Services
+
+Three additional Azure-equivalent services are deployed by Flux and available to all apps in the cluster.
+
+### Azure Service Bus → RabbitMQ
+
+RabbitMQ runs in the `service-bus` namespace and speaks AMQP 1.0 — the same protocol as Azure Service Bus. Apps connect using the standard Azure Service Bus SDK with an AMQP connection string.
+
+| Detail | Value |
+| --- | --- |
+| AMQP endpoint (in-cluster) | `amqp://rabbitmq.service-bus.svc.cluster.local:5672` |
+| Management UI | `http://localhost:15672` (via port-forward) |
+| Login | lab / AksLab!Rabbit1 |
+| DNS alias | `servicebus.corp.internal` / `myservicebus.privatelink.servicebus.windows.net` |
+| Secret | `rabbitmq-secret` in `service-bus` namespace |
+
+```bash
+# Check RabbitMQ status
+kubectl get pods -n service-bus
+kubectl logs -l app=rabbitmq -n service-bus --tail=30
+
+# Re-start port-forward if dropped
+kubectl port-forward svc/rabbitmq 5672:5672 15672:15672 -n service-bus &
+```
+
+### Azure Container Registry → Docker Registry v2
+
+A plain Docker Registry runs in the `container-registry` namespace. Push images to `localhost:5000` (via port-forward) and pull them from inside the cluster at `registry.container-registry.svc.cluster.local:5000`.
+
+| Detail | Value |
+| --- | --- |
+| Push (from Mac) | `localhost:5000/image:tag` (via port-forward) |
+| Pull (in-cluster) | `registry.container-registry.svc.cluster.local:5000/image:tag` |
+| Auth | none |
+| DNS alias | `registry.corp.internal` / `myregistry.privatelink.azurecr.io` |
+| Storage | 10 Gi PVC |
+
+```bash
+# Push an image
+docker tag myapp:latest localhost:5000/myapp:latest
+docker push localhost:5000/myapp:latest
+
+# List repositories
+curl http://localhost:5000/v2/_catalog
+
+# Pull from inside a pod
+kubectl run test --image=registry.container-registry.svc.cluster.local:5000/myapp:latest
+```
+
+> **Note:** Kubernetes nodes must trust the insecure registry. Minikube with the Docker driver handles this automatically for `localhost:5000` push, but in-cluster pulls from `registry.container-registry.svc.cluster.local:5000` need `--insecure-registry` set on the Minikube profile.
+>
+> ```bash
+> minikube start -p aks-lab --insecure-registry="registry.container-registry.svc.cluster.local:5000"
+> ```
+
+### Azure Cosmos DB → MongoDB 7
+
+MongoDB runs in the `cosmos-db` namespace using the same MongoDB-wire-protocol that Cosmos DB's MongoDB API exposes. Apps using the Cosmos DB SDK with a MongoDB connection string work without any code changes.
+
+| Detail | Value |
+| --- | --- |
+| Connection (in-cluster) | `mongodb://admin:AksLab%21Mongo1@mongodb.cosmos-db.svc.cluster.local:27017` |
+| Connection (from Mac) | `mongodb://admin:AksLab%21Mongo1@localhost:27017` (via port-forward) |
+| Login | admin / AksLab!Mongo1 |
+| DNS alias | `cosmosdb.corp.internal` / `mycosmosdb.privatelink.documents.azure.com` |
+| Secret | `mongodb-secret` in `cosmos-db` namespace (includes connection string) |
+| Storage | 5 Gi PVC |
+
+```bash
+# Connect with mongosh
+mongosh "mongodb://admin:AksLab\!Mongo1@localhost:27017"
+
+# Check pod status
+kubectl get pods -n cosmos-db
+kubectl logs -l app=mongodb -n cosmos-db --tail=30
+```
+
+---
+
 ## AKS Feature Mapping
 
 | AKS Feature | Lab Equivalent |
@@ -485,4 +574,7 @@ minikube start -p aks-lab
 | Azure Key Vault | HashiCorp Vault dev mode (KV v2 + Kubernetes auth) |
 | Key Vault access policy / RBAC | `azure-services` Vault policy |
 | AKS Workload Identity | Vault Kubernetes auth backend |
+| Azure Service Bus | RabbitMQ (`service-bus` namespace, AMQP 1.0) |
+| Azure Container Registry | Docker Registry v2 (`container-registry` namespace) |
+| Azure Cosmos DB | MongoDB 7 (`cosmos-db` namespace, Cosmos MongoDB API) |
 | NodeLocal DNSCache | Not yet configured (see docs) |
