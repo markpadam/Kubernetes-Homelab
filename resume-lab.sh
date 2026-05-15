@@ -85,6 +85,7 @@ _start_portforward "TaskFlow"      8081 "kubectl port-forward svc/frontend 8081:
 _start_portforward "Grafana"       3000 "kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring"                         /tmp/grafana-portforward.log
 _start_portforward "Blob Explorer"   8082 "kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer"      /tmp/blob-explorer-portforward.log
 _start_portforward "Argo Workflows" 2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                               /tmp/argo-workflows-portforward.log
+_start_portforward "Azure SQL"      1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"                                /tmp/azure-sql-portforward.log
 
 # ── Vault ─────────────────────────────────────
 step "Restoring Vault"
@@ -197,6 +198,11 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
     <div class="card-url">blob-explorer.aks-lab.local:8082</div>
     <div class="card-open">Open ↗</div>
   </a>
+  <div class="card">
+    <div class="card-name"><span class="card-dot"></span>Azure SQL</div>
+    <div class="card-url">localhost:1433</div>
+    <div class="card-open" style="color:var(--muted)">TCP — use a SQL client</div>
+  </div>
   <a class="card" href="http://vault.aks-lab.local:8200/ui" target="_blank">
     <div class="card-name"><span class="card-dot"></span>HashiCorp Vault</div>
     <div class="card-url">vault.aks-lab.local:8200/ui</div>
@@ -215,6 +221,7 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
     <div class="row"><span class="row-label">Grafana</span><span class="row-val">admin / $GRAFANA_PASSWORD</span></div>
     <div class="row"><span class="row-label">ArgoCD</span><span class="row-val">admin / $ARGOCD_PASSWORD</span></div>
     <div class="row"><span class="row-label">Vault</span><span class="row-val">token: $VAULT_TOKEN</span></div>
+    <div class="row"><span class="row-label">Azure SQL</span><span class="row-val">sa / AksLab!SqlDev1</span></div>
     <div class="row"><span class="row-label">Argo Workflows</span><span class="row-val" style="font-size:11px;word-break:break-all">$ARGO_WORKFLOWS_TOKEN</span></div>
   </div>
   <div class="panel">
@@ -304,6 +311,7 @@ ${BOLD}  Service URLs${RESET}
   Grafana:       ${GREEN}http://grafana.aks-lab.local:3000${RESET}       login: admin / $GRAFANA_PASSWORD
   ArgoCD:        ${GREEN}https://argocd.aks-lab.local:8080${RESET}      login: admin / $ARGOCD_PASSWORD
   Blob Explorer:  ${GREEN}http://blob-explorer.aks-lab.local:8082${RESET}
+  Azure SQL:      ${GREEN}localhost:1433${RESET}                         login: sa / AksLab!SqlDev1
   Vault UI:       ${GREEN}http://vault.aks-lab.local:8200/ui${RESET}       token: ${VAULT_TOKEN}
   Argo Workflows: ${GREEN}http://argo-workflows.aks-lab.local:2746${RESET}
 
