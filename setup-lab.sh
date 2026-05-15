@@ -557,7 +557,9 @@ if ! kubectl get deployment argo-server -n "$ARGO_NS" \
   log "Patching argo-server: disabling TLS, enabling server auth mode..."
   kubectl patch deployment argo-server -n "$ARGO_NS" --type=json -p='[
     {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--auth-mode=server"},
-    {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--secure=false"}
+    {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--secure=false"},
+    {"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/httpGet/scheme","value":"HTTP"},
+    {"op":"replace","path":"/spec/template/spec/containers/0/livenessProbe/httpGet/scheme","value":"HTTP"}
   ]'
   log "Waiting for patched argo-server to be ready..."
   kubectl wait deployment argo-server \
