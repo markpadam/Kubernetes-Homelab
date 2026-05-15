@@ -528,6 +528,28 @@ log "Initialising Terraform providers (first run downloads ~100 MB)..."
 terraform -chdir=terraform/local-mac init -input=false \
   2>&1 | tee /tmp/vault-terraform-init.log
 
+# The Vault Terraform provider authenticates the moment `terraform apply` starts,
+# before any local-exec provisioners run. Pre-start Vault here so the provider
+# can connect; Terraform's null_resource.vault_dev_server will restart it if
+# needed, and vault_health_check ensures it's ready before vault resources apply.
+if ! curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1; then
+  log "Pre-starting Vault dev server so Terraform provider can connect..."
+  pkill -f "vault server -dev" 2>/dev/null || true
+  sleep 1
+  VAULT_DEV_ROOT_TOKEN_ID="${VAULT_TOKEN}" \
+    vault server -dev \
+    -dev-listen-address="${VAULT_ADDR#http://}" \
+    >> /tmp/vault-dev.log 2>&1 &
+  echo $! > /tmp/vault-dev.pid
+  for i in $(seq 1 30); do
+    curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1 && break
+    sleep 1
+  done
+  curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1 \
+    || error "Vault failed to start — check /tmp/vault-dev.log"
+  success "Vault dev server pre-started"
+fi
+
 log "Applying Vault configuration (starts dev server + configures K8s auth)..."
 # If the cluster was recreated the K8s reviewer secret will be gone even though
 # Terraform state thinks it still exists — force-replace so it gets recreated.
@@ -803,7 +825,20 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
 HTMLEOF
 
 success "Dashboard written to /tmp/lab-dashboard.html"
-open /tmp/lab-dashboard.html
+
+DASHBOARD_PORT=9997
+lsof -ti:"$DASHBOARD_PORT" | xargs kill -9 2>/dev/null || true
+python3 -m http.server "$DASHBOARD_PORT" --directory /tmp --bind 127.0.0.1 \
+  >> /tmp/dashboard-server.log 2>&1 &
+sleep 1
+
+DASHBOARD_URL="http://localhost:${DASHBOARD_PORT}/lab-dashboard.html"
+if command -v code &>/dev/null; then
+  code --open-url "$DASHBOARD_URL"
+  success "Dashboard open in VS Code Simple Browser — ${DASHBOARD_URL}"
+else
+  open "$DASHBOARD_URL"
+fi
 
 # ── Done ─────────────────────────────────────
 step "Lab Ready"

@@ -15,4 +15,4 @@ service:
 azureStorage:
   # Azurite's fixed well-known connection string — safe to commit, these are not real credentials.
   # In production, override connectionString with your real Azure Storage account connection string.
-  connectionString: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OtLdTWBP4y6bW8hGo1E/GkHUFAf4fRHtPIJCRflFiX+BPxP4lSM5A==;BlobEndpoint=http://azurite.azure-storage.svc.cluster.local:10000/devstoreaccount1;"
+  connectionString: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite.azure-storage.svc.cluster.local:10000/devstoreaccount1;"

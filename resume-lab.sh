@@ -280,7 +280,20 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
 HTMLEOF
 
 success "Dashboard written to /tmp/lab-dashboard.html"
-open /tmp/lab-dashboard.html
+
+DASHBOARD_PORT=9997
+lsof -ti:"$DASHBOARD_PORT" | xargs kill -9 2>/dev/null || true
+python3 -m http.server "$DASHBOARD_PORT" --directory /tmp --bind 127.0.0.1 \
+  >> /tmp/dashboard-server.log 2>&1 &
+sleep 1
+
+DASHBOARD_URL="http://localhost:${DASHBOARD_PORT}/lab-dashboard.html"
+if command -v code &>/dev/null; then
+  code --open-url "$DASHBOARD_URL"
+  success "Dashboard open in VS Code Simple Browser — ${DASHBOARD_URL}"
+else
+  open "$DASHBOARD_URL"
+fi
 
 # ── Done ─────────────────────────────────────
 step "Lab Resumed"
