@@ -498,16 +498,16 @@ step "Step 11 — HashiCorp Vault (Azure Key Vault equivalent)"
 
 VAULT_ADDR="http://127.0.0.1:8200"
 VAULT_TOKEN="root"
-VAULT_KV_PATH="secret"
+VAULT_KV_PATH="kv"
 VAULT_AUTH_PATH="kubernetes"
 
 log "Initialising Terraform providers (first run downloads ~100 MB)..."
-terraform -chdir=terraform/local-mac init -upgrade -reconfigure -input=false \
-  > /tmp/vault-terraform-init.log 2>&1
+terraform -chdir=terraform/local-mac init -input=false \
+  2>&1 | tee /tmp/vault-terraform-init.log
 
 log "Applying Vault configuration (starts dev server + configures K8s auth)..."
 terraform -chdir=terraform/local-mac apply -auto-approve -input=false \
-  >> /tmp/vault-terraform-apply.log 2>&1
+  2>&1 | tee /tmp/vault-terraform-apply.log
 
 success "Vault ready — ${VAULT_ADDR}/ui  (token: ${VAULT_TOKEN})"
 log "  KV v2 secrets:  ${VAULT_KV_PATH}/azure-services/*"

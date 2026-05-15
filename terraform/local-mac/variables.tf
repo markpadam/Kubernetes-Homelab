@@ -60,7 +60,7 @@ variable "kv_mount_path" {
     (https://<kv_mount_path>.vault.azure.net).
   DESC
   type    = string
-  default = "secret"
+  default = "kv"
 }
 
 variable "azure_services_namespaces" {

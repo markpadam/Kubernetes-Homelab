@@ -283,9 +283,9 @@ export VAULT_TOKEN=root
 vault status
 
 # List and read secrets
-vault kv list secret/azure-services
-vault kv put secret/azure-services/my-secret value=hello
-vault kv get secret/azure-services/my-secret
+vault kv list kv/azure-services
+vault kv put kv/azure-services/my-secret value=hello
+vault kv get kv/azure-services/my-secret
 
 # Check the Kubernetes auth backend
 vault auth list
@@ -451,9 +451,9 @@ kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer &
 export VAULT_ADDR=http://127.0.0.1:8200
 export VAULT_TOKEN=root
 vault status
-vault kv list secret/azure-services
-vault kv put secret/azure-services/my-secret value=hello
-vault kv get secret/azure-services/my-secret
+vault kv list kv/azure-services
+vault kv put kv/azure-services/my-secret value=hello
+vault kv get kv/azure-services/my-secret
 vault auth list
 cd terraform/local-mac && terraform output
 

@@ -60,6 +60,8 @@ resource "vault_kv_secret_v2" "azure_services_placeholder" {
 resource "vault_policy" "azure_services" {
   name = "azure-services"
 
+  depends_on = [null_resource.vault_health_check]
+
   policy = <<-HCL
     # Read secret values — mirrors Key Vault access policy: Secret Get
     path "${var.kv_mount_path}/data/azure-services/*" {

@@ -166,11 +166,11 @@ MANIFEST
   provisioner "local-exec" {
     when    = destroy
     command = <<-BASH
-      kubectl --context="${var.minikube_profile}" \
+      kubectl --context="${self.triggers.minikube_profile}" \
         delete clusterrolebinding vault-reviewer --ignore-not-found
-      kubectl --context="${var.minikube_profile}" \
+      kubectl --context="${self.triggers.minikube_profile}" \
         delete secret vault-reviewer-token -n kube-system --ignore-not-found
-      kubectl --context="${var.minikube_profile}" \
+      kubectl --context="${self.triggers.minikube_profile}" \
         delete serviceaccount vault-reviewer -n kube-system --ignore-not-found
       echo "[k8s] Vault reviewer resources removed"
     BASH

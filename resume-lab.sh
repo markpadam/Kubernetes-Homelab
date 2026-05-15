@@ -15,7 +15,7 @@ GITHUB_BRANCH="main"
 FLUX_APPS_PATH="./flux-apps"
 VAULT_ADDR="http://127.0.0.1:8200"
 VAULT_TOKEN="root"
-VAULT_KV_PATH="secret"
+VAULT_KV_PATH="kv"
 VAULT_AUTH_PATH="kubernetes"
 
 # ── Colours ──────────────────────────────────
@@ -93,7 +93,7 @@ else
 
   log "Reconfiguring Vault (KV v2, policies, Kubernetes auth)..."
   terraform -chdir=terraform/local-mac apply -auto-approve -input=false \
-    >> /tmp/vault-terraform-apply.log 2>&1
+    2>&1 | tee /tmp/vault-terraform-apply.log
   success "Vault configured"
 fi
 
