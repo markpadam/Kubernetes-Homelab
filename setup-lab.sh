@@ -711,6 +711,13 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
     .copy-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: pointer; flex-shrink: 0; margin-left: 12px; transition: color .1s, border-color .1s; }
     .copy-btn:hover { color: var(--blue); border-color: var(--blue); }
     .copy-btn.copied { color: var(--green); border-color: var(--green); }
+    .run-btn { background: #1f6feb22; border: 1px solid #1f6feb55; color: var(--blue); border-radius: 6px; padding: 7px 14px; font-size: 13px; cursor: pointer; transition: background .15s, border-color .15s; }
+    .run-btn:hover { background: #1f6feb44; border-color: var(--blue); }
+    .run-btn:disabled { opacity: .5; cursor: not-allowed; }
+    #terminal { background: #010409; border: 1px solid var(--border); border-radius: 8px; padding: 16px; min-height: 180px; max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; color: #c9d1d9; margin-top: 10px; }
+    .term-idle { color: var(--muted); font-style: italic; }
+    .term-done { color: var(--green); }
+    .term-err  { color: #f85149; }
   </style>
 </head>
 <body>
@@ -818,6 +825,17 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
   </div>
 </div>
 
+<div class="section-title">Lab Scripts</div>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+  <button class="run-btn" onclick="runScript('resume')">Resume Lab</button>
+  <button class="run-btn" onclick="runScript('dns')">Apply DNS</button>
+  <button class="run-btn" onclick="runScript('flux-sync')">Flux Sync</button>
+  <button class="run-btn" onclick="runScript('pods')">Pod Status</button>
+  <button class="run-btn" onclick="runScript('nodes')">Node Status</button>
+  <button class="run-btn" onclick="runScript('hpa')">HPA Status</button>
+</div>
+<div id="terminal"><span class="term-idle">Select a script above to run it...</span></div>
+
 <script>
   function cp(btn, text) {
     navigator.clipboard.writeText(text).then(function() {
@@ -825,6 +843,45 @@ cat > /tmp/lab-dashboard.html << HTMLEOF
       btn.classList.add('copied');
       setTimeout(function() { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1500);
     });
+  }
+  var _es = null;
+  function runScript(name) {
+    if (_es) { _es.close(); _es = null; }
+    var term = document.getElementById('terminal');
+    term.textContent = '';
+    var btns = document.querySelectorAll('.run-btn');
+    btns.forEach(function(b) { b.disabled = true; });
+    var hdr = document.createElement('span');
+    hdr.className = 'term-done';
+    hdr.textContent = '> ' + name + '\n\n';
+    term.appendChild(hdr);
+    _es = new EventSource('/exec/' + name);
+    _es.onmessage = function(e) {
+      var msg = e.data;
+      if (msg.indexOf('__DONE__') === 0) {
+        _es.close(); _es = null;
+        btns.forEach(function(b) { b.disabled = false; });
+        var fin = document.createElement('span');
+        var code = msg.slice(8);
+        fin.className = code === '0' ? 'term-done' : 'term-err';
+        fin.textContent = '\n[exit ' + code + ']';
+        term.appendChild(fin);
+      } else if (msg.indexOf('__ERROR__') === 0) {
+        _es.close(); _es = null;
+        btns.forEach(function(b) { b.disabled = false; });
+        var err = document.createElement('span');
+        err.className = 'term-err';
+        err.textContent = '\n[error] ' + msg.slice(9);
+        term.appendChild(err);
+      } else {
+        term.appendChild(document.createTextNode(msg + '\n'));
+      }
+      term.scrollTop = term.scrollHeight;
+    };
+    _es.onerror = function() {
+      if (_es) { _es.close(); _es = null; }
+      btns.forEach(function(b) { b.disabled = false; });
+    };
   }
 </script>
 </body>
@@ -835,11 +892,10 @@ success "Dashboard written to /tmp/lab-dashboard.html"
 
 DASHBOARD_PORT=9997
 lsof -ti:"$DASHBOARD_PORT" | xargs kill -9 2>/dev/null || true
-python3 -m http.server "$DASHBOARD_PORT" --directory /tmp --bind 127.0.0.1 \
-  >> /tmp/dashboard-server.log 2>&1 &
+python3 "$PWD/dashboard-server.py" "$PWD" >> /tmp/dashboard-server.log 2>&1 &
 sleep 1
 
-DASHBOARD_URL="http://localhost:${DASHBOARD_PORT}/lab-dashboard.html"
+DASHBOARD_URL="http://localhost:${DASHBOARD_PORT}/"
 if command -v code &>/dev/null; then
   code --open-url "$DASHBOARD_URL"
   success "Dashboard open in VS Code Simple Browser — ${DASHBOARD_URL}"

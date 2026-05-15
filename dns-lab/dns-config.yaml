@@ -4,6 +4,11 @@
 #  This file is the single place to manage DNS for the lab.
 #  Running ./dns-lab/apply-dns-config.sh will apply any changes to the cluster.
 #
+#  Cluster service IPs (update if services are recreated):
+#    mssql.azure-sql          10.105.102.35
+#    azurite.azure-storage    10.107.219.75
+#    host.minikube.internal   192.168.65.254  (Mac host — Vault runs here)
+#
 #  record types supported: A, CNAME
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -12,9 +17,9 @@ internal_zones:
 
   - zone: corp.internal
     records:
-      - name: sqlserver
+      - name: sqlserver       # → Azure SQL Edge (mssql.azure-sql, port 1433)
         type: A
-        value: 10.10.0.20
+        value: 10.105.102.35
       - name: webserver
         type: A
         value: 10.10.0.21
@@ -27,9 +32,9 @@ internal_zones:
       - name: api
         type: A
         value: 10.10.0.24
-      - name: mydb
+      - name: mydb            # → Azure SQL Edge (mssql.azure-sql, port 1433)
         type: A
-        value: 10.10.0.25
+        value: 10.105.102.35
 
 # Private Link zones — simulates ADDS hosting Azure Private DNS zones
 # In production ADDS conditionally forwards these back to Azure DNS (168.63.129.16)
@@ -38,39 +43,39 @@ privatelink_zones:
 
   - zone: privatelink.database.windows.net
     records:
-      - name: mysqlserver
+      - name: mysqlserver     # → Azure SQL Edge (mssql.azure-sql, port 1433)
         type: A
-        value: 10.20.0.10
-      - name: anotherdb
+        value: 10.105.102.35
+      - name: anotherdb       # → Azure SQL Edge (same instance, different DB)
         type: A
-        value: 10.20.0.11
+        value: 10.105.102.35
 
   - zone: privatelink.blob.core.windows.net
     records:
-      - name: mystorageaccount
+      - name: mystorageaccount  # → Azurite blob (azurite.azure-storage, port 10000)
         type: A
-        value: 10.20.0.20
-      - name: backupstorage
+        value: 10.107.219.75
+      - name: backupstorage     # → Azurite blob (same instance)
         type: A
-        value: 10.20.0.21
+        value: 10.107.219.75
 
   - zone: privatelink.vaultcore.azure.net
     records:
-      - name: mykeyvault
+      - name: mykeyvault    # → Vault dev server on Mac (host.minikube.internal:8200)
         type: A
-        value: 10.20.0.30
-      - name: prodkeyvault
+        value: 192.168.65.254
+      - name: prodkeyvault  # → Vault dev server on Mac (host.minikube.internal:8200)
         type: A
-        value: 10.20.0.31
+        value: 192.168.65.254
 
   - zone: privatelink.servicebus.windows.net
     records:
-      - name: myservicebus
+      - name: myservicebus  # NO CLUSTER SERVICE — placeholder only
         type: A
         value: 10.20.0.40
 
   - zone: privatelink.azurecr.io
     records:
-      - name: myregistry
+      - name: myregistry    # NO CLUSTER SERVICE — placeholder only
         type: A
         value: 10.20.0.50

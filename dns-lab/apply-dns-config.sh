@@ -85,13 +85,14 @@ def parse_dns_config(filepath):
             current_record = None
             continue
 
-        if indent == 4 and stripped.startswith('- name:'):
-            current_record = {'name': stripped.split('- name:')[1].strip()}
+        if indent == 6 and stripped.startswith('- name:'):
+            raw_name = stripped.split('- name:')[1].split('#')[0].strip()
+            current_record = {'name': raw_name}
             continue
 
-        if indent == 6 and current_record is not None:
+        if indent == 8 and current_record is not None:
             key, _, val = stripped.partition(':')
-            current_record[key.strip()] = val.strip()
+            current_record[key.strip()] = val.split('#')[0].strip()
             if 'name' in current_record and 'type' in current_record and 'value' in current_record:
                 current_zone['records'].append(dict(current_record))
 
@@ -317,8 +318,8 @@ run_test() {
 }
 
 # Test first record from each zone automatically
-python3 << PYEOF2
-import subprocess, sys
+python3 - "${CONFIG_FILE}" > /tmp/dns-smoke-fqdns.txt << 'PYEOF2'
+import sys
 
 def parse_first_records(filepath):
     tests = []
@@ -335,25 +336,25 @@ def parse_first_records(filepath):
         if indent == 2 and stripped.startswith('- zone:'):
             current_zone = stripped.split('- zone:')[1].strip()
             got_record = False
-        if indent == 4 and stripped.startswith('- name:') and not got_record:
-            name = stripped.split('- name:')[1].strip()
+        if indent == 6 and stripped.startswith('- name:') and not got_record:
+            name = stripped.split('- name:')[1].split('#')[0].strip()
             got_record = True
-            # peek ahead for value
             tests.append((current_zone, name))
     return tests
 
-tests = parse_first_records("${CONFIG_FILE}")
-for zone, name in tests:
-    fqdn = f"{name}.{zone}"
-    print(fqdn)
-PYEOF2 | while read -r fqdn; do
+for zone, name in parse_first_records(sys.argv[1]):
+    print(f"{name}.{zone}")
+PYEOF2
+
+while IFS= read -r fqdn; do
   result=$(kubectl exec dnstest -n default -- nslookup "$fqdn" 2>/dev/null || true)
   if echo "$result" | grep -q "Address"; then
     success "$fqdn ✓"
   else
     warn "FAIL: $fqdn"
   fi
-done
+done < /tmp/dns-smoke-fqdns.txt
+rm -f /tmp/dns-smoke-fqdns.txt
 
 kubectl delete pod dnstest -n default --ignore-not-found=true 2>/dev/null || true
 
