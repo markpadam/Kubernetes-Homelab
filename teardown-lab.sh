@@ -97,15 +97,19 @@ done
 # ── Delete Minikube cluster ───────────────────
 step "Deleting Minikube Cluster"
 
-# Force-remove the Docker containers first — avoids minikube status hanging
-# when the cluster API is unresponsive after a failed or interrupted setup.
+# Force-kill then remove each node container before invoking minikube delete.
+# minikube delete runs "docker exec ... init 0" for a graceful shutdown which
+# hangs when the cluster is already in a bad state — skipping straight to
+# docker kill avoids that entirely.
 for container in "${PROFILE}" "${PROFILE}-m02" "${PROFILE}-m03"; do
   if docker inspect "$container" &>/dev/null; then
+    docker kill "$container" 2>/dev/null || true
     docker rm -f "$container" 2>/dev/null && log "Removed container: $container" || true
   fi
 done
 
-if minikube delete -p "$PROFILE" 2>/dev/null; then
+# --purge clears the minikube profile directory even if containers are gone.
+if minikube delete -p "$PROFILE" --purge 2>/dev/null; then
   success "Minikube profile '$PROFILE' deleted"
 else
   warn "Minikube profile '$PROFILE' not found — already deleted or never created."
