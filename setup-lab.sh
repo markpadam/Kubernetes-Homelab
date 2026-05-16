@@ -17,8 +17,7 @@ SETUP_START=$(date +%s)
 PROFILE="aks-lab"
 K8S_VERSION="v1.32.0"
 NODES=3
-CPUS=2
-MEMORY=4096
+# CPUS / MEMORY / SAMBA_* / CLIENT_* are set by the resource tier prompt below
 APP_DIR="apps/base/taskflow"
 DNS_DIR="infrastructure/base/dns"
 TOOLBOX_DIR="infrastructure/base/toolbox"
@@ -163,6 +162,41 @@ except Exception:
 feature_enabled() { [[ " $ENABLED_FEATURES " =~ (^|[[:space:]])"$1"([[:space:]]|$) ]]; }
 
 success "Features loaded: ${ENABLED_FEATURES:-none}"
+
+# ── Resource tier ─────────────────────────────
+# Sized for Apple Silicon (M1/M2/M3) — adjust if your Mac has more/less RAM.
+#   Low      2C/2G per node  →  6GB total   leaves ~10GB free  (Mac stays snappy)
+#   Standard 2C/3G per node  →  9GB total   leaves ~6GB free   (recommended)
+#   High     3C/4G per node  → 12GB total   leaves ~3GB free   (max perf, Mac slows)
+printf "\n" >&3
+printf "  ${BOLD}Resource tier${RESET} (sized for M3 Pro / 18 GB):\n" >&3
+printf "    1) Low      — 2 CPU / 2 GB per node  (6 GB total, Mac stays responsive)\n" >&3
+printf "    2) Standard — 2 CPU / 3 GB per node  (9 GB total, recommended) [default]\n" >&3
+printf "    3) High     — 3 CPU / 4 GB per node  (12 GB total, max performance)\n" >&3
+printf "\n" >&3
+printf "  Choice [1-3, Enter=2]: " >&3
+read -r _tier <&0
+
+case "${_tier:-2}" in
+  1)
+    CPUS=2; MEMORY=2048
+    SAMBA_CPUS=1; SAMBA_MEM="1G"; SAMBA_DISK="20G"
+    CLIENT_CPUS=1; CLIENT_MEM="1G"; CLIENT_DISK="10G"
+    success "Resource tier: Low  (2 CPU / 2 GB per node)"
+    ;;
+  3)
+    CPUS=3; MEMORY=4096
+    SAMBA_CPUS=2; SAMBA_MEM="3G"; SAMBA_DISK="30G"
+    CLIENT_CPUS=2; CLIENT_MEM="3G"; CLIENT_DISK="20G"
+    success "Resource tier: High  (3 CPU / 4 GB per node)"
+    ;;
+  *)
+    CPUS=2; MEMORY=3072
+    SAMBA_CPUS=2; SAMBA_MEM="2G"; SAMBA_DISK="20G"
+    CLIENT_CPUS=2; CLIENT_MEM="2G"; CLIENT_DISK="15G"
+    success "Resource tier: Standard  (2 CPU / 3 GB per node)"
+    ;;
+esac
 
 # ── Preflight checks ─────────────────────────
 step "Preflight Checks"
@@ -778,6 +812,9 @@ if feature_enabled samba-ad; then
     -target=null_resource.multipass_check \
     -target=null_resource.samba_vm \
     -target=time_sleep.samba_stabilise \
+    -var="samba_vm_cpus=${SAMBA_CPUS}" \
+    -var="samba_vm_memory=${SAMBA_MEM}" \
+    -var="samba_vm_disk=${SAMBA_DISK}" \
     2>&1 | tee /tmp/samba-terraform-apply.log
 
   SAMBA_IP=$(multipass info samba-ad --format json 2>/dev/null \
@@ -840,6 +877,9 @@ if feature_enabled corp-client; then
   log "Provisioning domain-joined corp-client VM..."
   terraform -chdir=IaC/terraform apply -auto-approve -input=false \
     -target=null_resource.corp_client_vm \
+    -var="client_vm_cpus=${CLIENT_CPUS}" \
+    -var="client_vm_memory=${CLIENT_MEM}" \
+    -var="client_vm_disk=${CLIENT_DISK}" \
     2>&1 | tee /tmp/corp-client-terraform-apply.log
   success "Corp Client VM ready — multipass shell corp-client"
 else
