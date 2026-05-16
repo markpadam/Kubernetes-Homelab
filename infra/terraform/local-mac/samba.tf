@@ -37,6 +37,9 @@ resource "null_resource" "samba_vm" {
     command = <<-BASH
       set -euo pipefail
 
+      echo "[samba] Removing any pre-existing samba-ad VM ..."
+      multipass delete samba-ad --purge 2>/dev/null || true
+
       echo "[samba] Creating Multipass VM samba-ad ..."
       multipass launch 24.04 \
         --name samba-ad \
@@ -45,8 +48,27 @@ resource "null_resource" "samba_vm" {
         --disk "${var.samba_vm_disk}" \
         --timeout 300
 
+      echo "[samba] Waiting for network connectivity in VM ..."
+      for i in $(seq 1 24); do
+        if multipass exec samba-ad -- ping -c 1 -W 2 8.8.8.8 &>/dev/null; then
+          echo "[samba] Network ready after $i attempts"
+          break
+        fi
+        sleep 5
+      done
+      multipass exec samba-ad -- ping -c 1 -W 5 8.8.8.8 \
+        || { echo "[samba] ERROR: no network in VM after 2 minutes"; exit 1; }
+
+      echo "[samba] Forcing IPv4 for apt (Multipass VMs often lack IPv6 routing) ..."
+      multipass exec samba-ad -- sudo bash -c \
+        'echo "Acquire::ForceIPv4 \"true\";" > /etc/apt/apt.conf.d/99force-ipv4'
+
       echo "[samba] Installing packages ..."
-      multipass exec samba-ad -- sudo apt-get update -qq
+      for i in $(seq 1 3); do
+        multipass exec samba-ad -- sudo apt-get update -qq && break
+        echo "[samba] apt-get update attempt $i failed, retrying in 10s..."
+        sleep 10
+      done
       multipass exec samba-ad -- sudo apt-get install -y -qq \
         samba winbind krb5-user attr dnsutils ldap-utils acl
 
@@ -85,7 +107,7 @@ resource "null_resource" "samba_vm" {
       echo "[samba] Waiting for LDAP to be ready ..."
       for i in $(seq 1 30); do
         if multipass exec samba-ad -- sudo samba-tool domain info 127.0.0.1 &>/dev/null; then
-          echo "[samba] Domain ready after ${i}s"
+          echo "[samba] Domain ready after $i s"
           break
         fi
         sleep 2
@@ -153,6 +175,9 @@ resource "null_resource" "corp_client_vm" {
         | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])")
       echo "[client] SambaAD IP: $SAMBA_IP"
 
+      echo "[client] Removing any pre-existing corp-client VM ..."
+      multipass delete corp-client --purge 2>/dev/null || true
+
       echo "[client] Creating Multipass VM corp-client ..."
       multipass launch 24.04 \
         --name corp-client \
@@ -175,9 +200,9 @@ resource "null_resource" "corp_client_vm" {
       multipass exec corp-client -- sudo chattr +i /etc/resolv.conf
 
       echo "[client] Verifying DNS to domain ..."
-      for i in \$(seq 1 15); do
+      for i in $(seq 1 15); do
         if multipass exec corp-client -- nslookup "${var.ad_domain}" &>/dev/null; then
-          echo "[client] DNS OK after \${i}s"
+          echo "[client] DNS OK after $i s"
           break
         fi
         sleep 2
@@ -203,7 +228,7 @@ resource "null_resource" "corp_client_vm" {
       "
 
       echo "[client] Verifying domain join ..."
-      for i in \$(seq 1 10); do
+      for i in $(seq 1 10); do
         if multipass exec corp-client -- id testuser1 &>/dev/null; then
           echo "[client] Domain join verified — testuser1 resolves"
           break
@@ -214,17 +239,17 @@ resource "null_resource" "corp_client_vm" {
       # Add Mac-host entries so the client can reach cluster web apps
       # (Mac port-forwards are visible to VMs at the Multipass gateway IP)
       GATEWAY_IP=$(multipass exec corp-client -- ip route | grep default | awk '{print $3}')
-      echo "[client] Gateway (Mac host) IP: \$GATEWAY_IP"
+      echo "[client] Gateway (Mac host) IP: $GATEWAY_IP"
       multipass exec corp-client -- sudo bash -c "
         cat >> /etc/hosts <<EOF
 
 # AKS lab cluster services (via Mac host port-forwards on port 9980)
-\$GATEWAY_IP  taskflow.aks-lab.local
-\$GATEWAY_IP  grafana.aks-lab.local
-\$GATEWAY_IP  argocd.aks-lab.local
-\$GATEWAY_IP  blob-explorer.aks-lab.local
-\$GATEWAY_IP  oauth2-proxy.aks-lab.local
-\$GATEWAY_IP  dex.aks-lab.local
+$GATEWAY_IP  taskflow.aks-lab.local
+$GATEWAY_IP  grafana.aks-lab.local
+$GATEWAY_IP  argocd.aks-lab.local
+$GATEWAY_IP  blob-explorer.aks-lab.local
+$GATEWAY_IP  oauth2-proxy.aks-lab.local
+$GATEWAY_IP  dex.aks-lab.local
 EOF
       "
 

@@ -3,11 +3,13 @@ set -euo pipefail
 
 # ─────────────────────────────────────────────
 #  AKS Lab — Minikube Setup Script
-#  Usage: ./setup-lab.sh [--all|--minimal|--standard]
+#  Usage: ./setup-lab.sh [--all|--minimal|--standard] [--verbose]
 #         --all       Install every component
 #         --minimal   Core cluster only (no optional features)
 #         --standard  Default components (same as interactive defaults)
 #         (no flag)   Interactive component selector
+#         --verbose   Stream all command output to the terminal
+#                     Default: quiet — all output logged to /tmp/lab-setup-<date>.log
 # ─────────────────────────────────────────────
 
 PROFILE="aks-lab"
@@ -29,28 +31,64 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
+DIM='\033[2m'
 RESET='\033[0m'
 
-log()     { echo -e "${CYAN}${BOLD}[lab]${RESET} $*"; }
-success() { echo -e "${GREEN}${BOLD}[✓]${RESET} $*"; }
-warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*"; }
-error()   { echo -e "${RED}${BOLD}[✗]${RESET} $*"; exit 1; }
-step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
+# ── Parse args ────────────────────────────────
+SETUP_FLAG=""
+VERBOSE=0
+for _arg in "$@"; do
+  case "$_arg" in
+    --verbose|-v)              VERBOSE=1 ;;
+    --all|--minimal|--standard) SETUP_FLAG="$_arg" ;;
+    "")                        ;;
+    *) echo -e "${RED}${BOLD}[✗]${RESET} Unknown flag: $_arg  (use --all, --minimal, --standard, --verbose)"; exit 1 ;;
+  esac
+done
+
+# ── Logging setup ─────────────────────────────
+LAB_LOG="/tmp/lab-setup-$(date +%Y%m%d-%H%M%S).log"
+# Save the real terminal on fd 3 before any redirect
+exec 3>&1
+
+if [[ "$VERBOSE" != "1" ]]; then
+  # All command output goes to the log file; user-facing functions write to fd 3
+  exec >> "$LAB_LOG" 2>&1
+  log()     { echo -e "${CYAN}${BOLD}[lab]${RESET} $*" >&3; }
+  success() { echo -e "${GREEN}${BOLD}[✓]${RESET} $*" >&3; }
+  warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*" >&3; }
+  step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}" >&3; }
+  error()   {
+    echo -e "${RED}${BOLD}[✗]${RESET} $*" >&3
+    echo -e "${DIM}    Last 20 lines of log (${LAB_LOG}):${RESET}" >&3
+    tail -20 "$LAB_LOG" | sed 's/^/    /' >&3
+    echo -e "${DIM}    Full log: tail -f ${LAB_LOG}${RESET}" >&3
+    exit 1
+  }
+  echo -e "${DIM}[quiet mode] Command output → ${LAB_LOG}${RESET}" >&3
+  echo -e "${DIM}             Use --verbose to stream output to terminal${RESET}" >&3
+else
+  log()     { echo -e "${CYAN}${BOLD}[lab]${RESET} $*"; }
+  success() { echo -e "${GREEN}${BOLD}[✓]${RESET} $*"; }
+  warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*"; }
+  error()   { echo -e "${RED}${BOLD}[✗]${RESET} $*"; exit 1; }
+  step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
+fi
 
 # ── Feature selection ─────────────────────────
 step "Component Selection"
 
-SETUP_FLAG="${1:-}"
 if [[ -f ".lab-state.json" && -z "$SETUP_FLAG" ]]; then
   warn "Existing feature selection found in .lab-state.json"
   warn "Using it — to change: rm .lab-state.json and re-run, or use ./lab-feature.sh"
 else
   case "$SETUP_FLAG" in
     --all|--minimal|--standard)
-      bash "$(dirname "$0")/lab-feature.sh" init "$SETUP_FLAG"
+      bash "$(dirname "$0")/lab-feature.sh" init "$SETUP_FLAG" >&3 2>&3
       ;;
     "")
-      bash "$(dirname "$0")/lab-feature.sh" init --interactive
+      # Interactive menu must run on the real terminal (fd 3)
+      bash "$(dirname "$0")/lab-feature.sh" init --interactive >&3 2>&3 <&0
       ;;
     *)
       error "Unknown flag: $SETUP_FLAG  (use --all, --minimal, or --standard)"
@@ -437,8 +475,9 @@ if [[ -z "${GITHUB_TOKEN:-}" ]]; then
   [[ -n "$GITHUB_TOKEN" ]] && log "GitHub token loaded from macOS Keychain"
 fi
 if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  read -rsp "         GitHub token (for Flux + ArgoCD repo access): " GITHUB_TOKEN
-  echo
+  printf "         GitHub token (for Flux + ArgoCD repo access): " >&3
+  read -rs GITHUB_TOKEN <&0
+  echo >&3
   if [[ -n "$GITHUB_TOKEN" ]]; then
     security delete-generic-password -a "$USER" -s "aks-lab-github-token" 2>/dev/null || true
     if security add-generic-password -a "$USER" -s "aks-lab-github-token" -w "$GITHUB_TOKEN" 2>/dev/null; then
@@ -903,4 +942,7 @@ ${YELLOW}${BOLD}  Note (macOS + Docker driver)${RESET}
   minikube ip returns an address inside Docker's Linux VM that macOS
   cannot route to directly. Always use 'minikube service' or
   'kubectl port-forward' to access services from your Mac.
-"
+
+${DIM}  Full setup log: ${LAB_LOG}${RESET}
+${DIM}  Re-run with --verbose to stream all output to the terminal${RESET}
+" >&3

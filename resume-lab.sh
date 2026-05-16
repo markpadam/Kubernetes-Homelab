@@ -24,13 +24,37 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
+DIM='\033[2m'
 RESET='\033[0m'
 
-log()     { echo -e "${CYAN}${BOLD}[lab]${RESET} $*"; }
-success() { echo -e "${GREEN}${BOLD}[✓]${RESET} $*"; }
-warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*"; }
-error()   { echo -e "${RED}${BOLD}[✗]${RESET} $*"; exit 1; }
-step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
+# ── Logging setup ─────────────────────────────
+LAB_LOG="/tmp/lab-resume-$(date +%Y%m%d-%H%M%S).log"
+exec 3>&1
+VERBOSE=0
+[[ "${1:-}" == "--verbose" || "${1:-}" == "-v" ]] && VERBOSE=1
+
+if [[ "$VERBOSE" != "1" ]]; then
+  exec >> "$LAB_LOG" 2>&1
+  log()     { echo -e "${CYAN}${BOLD}[lab]${RESET} $*" >&3; }
+  success() { echo -e "${GREEN}${BOLD}[✓]${RESET} $*" >&3; }
+  warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*" >&3; }
+  step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}" >&3; }
+  error()   {
+    echo -e "${RED}${BOLD}[✗]${RESET} $*" >&3
+    echo -e "${DIM}    Last 20 lines of log (${LAB_LOG}):${RESET}" >&3
+    tail -20 "$LAB_LOG" | sed 's/^/    /' >&3
+    echo -e "${DIM}    Full log: tail -f ${LAB_LOG}${RESET}" >&3
+    exit 1
+  }
+  echo -e "${DIM}[quiet mode] Command output → ${LAB_LOG}${RESET}" >&3
+  echo -e "${DIM}             Use --verbose to stream output to terminal${RESET}" >&3
+else
+  log()     { echo -e "${CYAN}${BOLD}[lab]${RESET} $*"; }
+  success() { echo -e "${GREEN}${BOLD}[✓]${RESET} $*"; }
+  warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*"; }
+  error()   { echo -e "${RED}${BOLD}[✗]${RESET} $*"; exit 1; }
+  step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
+fi
 
 # ── Load enabled features from state file ────
 ENABLED_FEATURES=$(python3 -c "
@@ -259,4 +283,7 @@ echo -e "${BOLD}  Manage features${RESET}"
 echo -e "  List:    ./lab-feature.sh list"
 echo -e "  Enable:  ./lab-feature.sh enable <id>"
 echo -e "  Disable: ./lab-feature.sh disable <id>"
+echo -e ""
+echo -e "${DIM}  Full resume log: ${LAB_LOG}${RESET}"
+echo -e "${DIM}  Re-run with --verbose to stream all output to the terminal${RESET}"
 echo ""
