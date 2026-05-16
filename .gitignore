@@ -1,0 +1,15 @@
+# Lab runtime state — user-specific, not committed
+.lab-state.json
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfstate.*.backup
+.terraform.lock.hcl
+
+# macOS
+.DS_Store
+
+# Rendered / temp files
+/tmp/

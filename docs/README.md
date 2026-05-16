@@ -36,3 +36,10 @@ Each service running in the cluster has its own doc below.
 |-----|-----------|-------------|
 | [taskflow.md](services/taskflow.md) | `taskapp` | Three-tier task app — Nginx → Node.js → PostgreSQL |
 | [blob-explorer.md](services/blob-explorer.md) | `blob-explorer` | ASP.NET Core Blob Storage browser |
+
+## Guides
+
+| Doc | Description |
+|-----|-------------|
+| [auth-walkthrough.md](guides/auth-walkthrough.md) | Nine-stage guide to the full SSO authentication chain |
+| [lab-features.md](guides/lab-features.md) | How to enable / disable optional lab components |

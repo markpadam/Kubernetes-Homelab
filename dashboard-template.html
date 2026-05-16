@@ -52,6 +52,29 @@
     .term-idle { color: var(--muted); font-style: italic; }
     .term-done { color: var(--green); }
     .term-err  { color: #f85149; }
+    /* Lab Management */
+    .feat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); gap: 10px; margin-top: 6px; }
+    .feat-item { display: flex; align-items: center; justify-content: space-between; background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; }
+    .feat-info { display: flex; flex-direction: column; gap: 2px; }
+    .feat-name { font-size: 13px; font-weight: 600; }
+    .feat-group { font-size: 11px; color: var(--muted); }
+    .feat-toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+    .feat-toggle input { opacity: 0; width: 0; height: 0; }
+    .feat-slider { position: absolute; cursor: pointer; inset: 0; background: #30363d; border-radius: 20px; transition: .2s; }
+    .feat-slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background: #8b949e; border-radius: 50%; transition: .2s; }
+    input:checked + .feat-slider { background: #1f6feb55; }
+    input:checked + .feat-slider:before { transform: translateX(16px); background: var(--blue); }
+    input:disabled + .feat-slider { opacity: .4; cursor: not-allowed; }
+    .feat-loading { opacity: .5; pointer-events: none; }
+    #feat-status { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 18px; }
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 24px; max-width: 360px; width: 100%; }
+    .modal h3 { font-size: 16px; margin-bottom: 8px; }
+    .modal p { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+    .modal-btns { display: flex; gap: 10px; justify-content: flex-end; }
+    .modal-cancel { background: none; border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 7px 16px; cursor: pointer; font-size: 13px; }
+    .modal-confirm { background: #f8514922; border: 1px solid #f8514988; color: #f85149; border-radius: 6px; padding: 7px 16px; cursor: pointer; font-size: 13px; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -227,6 +250,22 @@
 </div>
 <div id="terminal"><span class="term-idle">Select a script above to run it...</span></div>
 
+<div class="section-title" style="margin-top:28px">Lab Management</div>
+<div id="feat-status">Loading components...</div>
+<div class="feat-grid" id="feat-grid"></div>
+
+<!-- Confirmation modal for destructive actions (disable) -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h3 id="modal-title">Disable component?</h3>
+    <p id="modal-body">This will delete the namespace and all resources. Are you sure?</p>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal()">Cancel</button>
+      <button class="modal-confirm" id="modal-confirm">Disable</button>
+    </div>
+  </div>
+</div>
+
 <script>
   function cp(btn, text) {
     navigator.clipboard.writeText(text).then(function() {
@@ -257,6 +296,7 @@
         fin.className = code === '0' ? 'term-done' : 'term-err';
         fin.textContent = '\n[exit ' + code + ']';
         term.appendChild(fin);
+        loadFeatures();
       } else if (msg.indexOf('__ERROR__') === 0) {
         _es.close(); _es = null;
         btns.forEach(function(b) { b.disabled = false; });
@@ -274,6 +314,117 @@
       btns.forEach(function(b) { b.disabled = false; });
     };
   }
+
+  /* ── Lab Management ─────────────────────────── */
+  var _pendingToggle = null;
+
+  function loadFeatures() {
+    fetch('/api/features')
+      .then(function(r) { return r.json(); })
+      .then(function(items) {
+        var status = document.getElementById('feat-status');
+        var grid = document.getElementById('feat-grid');
+        grid.innerHTML = '';
+        status.textContent = items.length + ' components registered';
+        items.forEach(function(c) {
+          var item = document.createElement('div');
+          item.className = 'feat-item';
+          item.id = 'feat-' + c.id;
+          var info = document.createElement('div');
+          info.className = 'feat-info';
+          var name = document.createElement('div');
+          name.className = 'feat-name';
+          name.textContent = c.name;
+          var grp = document.createElement('div');
+          grp.className = 'feat-group';
+          grp.textContent = c.group + (c.enabled ? '' : ' · disabled');
+          info.appendChild(name);
+          info.appendChild(grp);
+          var label = document.createElement('label');
+          label.className = 'feat-toggle';
+          label.title = c.desc || '';
+          var inp = document.createElement('input');
+          inp.type = 'checkbox';
+          inp.checked = c.enabled;
+          inp.addEventListener('change', function(e) {
+            e.preventDefault();
+            inp.checked = !inp.checked; // revert — confirmed via modal or direct enable
+            confirmToggle(c, !c.enabled);
+          });
+          var slider = document.createElement('span');
+          slider.className = 'feat-slider';
+          label.appendChild(inp);
+          label.appendChild(slider);
+          item.appendChild(info);
+          item.appendChild(label);
+          grid.appendChild(item);
+        });
+      })
+      .catch(function() {
+        document.getElementById('feat-status').textContent = 'Could not load component list.';
+      });
+  }
+
+  function confirmToggle(comp, enabling) {
+    if (enabling) {
+      doToggle(comp.id, true);
+      return;
+    }
+    _pendingToggle = comp;
+    document.getElementById('modal-title').textContent = 'Disable ' + comp.name + '?';
+    document.getElementById('modal-body').textContent =
+      'This will delete the namespace and all running resources. Are you sure?';
+    document.getElementById('modal-confirm').onclick = function() {
+      closeModal();
+      doToggle(comp.id, false);
+    };
+    document.getElementById('modal').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('modal').classList.remove('open');
+    _pendingToggle = null;
+  }
+
+  function doToggle(id, enabling) {
+    var item = document.getElementById('feat-' + id);
+    if (item) item.classList.add('feat-loading');
+
+    var action = enabling ? 'enable' : 'disable';
+    var term = document.getElementById('terminal');
+    term.textContent = '';
+    var hdr = document.createElement('span');
+    hdr.className = 'term-done';
+    hdr.textContent = '> ' + action + ' ' + id + '\n\n';
+    term.appendChild(hdr);
+
+    var es = new EventSource('/api/feature/' + action + '/' + id);
+    es.onmessage = function(e) {
+      var msg = e.data;
+      if (msg.indexOf('__DONE__') === 0) {
+        es.close();
+        var code = msg.slice(8);
+        var fin = document.createElement('span');
+        fin.className = code === '0' ? 'term-done' : 'term-err';
+        fin.textContent = '\n[exit ' + code + ']';
+        term.appendChild(fin);
+        loadFeatures();
+      } else if (msg.indexOf('__ERROR__') === 0) {
+        es.close();
+        var err = document.createElement('span');
+        err.className = 'term-err';
+        err.textContent = '\n[error] ' + msg.slice(9);
+        term.appendChild(err);
+        loadFeatures();
+      } else {
+        term.appendChild(document.createTextNode(msg + '\n'));
+        term.scrollTop = term.scrollHeight;
+      }
+    };
+    es.onerror = function() { es.close(); loadFeatures(); };
+  }
+
+  loadFeatures();
 </script>
 </body>
 </html>

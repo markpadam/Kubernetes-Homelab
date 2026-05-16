@@ -3,7 +3,11 @@ set -euo pipefail
 
 # ─────────────────────────────────────────────
 #  AKS Lab — Minikube Setup Script
-#  Usage: ./setup-lab.sh
+#  Usage: ./setup-lab.sh [--all|--minimal|--standard]
+#         --all       Install every component
+#         --minimal   Core cluster only (no optional features)
+#         --standard  Default components (same as interactive defaults)
+#         (no flag)   Interactive component selector
 # ─────────────────────────────────────────────
 
 PROFILE="aks-lab"
@@ -33,17 +37,57 @@ warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*"; }
 error()   { echo -e "${RED}${BOLD}[✗]${RESET} $*"; exit 1; }
 step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
 
+# ── Feature selection ─────────────────────────
+step "Component Selection"
+
+SETUP_FLAG="${1:-}"
+if [[ -f ".lab-state.json" && -z "$SETUP_FLAG" ]]; then
+  warn "Existing feature selection found in .lab-state.json"
+  warn "Using it — to change: rm .lab-state.json and re-run, or use ./lab-feature.sh"
+else
+  case "$SETUP_FLAG" in
+    --all|--minimal|--standard)
+      bash "$(dirname "$0")/lab-feature.sh" init "$SETUP_FLAG"
+      ;;
+    "")
+      bash "$(dirname "$0")/lab-feature.sh" init --interactive
+      ;;
+    *)
+      error "Unknown flag: $SETUP_FLAG  (use --all, --minimal, or --standard)"
+      ;;
+  esac
+fi
+
+# Load selected features for this run (single python3 call, O(1) checks after)
+ENABLED_FEATURES=$(python3 -c "
+import json
+try:
+    print(' '.join(json.load(open('.lab-state.json')).get('enabled', [])))
+except Exception:
+    print('')
+" 2>/dev/null)
+
+feature_enabled() { [[ " $ENABLED_FEATURES " =~ (^|[[:space:]])"$1"([[:space:]]|$) ]]; }
+
+success "Features loaded: ${ENABLED_FEATURES:-none}"
+
 # ── Preflight checks ─────────────────────────
 step "Preflight Checks"
 
-command -v docker     &>/dev/null || error "Docker not found. Install Docker Desktop first."
-command -v minikube   &>/dev/null || error "Minikube not found. Run: brew install minikube"
-command -v kubectl    &>/dev/null || error "kubectl not found. Run: brew install kubectl"
-command -v helm       &>/dev/null || error "Helm not found. Run: brew install helm"
-command -v flux       &>/dev/null || error "Flux CLI not found. Run: brew install fluxcd/tap/flux"
-command -v terraform  &>/dev/null || error "Terraform not found. Run: brew install terraform"
-command -v vault      &>/dev/null || error "Vault CLI not found. Run: brew install hashicorp/tap/vault"
-command -v multipass  &>/dev/null || error "Multipass not found. Run: brew install multipass"
+command -v docker   &>/dev/null || error "Docker not found. Install Docker Desktop first."
+command -v minikube &>/dev/null || error "Minikube not found. Run: brew install minikube"
+command -v kubectl  &>/dev/null || error "kubectl not found. Run: brew install kubectl"
+command -v helm     &>/dev/null || error "Helm not found. Run: brew install helm"
+command -v flux     &>/dev/null || error "Flux CLI not found. Run: brew install fluxcd/tap/flux"
+
+if feature_enabled vault; then
+  command -v terraform &>/dev/null || error "Terraform required for Vault. Run: brew install terraform"
+  command -v vault     &>/dev/null || error "Vault CLI required. Run: brew install hashicorp/tap/vault"
+fi
+if feature_enabled samba-ad || feature_enabled corp-client; then
+  command -v multipass &>/dev/null || error "Multipass required for AD VMs. Run: brew install multipass"
+  command -v terraform &>/dev/null || error "Terraform required for AD VMs. Run: brew install terraform"
+fi
 
 if ! docker info &>/dev/null; then
   log "Docker daemon not running — launching Docker Desktop..."
@@ -95,28 +139,43 @@ success "Cluster is up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ')
 # ── Step 2: Build Lab Images ─────────────────
 step "Step 2 — Building Lab Images"
 
-log "Building backend image..."
-minikube image build -t aks-lab/backend:latest Apps/taskflow/backend/ -p "$PROFILE"
-success "Backend image built"
+IMAGES_TO_BUILD=()
+IMAGES_TO_DIST=()
 
-log "Building toolbox image (packages install at build time — takes a few minutes)..."
-minikube image build -t aks-lab/toolbox:latest toolbox/ -p "$PROFILE"
-success "Toolbox image built"
+if feature_enabled taskflow; then
+  log "Building backend image..."
+  minikube image build -t aks-lab/backend:latest Apps/taskflow/backend/ -p "$PROFILE"
+  success "Backend image built"
+  IMAGES_TO_BUILD+=(aks-lab/backend:latest)
+fi
 
-log "Building blob-explorer image..."
-minikube image build -t aks-lab/blob-explorer:latest Apps/blob-explorer/ -p "$PROFILE"
-success "Blob-explorer image built"
+if feature_enabled toolbox; then
+  log "Building toolbox image (packages install at build time — takes a few minutes)..."
+  minikube image build -t aks-lab/toolbox:latest toolbox/ -p "$PROFILE"
+  success "Toolbox image built"
+  IMAGES_TO_BUILD+=(aks-lab/toolbox:latest)
+fi
 
-# minikube image build only loads into the primary node; distribute to workers
-log "Distributing images to worker nodes..."
-for IMAGE in aks-lab/backend:latest aks-lab/toolbox:latest aks-lab/blob-explorer:latest; do
-  TARFILE=$(mktemp /tmp/minikube-image-XXXXXX.tar)
-  minikube ssh -p "$PROFILE" -- "docker save ${IMAGE} -o /tmp/_img.tar"
-  minikube cp -p "$PROFILE" "${PROFILE}:/tmp/_img.tar" "$TARFILE"
-  minikube image load "$TARFILE" -p "$PROFILE"
-  rm -f "$TARFILE"
-done
-success "Images distributed to all nodes"
+if feature_enabled blob-explorer; then
+  log "Building blob-explorer image..."
+  minikube image build -t aks-lab/blob-explorer:latest Apps/blob-explorer/ -p "$PROFILE"
+  success "Blob-explorer image built"
+  IMAGES_TO_BUILD+=(aks-lab/blob-explorer:latest)
+fi
+
+if [[ "${#IMAGES_TO_BUILD[@]}" -gt 0 ]]; then
+  log "Distributing images to worker nodes..."
+  for IMAGE in "${IMAGES_TO_BUILD[@]}"; do
+    TARFILE=$(mktemp /tmp/minikube-image-XXXXXX.tar)
+    minikube ssh -p "$PROFILE" -- "docker save ${IMAGE} -o /tmp/_img.tar"
+    minikube cp -p "$PROFILE" "${PROFILE}:/tmp/_img.tar" "$TARFILE"
+    minikube image load "$TARFILE" -p "$PROFILE"
+    rm -f "$TARFILE"
+  done
+  success "Images distributed to all nodes"
+else
+  log "No images to build for selected components"
+fi
 
 # ── Step 3: Ingress ──────────────────────────
 step "Step 3 — Enabling Ingress"
@@ -151,41 +210,49 @@ fi
 success "Storage configured — default StorageClass: csi-hostpath-sc"
 
 # ── Step 5: Monitoring ───────────────────────
-step "Step 5 — Installing Prometheus + Grafana"
+if feature_enabled monitoring; then
+  step "Step 5 — Installing Prometheus + Grafana"
 
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts &>/dev/null
-helm repo update &>/dev/null
+  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts &>/dev/null
+  helm repo update &>/dev/null
 
-if helm status monitoring -n monitoring &>/dev/null; then
-  warn "Helm release 'monitoring' already exists — skipping install."
+  if helm status monitoring -n monitoring &>/dev/null; then
+    warn "Helm release 'monitoring' already exists — skipping install."
+  else
+    log "Installing kube-prometheus-stack (this takes a minute)..."
+    helm install monitoring prometheus-community/kube-prometheus-stack \
+      --namespace monitoring \
+      --create-namespace \
+      --set grafana.adminPassword="$GRAFANA_PASSWORD" \
+      --wait \
+      --timeout=5m
+  fi
+
+  success "Monitoring stack installed"
 else
-  log "Installing kube-prometheus-stack (this takes a minute)..."
-  helm install monitoring prometheus-community/kube-prometheus-stack \
-    --namespace monitoring \
-    --create-namespace \
-    --set grafana.adminPassword="$GRAFANA_PASSWORD" \
-    --wait \
-    --timeout=5m
+  log "Skipping Step 5 — Monitoring not selected"
 fi
 
-success "Monitoring stack installed"
-
 # ── Step 6: Deploy TaskFlow App ──────────────
-step "Step 6 — Deploying TaskFlow Demo App"
+if feature_enabled taskflow; then
+  step "Step 6 — Deploying TaskFlow Demo App"
 
-log "Applying manifests from ./$APP_DIR ..."
-kubectl apply -f "$APP_DIR/"
+  log "Applying manifests from ./$APP_DIR ..."
+  kubectl apply -f "$APP_DIR/"
 
-log "Waiting for pods to be ready (up to 3 minutes)..."
-for deploy in postgres backend frontend; do
-  log "  Waiting for $deploy..."
-  kubectl wait deployment "$deploy" \
-    --for=condition=available \
-    --namespace=taskapp \
-    --timeout=180s
-done
+  log "Waiting for pods to be ready (up to 3 minutes)..."
+  for deploy in postgres backend frontend; do
+    log "  Waiting for $deploy..."
+    kubectl wait deployment "$deploy" \
+      --for=condition=available \
+      --namespace=taskapp \
+      --timeout=180s
+  done
 
-success "TaskFlow deployed"
+  success "TaskFlow deployed"
+else
+  log "Skipping Step 6 — TaskFlow not selected"
+fi
 
 # ── Step 7: DNS Lab ──────────────────────────
 step "Step 7 — Deploying DNS Lab (bind9 + CoreDNS patch)"
@@ -290,83 +357,59 @@ kubectl rollout status deployment coredns -n kube-system --timeout=60s
 success "CoreDNS patched — stub zones active for corp.internal and privatelink.*"
 
 # ── Step 8: Toolbox Pod ───────────────────────
-step "Step 8 — Deploying Toolbox Pod"
+if feature_enabled toolbox; then
+  step "Step 8 — Deploying Toolbox Pod"
 
-# Find SSH public key
-SSH_KEY_PATH=""
-for key in \
-  "$HOME/.ssh/id_ed25519.pub" \
-  "$HOME/.ssh/id_rsa.pub" \
-  "$HOME/.ssh/id_ecdsa.pub"
-do
-  if [[ -f "$key" ]]; then
-    SSH_KEY_PATH="$key"
-    break
+  SSH_KEY_PATH=""
+  for key in "$HOME/.ssh/id_ed25519.pub" "$HOME/.ssh/id_rsa.pub" "$HOME/.ssh/id_ecdsa.pub"; do
+    [[ -f "$key" ]] && { SSH_KEY_PATH="$key"; break; }
+  done
+
+  if [[ -z "$SSH_KEY_PATH" ]]; then
+    warn "No SSH public key found in ~/.ssh/"
+    read -rp "         Enter path to your public key, or press Enter to generate one: " custom_path
+    if [[ -n "$custom_path" ]]; then
+      [[ -f "$custom_path" ]] || error "Key not found at $custom_path"
+      SSH_KEY_PATH="$custom_path"
+    else
+      log "Generating new ED25519 key pair at ~/.ssh/id_ed25519 ..."
+      ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -C "aks-lab-toolbox"
+      SSH_KEY_PATH="$HOME/.ssh/id_ed25519.pub"
+    fi
   fi
-done
 
-if [[ -z "$SSH_KEY_PATH" ]]; then
-  warn "No SSH public key found in ~/.ssh/"
-  read -rp "         Enter path to your public key, or press Enter to generate one: " custom_path
-  if [[ -n "$custom_path" ]]; then
-    [[ -f "$custom_path" ]] || error "Key not found at $custom_path"
-    SSH_KEY_PATH="$custom_path"
-  else
-    log "Generating new ED25519 key pair at ~/.ssh/id_ed25519 ..."
-    ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -C "aks-lab-toolbox"
-    SSH_KEY_PATH="$HOME/.ssh/id_ed25519.pub"
-  fi
-fi
+  PUBLIC_KEY=$(cat "$SSH_KEY_PATH")
+  success "Using SSH key: $SSH_KEY_PATH"
 
-PUBLIC_KEY=$(cat "$SSH_KEY_PATH")
-success "Using SSH key: $SSH_KEY_PATH"
+  TEMP_MANIFEST=$(mktemp /tmp/toolbox-XXXXXX.yaml)
+  sed "s|REPLACE_WITH_YOUR_PUBLIC_KEY|${PUBLIC_KEY}|g" \
+    "$TOOLBOX_DIR/toolbox.yaml" > "$TEMP_MANIFEST"
+  kubectl apply -f "$TEMP_MANIFEST"
+  rm "$TEMP_MANIFEST"
 
-# Inject public key and apply manifest
-TEMP_MANIFEST=$(mktemp /tmp/toolbox-XXXXXX.yaml)
-sed "s|REPLACE_WITH_YOUR_PUBLIC_KEY|${PUBLIC_KEY}|g" \
-  "$TOOLBOX_DIR/toolbox.yaml" > "$TEMP_MANIFEST"
-kubectl apply -f "$TEMP_MANIFEST"
-rm "$TEMP_MANIFEST"
+  log "Waiting for toolbox pod to be ready (2-3 min first run)..."
+  kubectl wait deployment toolbox \
+    --for=condition=available --namespace=toolbox --timeout=300s
 
-log "Waiting for toolbox pod to be ready..."
-log "(First run takes 2-3 minutes while packages install inside the container)"
+  success "Toolbox pod running"
 
-kubectl wait deployment toolbox \
-  --for=condition=available \
-  --namespace=toolbox \
-  --timeout=300s
+  log "Starting SSH port-forward: localhost:2222 → toolbox:22 ..."
+  lsof -ti:2222 | xargs kill -9 2>/dev/null || true
+  sleep 1
+  kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox \
+    >> /tmp/toolbox-portforward.log 2>&1 &
+  PF_PID=$!
+  sleep 3
+  kill -0 "$PF_PID" 2>/dev/null \
+    && success "SSH port-forward running (PID $PF_PID)" \
+    || warn "Port-forward may have failed — check /tmp/toolbox-portforward.log"
 
-success "Toolbox pod running"
-
-# Start SSH port-forward
-log "Starting SSH port-forward: localhost:2222 → toolbox:22 ..."
-lsof -ti:2222 | xargs kill -9 2>/dev/null || true
-sleep 1
-
-kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox \
-  >> /tmp/toolbox-portforward.log 2>&1 &
-PF_PID=$!
-sleep 3
-
-if kill -0 "$PF_PID" 2>/dev/null; then
-  success "SSH port-forward running (PID $PF_PID)"
-else
-  warn "Port-forward may have failed — check /tmp/toolbox-portforward.log"
-  warn "To start manually: kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox &"
-fi
-
-# Update known_hosts
-ssh-keyscan -p 2222 -H localhost >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
-
-# Derive private key path
-PRIVATE_KEY="${SSH_KEY_PATH%.pub}"
-[[ -f "$PRIVATE_KEY" ]] || PRIVATE_KEY="$HOME/.ssh/id_ed25519"
-
-# Add SSH config entry if not already present
-SSH_CONFIG="$HOME/.ssh/config"
-if ! grep -q "Host aks-toolbox" "$SSH_CONFIG" 2>/dev/null; then
-  log "Adding aks-toolbox to ~/.ssh/config ..."
-  cat >> "$SSH_CONFIG" << SSHCONF
+  ssh-keyscan -p 2222 -H localhost >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
+  PRIVATE_KEY="${SSH_KEY_PATH%.pub}"
+  [[ -f "$PRIVATE_KEY" ]] || PRIVATE_KEY="$HOME/.ssh/id_ed25519"
+  SSH_CONFIG="$HOME/.ssh/config"
+  if ! grep -q "Host aks-toolbox" "$SSH_CONFIG" 2>/dev/null; then
+    cat >> "$SSH_CONFIG" << SSHCONF
 
 Host aks-toolbox
     HostName localhost
@@ -376,22 +419,25 @@ Host aks-toolbox
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
 SSHCONF
-  chmod 600 "$SSH_CONFIG"
-  success "SSH config updated"
+    chmod 600 "$SSH_CONFIG"
+    success "SSH config updated"
+  else
+    warn "aks-toolbox already in ~/.ssh/config — skipping."
+  fi
+
+  success "Toolbox ready — ssh aks-toolbox"
 else
-  warn "aks-toolbox already in ~/.ssh/config — skipping."
+  log "Skipping Step 8 — Toolbox not selected"
 fi
 
-success "Toolbox ready — connect with: ssh aks-toolbox"
-
-# ── Resolve GitHub token (used by ArgoCD + Flux) ──
+# ── Resolve GitHub token (Flux always needs it; ArgoCD too if enabled) ──
 if [[ -z "${GITHUB_TOKEN:-}" ]]; then
   GITHUB_TOKEN=$(security find-generic-password -a "$USER" -s "aks-lab-github-token" -w 2>/dev/null || true)
   GITHUB_TOKEN="${GITHUB_TOKEN//[$'\t\r\n ']}"  # strip any whitespace
   [[ -n "$GITHUB_TOKEN" ]] && log "GitHub token loaded from macOS Keychain"
 fi
 if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  read -rsp "         GitHub token (for ArgoCD + Flux repo access): " GITHUB_TOKEN
+  read -rsp "         GitHub token (for Flux + ArgoCD repo access): " GITHUB_TOKEN
   echo
   if [[ -n "$GITHUB_TOKEN" ]]; then
     security delete-generic-password -a "$USER" -s "aks-lab-github-token" 2>/dev/null || true
@@ -402,59 +448,64 @@ if [[ -z "${GITHUB_TOKEN:-}" ]]; then
     fi
   fi
 fi
-[[ -n "$GITHUB_TOKEN" ]] || error "GITHUB_TOKEN is required for ArgoCD and Flux to access the private repo."
+[[ -n "$GITHUB_TOKEN" ]] || error "GITHUB_TOKEN is required for Flux to access the private repo."
 
 # ── Step 9: ArgoCD ───────────────────────────
-step "Step 9 — Installing ArgoCD"
+ARGOCD_PASSWORD=""
+if feature_enabled argocd; then
+  step "Step 9 — Installing ArgoCD"
 
-if kubectl get deployment argocd-server -n argocd &>/dev/null; then
-  warn "ArgoCD already installed — skipping."
-else
-  if ! kubectl get namespace argocd &>/dev/null; then
-    kubectl create namespace argocd
+  if kubectl get deployment argocd-server -n argocd &>/dev/null; then
+    warn "ArgoCD already installed — skipping."
+  else
+    if ! kubectl get namespace argocd &>/dev/null; then
+      kubectl create namespace argocd
+    fi
+    log "Applying ArgoCD manifests (server-side apply)..."
+    kubectl apply -n argocd --server-side --force-conflicts \
+      -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
   fi
-  log "Applying ArgoCD manifests (server-side apply)..."
-  kubectl apply -n argocd --server-side --force-conflicts \
-    -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-fi
 
-log "Waiting for ArgoCD server to be ready (may take a few minutes)..."
-kubectl wait deployment argocd-server \
-  --for=condition=available \
-  --namespace=argocd \
-  --timeout=300s
+  log "Waiting for ArgoCD server to be ready (may take a few minutes)..."
+  kubectl wait deployment argocd-server \
+    --for=condition=available \
+    --namespace=argocd \
+    --timeout=300s
 
-ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<password-already-changed>")
+  ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
+    -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<password-already-changed>")
 
-log "Starting ArgoCD port-forward: localhost:8080 → argocd-server:443 ..."
-lsof -ti:8080 | xargs kill -9 2>/dev/null || true
-sleep 1
+  log "Starting ArgoCD port-forward: localhost:8080 → argocd-server:443 ..."
+  lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+  sleep 1
 
-kubectl port-forward svc/argocd-server 8080:443 -n argocd \
-  >> /tmp/argocd-portforward.log 2>&1 &
-ARGOCD_PF_PID=$!
-sleep 3
+  kubectl port-forward svc/argocd-server 8080:443 -n argocd \
+    >> /tmp/argocd-portforward.log 2>&1 &
+  ARGOCD_PF_PID=$!
+  sleep 3
 
-if kill -0 "$ARGOCD_PF_PID" 2>/dev/null; then
-  success "ArgoCD port-forward running (PID $ARGOCD_PF_PID)"
+  if kill -0 "$ARGOCD_PF_PID" 2>/dev/null; then
+    success "ArgoCD port-forward running (PID $ARGOCD_PF_PID)"
+  else
+    warn "ArgoCD port-forward may have failed — check /tmp/argocd-portforward.log"
+    warn "To start manually: kubectl port-forward svc/argocd-server 8080:443 -n argocd &"
+  fi
+
+  log "Registering private repo credentials with ArgoCD..."
+  kubectl create secret generic argocd-repo-homelab \
+    --namespace=argocd \
+    --from-literal=type=git \
+    --from-literal=url="$GITHUB_REPO" \
+    --from-literal=username=git \
+    --from-literal=password="$GITHUB_TOKEN" \
+    --dry-run=client -o yaml \
+    | kubectl label --local -f - 'argocd.argoproj.io/secret-type=repository' -o yaml \
+    | kubectl apply -f -
+
+  success "ArgoCD ready — https://localhost:8080  (admin / $ARGOCD_PASSWORD)"
 else
-  warn "ArgoCD port-forward may have failed — check /tmp/argocd-portforward.log"
-  warn "To start manually: kubectl port-forward svc/argocd-server 8080:443 -n argocd &"
+  log "Skipping Step 9 — ArgoCD not selected"
 fi
-
-log "Registering private repo credentials with ArgoCD..."
-kubectl create secret generic argocd-repo-homelab \
-  --namespace=argocd \
-  --from-literal=type=git \
-  --from-literal=url="$GITHUB_REPO" \
-  --from-literal=username=git \
-  --from-literal=password="$GITHUB_TOKEN" \
-  --dry-run=client -o yaml \
-  | kubectl label --local -f - 'argocd.argoproj.io/secret-type=repository' -o yaml \
-  | kubectl apply -f -
-
-success "ArgoCD ready — https://localhost:8080  (admin / $ARGOCD_PASSWORD)"
 
 # ── Step 10: Flux ────────────────────────────
 step "Step 10 — Installing Flux (GitOps)"
@@ -518,181 +569,198 @@ kubectl wait gitrepository/homelab \
 success "Flux installed — watching ${GITHUB_REPO} @ ${FLUX_APPS_PATH}"
 
 # ── Step 11: Vault ───────────────────────────
-step "Step 11 — HashiCorp Vault (Azure Key Vault equivalent)"
-
 VAULT_ADDR="http://127.0.0.1:8200"
 VAULT_TOKEN="root"
 VAULT_KV_PATH="kv"
 VAULT_AUTH_PATH="kubernetes"
+if feature_enabled vault; then
+  step "Step 11 — HashiCorp Vault (Azure Key Vault equivalent)"
 
-log "Initialising Terraform providers (first run downloads ~100 MB)..."
-terraform -chdir=infra/terraform/local-mac init -input=false \
-  2>&1 | tee /tmp/vault-terraform-init.log
+  log "Initialising Terraform providers (first run downloads ~100 MB)..."
+  terraform -chdir=infra/terraform/local-mac init -input=false \
+    2>&1 | tee /tmp/vault-terraform-init.log
 
-# The Vault Terraform provider authenticates the moment `terraform apply` starts,
-# before any local-exec provisioners run. Pre-start Vault here so the provider
-# can connect; Terraform's null_resource.vault_dev_server will restart it if
-# needed, and vault_health_check ensures it's ready before vault resources apply.
-if ! curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1; then
-  log "Pre-starting Vault dev server so Terraform provider can connect..."
-  pkill -f "vault server -dev" 2>/dev/null || true
-  sleep 1
-  VAULT_DEV_ROOT_TOKEN_ID="${VAULT_TOKEN}" \
-    vault server -dev \
-    -dev-listen-address="${VAULT_ADDR#http://}" \
-    >> /tmp/vault-dev.log 2>&1 &
-  echo $! > /tmp/vault-dev.pid
-  for i in $(seq 1 30); do
-    curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1 && break
+  # The Vault Terraform provider authenticates the moment `terraform apply` starts,
+  # before any local-exec provisioners run. Pre-start Vault here so the provider
+  # can connect; Terraform's null_resource.vault_dev_server will restart it if
+  # needed, and vault_health_check ensures it's ready before vault resources apply.
+  if ! curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1; then
+    log "Pre-starting Vault dev server so Terraform provider can connect..."
+    pkill -f "vault server -dev" 2>/dev/null || true
     sleep 1
-  done
-  curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1 \
-    || error "Vault failed to start — check /tmp/vault-dev.log"
-  success "Vault dev server pre-started"
-fi
+    VAULT_DEV_ROOT_TOKEN_ID="${VAULT_TOKEN}" \
+      vault server -dev \
+      -dev-listen-address="${VAULT_ADDR#http://}" \
+      >> /tmp/vault-dev.log 2>&1 &
+    echo $! > /tmp/vault-dev.pid
+    for i in $(seq 1 30); do
+      curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1 && break
+      sleep 1
+    done
+    curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1 \
+      || error "Vault failed to start — check /tmp/vault-dev.log"
+    success "Vault dev server pre-started"
+  fi
 
-log "Applying Vault configuration (starts dev server + configures K8s auth)..."
-# If the cluster was recreated the K8s reviewer secret will be gone even though
-# Terraform state thinks it still exists — force-replace so it gets recreated.
-VAULT_REPLACE_FLAGS=""
-if ! kubectl get secret vault-reviewer-token -n kube-system &>/dev/null; then
-  log "vault-reviewer-token not found — forcing K8s reviewer recreation..."
-  VAULT_REPLACE_FLAGS="-replace=null_resource.k8s_vault_reviewer"
-fi
-terraform -chdir=infra/terraform/local-mac apply -auto-approve -input=false $VAULT_REPLACE_FLAGS \
-  2>&1 | tee /tmp/vault-terraform-apply.log
+  log "Applying Vault configuration (starts dev server + configures K8s auth)..."
+  # If the cluster was recreated the K8s reviewer secret will be gone even though
+  # Terraform state thinks it still exists — force-replace so it gets recreated.
+  VAULT_REPLACE_FLAGS=""
+  if ! kubectl get secret vault-reviewer-token -n kube-system &>/dev/null; then
+    log "vault-reviewer-token not found — forcing K8s reviewer recreation..."
+    VAULT_REPLACE_FLAGS="-replace=null_resource.k8s_vault_reviewer"
+  fi
+  terraform -chdir=infra/terraform/local-mac apply -auto-approve -input=false $VAULT_REPLACE_FLAGS \
+    2>&1 | tee /tmp/vault-terraform-apply.log
 
-success "Vault ready — ${VAULT_ADDR}/ui  (token: ${VAULT_TOKEN})"
-log "  KV v2 secrets:  ${VAULT_KV_PATH}/azure-services/*"
-log "  K8s auth path:  ${VAULT_AUTH_PATH}/login"
-log "  Full log:       /tmp/vault-terraform-apply.log"
-
-# ── Step 11b: SambaAD + Corp Client VMs ──────────────────────────────────────
-step "Step 11b — SambaAD Active Directory + Corp Client VM"
-
-log "Terraform will create two Multipass VMs (samba-ad, corp-client)."
-log "This may take 3–5 minutes on first run (image download + Samba provisioning)."
-
-# Terraform apply handles both VMs via null_resource.samba_vm and null_resource.corp_client_vm.
-# Vault was already applied above; this re-apply is idempotent for Vault resources and
-# adds the samba resources on top.
-terraform -chdir=infra/terraform/local-mac apply -auto-approve -input=false \
-  -target=null_resource.multipass_check \
-  -target=null_resource.samba_vm \
-  -target=time_sleep.samba_stabilise \
-  -target=null_resource.corp_client_vm \
-  2>&1 | tee /tmp/samba-terraform-apply.log
-
-# Capture SambaAD VM IP for downstream config
-SAMBA_IP=$(multipass info samba-ad --format json 2>/dev/null \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" \
-  2>/dev/null || echo "")
-
-if [[ -z "$SAMBA_IP" ]]; then
-  warn "Could not determine samba-ad VM IP — DNS and Dex config may need manual update"
-  SAMBA_IP="<samba-ad-ip>"
+  success "Vault ready — ${VAULT_ADDR}/ui  (token: ${VAULT_TOKEN})"
+  log "  KV v2 secrets:  ${VAULT_KV_PATH}/azure-services/*"
+  log "  K8s auth path:  ${VAULT_AUTH_PATH}/login"
+  log "  Full log:       /tmp/vault-terraform-apply.log"
 else
-  success "SambaAD VM running — IP: $SAMBA_IP"
+  log "Skipping Step 11 — Vault not selected"
 fi
-export SAMBA_IP
 
-# Patch CoreDNS to forward corp.internal to SambaAD instead of Bind9.
-# Bind9 is kept for privatelink zones only.
-log "Updating CoreDNS to forward corp.internal → SambaAD ($SAMBA_IP)..."
-kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}' \
-  | sed "s|forward . 10.96.0.200|forward . ${SAMBA_IP}|g" \
-  | kubectl create configmap coredns -n kube-system \
-      --from-file=Corefile=/dev/stdin \
-      --dry-run=client -o yaml \
-  | kubectl apply -f -
-kubectl rollout restart deployment coredns -n kube-system
-kubectl rollout status deployment coredns -n kube-system --timeout=60s
-success "CoreDNS updated — corp.internal now resolves via SambaAD"
+# ── Step 11b: SambaAD + identity stack ───────
+SAMBA_IP=""
+if feature_enabled samba-ad; then
+  step "Step 11b — SambaAD Active Directory"
 
-# Generate and apply the Dex ConfigMap with SambaAD IP substituted in.
-# DEX_CLIENT_SECRET is a fixed lab value shared between Dex and OAuth2 Proxy.
-DEX_CLIENT_SECRET="dex-lab-client-secret-aks"
-export DEX_CLIENT_SECRET AD_ADMIN_PASSWORD="AksLab!AdDev1"
-log "Applying Dex ConfigMap (SambaAD IP: $SAMBA_IP)..."
-python3 -c "
+  log "Terraform will create the samba-ad Multipass VM."
+  log "This may take 3–5 minutes on first run (image download + Samba provisioning)."
+
+  terraform -chdir=infra/terraform/local-mac apply -auto-approve -input=false \
+    -target=null_resource.multipass_check \
+    -target=null_resource.samba_vm \
+    -target=time_sleep.samba_stabilise \
+    2>&1 | tee /tmp/samba-terraform-apply.log
+
+  SAMBA_IP=$(multipass info samba-ad --format json 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" \
+    2>/dev/null || echo "")
+
+  if [[ -z "$SAMBA_IP" ]]; then
+    warn "Could not determine samba-ad VM IP — DNS and Dex config may need manual update"
+    SAMBA_IP="<samba-ad-ip>"
+  else
+    success "SambaAD VM running — IP: $SAMBA_IP"
+  fi
+  export SAMBA_IP
+
+  # Patch CoreDNS to forward corp.internal to SambaAD instead of Bind9.
+  log "Updating CoreDNS to forward corp.internal → SambaAD ($SAMBA_IP)..."
+  kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}' \
+    | sed "s|forward . 10.96.0.200|forward . ${SAMBA_IP}|g" \
+    | kubectl create configmap coredns -n kube-system \
+        --from-file=Corefile=/dev/stdin \
+        --dry-run=client -o yaml \
+    | kubectl apply -f -
+  kubectl rollout restart deployment coredns -n kube-system
+  kubectl rollout status deployment coredns -n kube-system --timeout=60s
+  success "CoreDNS updated — corp.internal now resolves via SambaAD"
+
+  if feature_enabled dex; then
+    DEX_CLIENT_SECRET="dex-lab-client-secret-aks"
+    export DEX_CLIENT_SECRET AD_ADMIN_PASSWORD="AksLab!AdDev1"
+    log "Applying Dex ConfigMap (SambaAD IP: $SAMBA_IP)..."
+    python3 -c "
 import os, string
 from pathlib import Path
 t = Path('flux-apps/dex/config.yaml').read_text()
 Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
 "
-kubectl apply -f /tmp/dex-config-rendered.yaml
-success "Dex ConfigMap applied"
+    kubectl apply -f /tmp/dex-config-rendered.yaml
+    success "Dex ConfigMap applied"
+  fi
 
-# Generate a random 32-byte cookie secret and apply the OAuth2 Proxy secret.
-COOKIE_SECRET=$(python3 -c "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())")
-export COOKIE_SECRET
-log "Applying OAuth2 Proxy secret..."
-python3 -c "
+  if feature_enabled oauth2-proxy; then
+    COOKIE_SECRET=$(python3 -c "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())")
+    export COOKIE_SECRET
+    log "Applying OAuth2 Proxy secret..."
+    python3 -c "
 import os, string
 from pathlib import Path
 t = Path('flux-apps/oauth2-proxy/secret.yaml').read_text()
 Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
 "
-kubectl apply -f /tmp/oauth2-proxy-secret-rendered.yaml
-success "OAuth2 Proxy secret applied"
-
-# ── Step 12: Argo Workflows ──────────────────
-step "Step 12 — Installing Argo Workflows"
-
-ARGO_VERSION="v3.6.5"
-ARGO_NS="argo"
-
-if kubectl get deployment workflow-controller -n "$ARGO_NS" &>/dev/null; then
-  warn "Argo Workflows already installed — skipping."
+    kubectl apply -f /tmp/oauth2-proxy-secret-rendered.yaml
+    success "OAuth2 Proxy secret applied"
+  fi
 else
-  log "Creating argo namespace..."
-  kubectl create namespace "$ARGO_NS" 2>/dev/null || true
-
-  log "Applying Argo Workflows ${ARGO_VERSION} (server-side apply — takes a minute)..."
-  kubectl apply -n "$ARGO_NS" --server-side --force-conflicts \
-    -f "https://github.com/argoproj/argo-workflows/releases/download/${ARGO_VERSION}/quick-start-minimal.yaml" \
-    2>&1 | tee /tmp/argo-workflows-install.log
+  log "Skipping Step 11b — SambaAD not selected"
 fi
 
-log "Waiting for workflow-controller to be ready..."
-kubectl wait deployment workflow-controller \
-  --for=condition=available \
-  --namespace="$ARGO_NS" \
-  --timeout=180s
+if feature_enabled corp-client; then
+  step "Step 11c — Corp Client VM"
+  log "Provisioning domain-joined corp-client VM..."
+  terraform -chdir=infra/terraform/local-mac apply -auto-approve -input=false \
+    -target=null_resource.corp_client_vm \
+    2>&1 | tee /tmp/corp-client-terraform-apply.log
+  success "Corp Client VM ready — multipass shell corp-client"
+else
+  log "Skipping Step 11c — Corp Client VM not selected"
+fi
 
-log "Waiting for argo-server to be ready..."
-kubectl wait deployment argo-server \
-  --for=condition=available \
-  --namespace="$ARGO_NS" \
-  --timeout=180s
+# ── Step 12: Argo Workflows ──────────────────
+ARGO_WORKFLOWS_TOKEN=""
+if feature_enabled argo-workflows; then
+  step "Step 12 — Installing Argo Workflows"
 
-# Disable TLS and enable server auth mode (no SSO needed for the lab)
-if ! kubectl get deployment argo-server -n "$ARGO_NS" \
-    -o jsonpath='{.spec.template.spec.containers[0].args}' | grep -q 'auth-mode=server'; then
-  log "Patching argo-server: disabling TLS, enabling server auth mode..."
-  # Add CLI flags
-  kubectl patch deployment argo-server -n "$ARGO_NS" --type=json -p='[
-    {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--auth-mode=server"},
-    {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--secure=false"}
-  ]'
-  # Switch probe schemes to HTTP — ignore if a probe doesn't exist in this manifest version
-  kubectl patch deployment argo-server -n "$ARGO_NS" --type=json -p='[
-    {"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/httpGet/scheme","value":"HTTP"}
-  ]' 2>/dev/null || warn "readinessProbe patch skipped (probe may not exist in this version)"
-  kubectl patch deployment argo-server -n "$ARGO_NS" --type=json -p='[
-    {"op":"replace","path":"/spec/template/spec/containers/0/livenessProbe/httpGet/scheme","value":"HTTP"}
-  ]' 2>/dev/null || warn "livenessProbe patch skipped (probe may not exist in this version)"
-  log "Waiting for patched argo-server to be ready..."
+  ARGO_VERSION="v3.6.5"
+  ARGO_NS="argo"
+
+  if kubectl get deployment workflow-controller -n "$ARGO_NS" &>/dev/null; then
+    warn "Argo Workflows already installed — skipping."
+  else
+    log "Creating argo namespace..."
+    kubectl create namespace "$ARGO_NS" 2>/dev/null || true
+
+    log "Applying Argo Workflows ${ARGO_VERSION} (server-side apply — takes a minute)..."
+    kubectl apply -n "$ARGO_NS" --server-side --force-conflicts \
+      -f "https://github.com/argoproj/argo-workflows/releases/download/${ARGO_VERSION}/quick-start-minimal.yaml" \
+      2>&1 | tee /tmp/argo-workflows-install.log
+  fi
+
+  log "Waiting for workflow-controller to be ready..."
+  kubectl wait deployment workflow-controller \
+    --for=condition=available \
+    --namespace="$ARGO_NS" \
+    --timeout=180s
+
+  log "Waiting for argo-server to be ready..."
   kubectl wait deployment argo-server \
     --for=condition=available \
     --namespace="$ARGO_NS" \
-    --timeout=300s
+    --timeout=180s
+
+  # Disable TLS and enable server auth mode (no SSO needed for the lab)
+  if ! kubectl get deployment argo-server -n "$ARGO_NS" \
+      -o jsonpath='{.spec.template.spec.containers[0].args}' | grep -q 'auth-mode=server'; then
+    log "Patching argo-server: disabling TLS, enabling server auth mode..."
+    kubectl patch deployment argo-server -n "$ARGO_NS" --type=json -p='[
+      {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--auth-mode=server"},
+      {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--secure=false"}
+    ]'
+    kubectl patch deployment argo-server -n "$ARGO_NS" --type=json -p='[
+      {"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/httpGet/scheme","value":"HTTP"}
+    ]' 2>/dev/null || warn "readinessProbe patch skipped (probe may not exist in this version)"
+    kubectl patch deployment argo-server -n "$ARGO_NS" --type=json -p='[
+      {"op":"replace","path":"/spec/template/spec/containers/0/livenessProbe/httpGet/scheme","value":"HTTP"}
+    ]' 2>/dev/null || warn "livenessProbe patch skipped (probe may not exist in this version)"
+    log "Waiting for patched argo-server to be ready..."
+    kubectl wait deployment argo-server \
+      --for=condition=available \
+      --namespace="$ARGO_NS" \
+      --timeout=300s
+  fi
+
+  ARGO_WORKFLOWS_TOKEN=$(kubectl -n "$ARGO_NS" exec deploy/argo-server -- argo auth token 2>/dev/null \
+    || echo "<run: kubectl -n argo exec deploy/argo-server -- argo auth token>")
+
+  success "Argo Workflows ready — http://argo-workflows.aks-lab.local:2746"
+else
+  log "Skipping Step 12 — Argo Workflows not selected"
 fi
-
-ARGO_WORKFLOWS_TOKEN=$(kubectl -n "$ARGO_NS" exec deploy/argo-server -- argo auth token 2>/dev/null \
-  || echo "<run: kubectl -n argo exec deploy/argo-server -- argo auth token>")
-
-success "Argo Workflows ready — http://argo-workflows.aks-lab.local:2746"
 
 # ── Port-Forwards ────────────────────────────
 step "Starting Port-Forwards"
@@ -711,16 +779,16 @@ _start_portforward() {
   fi
 }
 
-# Web apps now route through NGINX Ingress + OAuth2 Proxy on port 9980.
-# A single ingress controller port-forward replaces individual service port-forwards.
+# Web apps route through NGINX Ingress on port 9980.
 _start_portforward "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx" /tmp/ingress-portforward.log
-_start_portforward "Argo Workflows"  2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                               /tmp/argo-workflows-portforward.log
-_start_portforward "Azure SQL"       1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"                                /tmp/azure-sql-portforward.log
-_start_portforward "Service Bus AMQP" 5672 "kubectl port-forward svc/servicebus 5672:5672 -n service-bus"                      /tmp/servicebus-portforward.log
-_start_portforward "Service Bus Mgmt" 5300 "kubectl port-forward svc/servicebus 5300:5300 -n service-bus"                     /tmp/servicebus-mgmt-portforward.log
-_start_portforward "Registry"         5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"                /tmp/registry-portforward.log
-_start_portforward "Cosmos DB"        8081 "kubectl port-forward svc/cosmosdb 8081:8081 -n cosmos-db"                         /tmp/cosmosdb-portforward.log
-_start_portforward "Cosmos Explorer"  1234 "kubectl port-forward svc/cosmosdb 1234:1234 -n cosmos-db"                         /tmp/cosmosdb-explorer-portforward.log
+feature_enabled toolbox       && _start_portforward "Toolbox SSH"       2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"                       /tmp/toolbox-portforward.log
+feature_enabled argo-workflows && _start_portforward "Argo Workflows"   2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                        /tmp/argo-workflows-portforward.log
+feature_enabled azure-sql     && _start_portforward "Azure SQL"         1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"                          /tmp/azure-sql-portforward.log
+feature_enabled service-bus   && _start_portforward "Service Bus AMQP"  5672 "kubectl port-forward svc/servicebus 5672:5672 -n service-bus"                   /tmp/servicebus-portforward.log
+feature_enabled service-bus   && _start_portforward "Service Bus Mgmt"  5300 "kubectl port-forward svc/servicebus 5300:5300 -n service-bus"                   /tmp/servicebus-mgmt-portforward.log
+feature_enabled container-registry && _start_portforward "Registry"     5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"              /tmp/registry-portforward.log
+feature_enabled cosmos-db     && _start_portforward "Cosmos DB"         8081 "kubectl port-forward svc/cosmosdb 8081:8081 -n cosmos-db"                        /tmp/cosmosdb-portforward.log
+feature_enabled cosmos-db     && _start_portforward "Cosmos Explorer"   1234 "kubectl port-forward svc/cosmosdb 1234:1234 -n cosmos-db"                        /tmp/cosmosdb-explorer-portforward.log
 
 # ── Local DNS (/etc/hosts) ───────────────────
 step "Configuring Local DNS"
@@ -736,21 +804,22 @@ _add_hosts_entry() {
 }
 
 log "Adding aks-lab.local entries to /etc/hosts (sudo required)..."
-_add_hosts_entry "taskflow.aks-lab.local"
-_add_hosts_entry "grafana.aks-lab.local"
-_add_hosts_entry "argocd.aks-lab.local"
-_add_hosts_entry "blob-explorer.aks-lab.local"
-_add_hosts_entry "vault.aks-lab.local"
-_add_hosts_entry "argo-workflows.aks-lab.local"
-_add_hosts_entry "dex.aks-lab.local"
-_add_hosts_entry "oauth2-proxy.aks-lab.local"
+feature_enabled taskflow        && _add_hosts_entry "taskflow.aks-lab.local"
+feature_enabled monitoring      && _add_hosts_entry "grafana.aks-lab.local"
+feature_enabled argocd          && _add_hosts_entry "argocd.aks-lab.local"
+feature_enabled blob-explorer   && _add_hosts_entry "blob-explorer.aks-lab.local"
+feature_enabled vault           && _add_hosts_entry "vault.aks-lab.local"
+feature_enabled argo-workflows  && _add_hosts_entry "argo-workflows.aks-lab.local"
+feature_enabled dex             && _add_hosts_entry "dex.aks-lab.local"
+feature_enabled oauth2-proxy    && _add_hosts_entry "oauth2-proxy.aks-lab.local"
 
 # ── Dashboard ─────────────────────────────────
 step "Generating Dashboard"
 
+GRAFANA_PASSWORD="${GRAFANA_PASSWORD:-}"
 export PROFILE GRAFANA_PASSWORD ARGOCD_PASSWORD VAULT_TOKEN \
        ARGO_WORKFLOWS_TOKEN BIND9_IP GITHUB_REPO GITHUB_BRANCH \
-       FLUX_APPS_PATH VAULT_KV_PATH VAULT_ADDR VAULT_AUTH_PATH
+       FLUX_APPS_PATH VAULT_KV_PATH VAULT_ADDR VAULT_AUTH_PATH SAMBA_IP
 python3 -c "
 import os, string
 from pathlib import Path

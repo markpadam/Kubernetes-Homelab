@@ -32,6 +32,23 @@ warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*"; }
 error()   { echo -e "${RED}${BOLD}[✗]${RESET} $*"; exit 1; }
 step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
 
+# ── Load enabled features from state file ────
+ENABLED_FEATURES=$(python3 -c "
+import json
+try:
+    print(' '.join(json.load(open('.lab-state.json')).get('enabled', [])))
+except Exception:
+    print('')
+" 2>/dev/null)
+feature_enabled() { [[ " $ENABLED_FEATURES " =~ (^|[[:space:]])"$1"([[:space:]]|$) ]]; }
+
+if [[ -z "$ENABLED_FEATURES" ]]; then
+  warn "No .lab-state.json found — resuming all components."
+  warn "Run setup-lab.sh first to configure your feature selection."
+  # Fall back: treat all as enabled so nothing is accidentally skipped
+  feature_enabled() { return 0; }
+fi
+
 # ── Ensure Docker is running ──────────────────
 step "Checking Docker"
 
@@ -61,6 +78,94 @@ log "Waiting for nodes to be Ready..."
 kubectl wait --for=condition=Ready nodes --all --timeout=120s
 success "Cluster up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes ready"
 
+# ── SambaAD VMs ───────────────────────────────
+SAMBA_IP=""
+if feature_enabled samba-ad; then
+  step "Restoring SambaAD VM"
+  VM_STATUS=$(multipass info samba-ad --format json 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['state'])" 2>/dev/null || echo "missing")
+  if [[ "$VM_STATUS" == "Stopped" ]]; then
+    log "Starting samba-ad VM..."
+    multipass start samba-ad
+    success "samba-ad started"
+  elif [[ "$VM_STATUS" == "Running" ]]; then
+    success "samba-ad already running"
+  else
+    warn "samba-ad not found — run setup-lab.sh to recreate it"
+  fi
+
+  SAMBA_IP=$(multipass info samba-ad --format json 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" \
+    2>/dev/null || echo "")
+
+  if [[ -n "$SAMBA_IP" ]]; then
+    log "Re-patching CoreDNS to forward corp.internal → SambaAD ($SAMBA_IP)..."
+    kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}' \
+      | sed "s|forward . 10.96.0.200|forward . ${SAMBA_IP}|g" \
+      | kubectl create configmap coredns -n kube-system \
+          --from-file=Corefile=/dev/stdin \
+          --dry-run=client -o yaml \
+      | kubectl apply -f -
+    kubectl rollout restart deployment coredns -n kube-system
+    success "CoreDNS patched — corp.internal → $SAMBA_IP"
+  else
+    warn "Could not determine samba-ad IP — CoreDNS corp.internal forwarding may be stale"
+  fi
+fi
+
+if feature_enabled corp-client; then
+  step "Restoring Corp Client VM"
+  VM_STATUS=$(multipass info corp-client --format json 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['state'])" 2>/dev/null || echo "missing")
+  if [[ "$VM_STATUS" == "Stopped" ]]; then
+    log "Starting corp-client VM..."
+    multipass start corp-client
+    success "corp-client started"
+  elif [[ "$VM_STATUS" == "Running" ]]; then
+    success "corp-client already running"
+  else
+    warn "corp-client not found — run setup-lab.sh to recreate it"
+  fi
+
+  CORP_CLIENT_IP=$(multipass info corp-client --format json 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['ipv4'][0])" \
+    2>/dev/null || echo "")
+  if [[ -n "$CORP_CLIENT_IP" ]]; then
+    success "Corp Client desktop: open vnc://${CORP_CLIENT_IP}:5901  (password: AksLab1!)"
+  fi
+fi
+
+# ── Vault ─────────────────────────────────────
+if feature_enabled vault; then
+  step "Restoring Vault"
+
+  if curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1; then
+    success "Vault already running at ${VAULT_ADDR}"
+  else
+    warn "Vault not running — restarting dev server..."
+    pkill -f "vault server -dev" 2>/dev/null || true
+    VAULT_DEV_ROOT_TOKEN_ID="${VAULT_TOKEN}" \
+      vault server -dev \
+      -dev-listen-address="${VAULT_ADDR#http://}" \
+      >> /tmp/vault-dev.log 2>&1 &
+    echo $! > /tmp/vault-dev.pid
+
+    log "Waiting for Vault to be ready..."
+    for i in $(seq 1 30); do
+      if curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1; then
+        success "Vault ready after ${i}s"
+        break
+      fi
+      sleep 1
+    done
+
+    log "Reconfiguring Vault (KV v2, policies, Kubernetes auth)..."
+    terraform -chdir=infra/terraform/local-mac apply -auto-approve -input=false \
+      2>&1 | tee /tmp/vault-terraform-apply.log
+    success "Vault configured"
+  fi
+fi
+
 # ── Port-forwards ─────────────────────────────
 step "Restoring Port-Forwards"
 
@@ -79,95 +184,23 @@ _start_portforward() {
 }
 
 log "Clearing stale port-forwards and starting fresh..."
-_start_portforward "Toolbox SSH"      2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"                            /tmp/toolbox-portforward.log
-_start_portforward "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx"       /tmp/ingress-portforward.log
-_start_portforward "Argo Workflows"   2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                             /tmp/argo-workflows-portforward.log
-_start_portforward "Azure SQL"        1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"                              /tmp/azure-sql-portforward.log
-_start_portforward "Service Bus AMQP" 5672 "kubectl port-forward svc/servicebus 5672:5672 -n service-bus"                       /tmp/servicebus-portforward.log
-_start_portforward "Service Bus Mgmt" 5300 "kubectl port-forward svc/servicebus 5300:5300 -n service-bus"                       /tmp/servicebus-mgmt-portforward.log
-_start_portforward "Registry"         5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"                  /tmp/registry-portforward.log
-_start_portforward "Cosmos DB"        8081 "kubectl port-forward svc/cosmosdb 8081:8081 -n cosmos-db"                           /tmp/cosmosdb-portforward.log
-_start_portforward "Cosmos Explorer"  1234 "kubectl port-forward svc/cosmosdb 1234:1234 -n cosmos-db"                           /tmp/cosmosdb-explorer-portforward.log
+_start_portforward "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx" /tmp/ingress-portforward.log
+feature_enabled toolbox            && _start_portforward "Toolbox SSH"       2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"                        /tmp/toolbox-portforward.log
+feature_enabled argo-workflows     && _start_portforward "Argo Workflows"    2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                         /tmp/argo-workflows-portforward.log
+feature_enabled azure-sql          && _start_portforward "Azure SQL"          1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"                          /tmp/azure-sql-portforward.log
+feature_enabled service-bus        && _start_portforward "Service Bus AMQP"  5672 "kubectl port-forward svc/servicebus 5672:5672 -n service-bus"                    /tmp/servicebus-portforward.log
+feature_enabled service-bus        && _start_portforward "Service Bus Mgmt"  5300 "kubectl port-forward svc/servicebus 5300:5300 -n service-bus"                    /tmp/servicebus-mgmt-portforward.log
+feature_enabled container-registry && _start_portforward "Registry"          5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"               /tmp/registry-portforward.log
+feature_enabled cosmos-db          && _start_portforward "Cosmos DB"          8081 "kubectl port-forward svc/cosmosdb 8081:8081 -n cosmos-db"                        /tmp/cosmosdb-portforward.log
+feature_enabled cosmos-db          && _start_portforward "Cosmos Explorer"    1234 "kubectl port-forward svc/cosmosdb 1234:1234 -n cosmos-db"                        /tmp/cosmosdb-explorer-portforward.log
 
-# ── SambaAD VMs ───────────────────────────────
-step "Restoring SambaAD VMs"
-
-for VM in samba-ad corp-client; do
-  VM_STATUS=$(multipass info "$VM" --format json 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['$VM']['state'])" 2>/dev/null || echo "missing")
-  if [[ "$VM_STATUS" == "Stopped" ]]; then
-    log "Starting $VM VM..."
-    multipass start "$VM"
-    success "$VM started"
-  elif [[ "$VM_STATUS" == "Running" ]]; then
-    success "$VM already running"
-  else
-    warn "$VM not found — run setup-lab.sh to recreate it"
-  fi
-done
-
-# Print VNC connection URL if corp-client is running
-CORP_CLIENT_IP=$(multipass info corp-client --format json 2>/dev/null \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['ipv4'][0])" \
-  2>/dev/null || echo "")
-if [[ -n "$CORP_CLIENT_IP" ]]; then
-  success "Corp Client desktop: open vnc://${CORP_CLIENT_IP}:5901  (password: AksLab1!)"
-fi
-
-# Re-apply CoreDNS patch in case it was reset when the cluster restarted
-SAMBA_IP=$(multipass info samba-ad --format json 2>/dev/null \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" \
-  2>/dev/null || echo "")
-
-if [[ -n "$SAMBA_IP" ]]; then
-  log "Re-patching CoreDNS to forward corp.internal → SambaAD ($SAMBA_IP)..."
-  kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}' \
-    | sed "s|forward . 10.96.0.200|forward . ${SAMBA_IP}|g" \
-    | kubectl create configmap coredns -n kube-system \
-        --from-file=Corefile=/dev/stdin \
-        --dry-run=client -o yaml \
-    | kubectl apply -f -
-  kubectl rollout restart deployment coredns -n kube-system
-  success "CoreDNS patched — corp.internal → $SAMBA_IP"
-else
-  warn "Could not determine samba-ad IP — CoreDNS corp.internal forwarding may be stale"
-fi
-export SAMBA_IP
-
-# ── Vault ─────────────────────────────────────
-step "Restoring Vault"
-
-if curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1; then
-  success "Vault already running at ${VAULT_ADDR}"
-else
-  warn "Vault not running — restarting dev server..."
-  pkill -f "vault server -dev" 2>/dev/null || true
-  VAULT_DEV_ROOT_TOKEN_ID="${VAULT_TOKEN}" \
-    vault server -dev \
-    -dev-listen-address="${VAULT_ADDR#http://}" \
-    >> /tmp/vault-dev.log 2>&1 &
-  echo $! > /tmp/vault-dev.pid
-
-  log "Waiting for Vault to be ready..."
-  for i in $(seq 1 30); do
-    if curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1; then
-      success "Vault ready after ${i}s"
-      break
-    fi
-    sleep 1
-  done
-
-  log "Reconfiguring Vault (KV v2, policies, Kubernetes auth)..."
-  terraform -chdir=infra/terraform/local-mac apply -auto-approve -input=false \
-    2>&1 | tee /tmp/vault-terraform-apply.log
-  success "Vault configured"
-fi
-
-# Retrieve runtime values for the dashboard
-ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<password-already-changed>")
+# ── Retrieve runtime values for dashboard ────
+ARGOCD_PASSWORD=""
+ARGO_WORKFLOWS_TOKEN=""
 BIND9_IP=$(kubectl get svc bind9 -n dns-lab -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "unavailable")
-ARGO_WORKFLOWS_TOKEN=$(kubectl -n argo exec deploy/argo-server -- argo auth token 2>/dev/null \
+feature_enabled argocd         && ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<password-already-changed>")
+feature_enabled argo-workflows && ARGO_WORKFLOWS_TOKEN=$(kubectl -n argo exec deploy/argo-server -- argo auth token 2>/dev/null \
   || echo "<run: kubectl -n argo exec deploy/argo-server -- argo auth token>")
 
 # ── Dashboard ────────────────────────────────
@@ -175,7 +208,7 @@ step "Generating Dashboard"
 
 export PROFILE GRAFANA_PASSWORD ARGOCD_PASSWORD VAULT_TOKEN \
        ARGO_WORKFLOWS_TOKEN BIND9_IP GITHUB_REPO GITHUB_BRANCH \
-       FLUX_APPS_PATH VAULT_KV_PATH VAULT_ADDR VAULT_AUTH_PATH
+       FLUX_APPS_PATH VAULT_KV_PATH VAULT_ADDR VAULT_AUTH_PATH SAMBA_IP
 python3 -c "
 import os, string
 from pathlib import Path
@@ -202,20 +235,28 @@ fi
 step "Lab Resumed"
 
 echo -e "
-${BOLD}  Service URLs${RESET}
-  TaskFlow:      ${GREEN}http://taskflow.aks-lab.local:8081${RESET}
-  Grafana:       ${GREEN}http://grafana.aks-lab.local:3000${RESET}       login: admin / $GRAFANA_PASSWORD
-  ArgoCD:        ${GREEN}https://argocd.aks-lab.local:8080${RESET}      login: admin / $ARGOCD_PASSWORD
-  Blob Explorer:  ${GREEN}http://blob-explorer.aks-lab.local:8082${RESET}
-  Azure SQL:      ${GREEN}localhost:1433${RESET}                         login: sa / AksLab!SqlDev1
-  Vault UI:       ${GREEN}http://vault.aks-lab.local:8200/ui${RESET}       token: ${VAULT_TOKEN}
-  Argo Workflows: ${GREEN}http://argo-workflows.aks-lab.local:2746${RESET}
+${BOLD}  Active features:${RESET} ${ENABLED_FEATURES:-all (no state file)}
 
-${BOLD}  Toolbox Pod${RESET}
-  SSH:         ${GREEN}ssh aks-toolbox${RESET}
-  Or:          ssh -p 2222 root@localhost
+${BOLD}  Web Apps (via NGINX Ingress — port 9980)${RESET}"
+feature_enabled taskflow       && echo -e "  TaskFlow:      ${GREEN}http://taskflow.aks-lab.local:9980${RESET}"
+feature_enabled monitoring     && echo -e "  Grafana:       ${GREEN}http://grafana.aks-lab.local:9980${RESET}   login: admin / $GRAFANA_PASSWORD"
+feature_enabled argocd         && echo -e "  ArgoCD:        ${GREEN}http://argocd.aks-lab.local:9980${RESET}   login: admin / $ARGOCD_PASSWORD"
+feature_enabled blob-explorer  && echo -e "  Blob Explorer: ${GREEN}http://blob-explorer.aks-lab.local:9980${RESET}"
+feature_enabled dex            && echo -e "  Dex (OIDC):    ${GREEN}http://dex.aks-lab.local:9980/.well-known/openid-configuration${RESET}"
 
-${BOLD}  Flux${RESET}
-  Status:      flux get all -n flux-system
-  Force sync:  flux reconcile kustomization flux-apps -n flux-system
-"
+echo -e ""
+echo -e "${BOLD}  Direct port-forwards${RESET}"
+feature_enabled vault          && echo -e "  Vault UI:      ${GREEN}${VAULT_ADDR}/ui${RESET}   token: ${VAULT_TOKEN}"
+feature_enabled azure-sql      && echo -e "  Azure SQL:     ${GREEN}localhost:1433${RESET}   login: sa / AksLab!SqlDev1"
+feature_enabled service-bus    && echo -e "  Service Bus:   ${GREEN}localhost:5672${RESET} (AMQP), ${GREEN}localhost:5300${RESET} (Mgmt)"
+feature_enabled container-registry && echo -e "  Registry:      ${GREEN}localhost:5000${RESET}"
+feature_enabled cosmos-db      && echo -e "  Cosmos DB:     ${GREEN}http://localhost:8081${RESET}  Explorer: ${GREEN}http://localhost:1234${RESET}"
+feature_enabled argo-workflows && echo -e "  Argo Workflows:${GREEN}http://localhost:2746${RESET}"
+feature_enabled toolbox        && echo -e "  Toolbox SSH:   ${GREEN}ssh aks-toolbox${RESET}  (or: ssh -p 2222 root@localhost)"
+
+echo -e ""
+echo -e "${BOLD}  Manage features${RESET}"
+echo -e "  List:    ./lab-feature.sh list"
+echo -e "  Enable:  ./lab-feature.sh enable <id>"
+echo -e "  Disable: ./lab-feature.sh disable <id>"
+echo ""
