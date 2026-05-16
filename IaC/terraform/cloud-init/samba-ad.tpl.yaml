@@ -1,0 +1,84 @@
+#cloud-config
+# Samba 4 Active Directory Domain Controller
+# Rendered from samba-ad.tpl.yaml by Terraform — do not edit directly.
+#
+# Packages are installed during VM boot (parallel with cloud-init init phases),
+# then runcmd calls the provisioning script once packages are available.
+
+package_update: true
+package_reboot_if_required: false
+
+write_files:
+  # Force apt to use IPv4 — Multipass VMs often lack IPv6 routing.
+  - path: /etc/apt/apt.conf.d/99force-ipv4
+    owner: root:root
+    permissions: '0644'
+    content: 'Acquire::ForceIPv4 "true";'
+
+  # All Samba AD provisioning steps in a single script called from runcmd.
+  - path: /root/samba-provision.sh
+    owner: root:root
+    permissions: '0700'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      echo "[samba] Stopping default Samba services..."
+      systemctl stop smbd nmbd winbind 2>/dev/null || true
+      systemctl disable smbd nmbd winbind 2>/dev/null || true
+
+      echo "[samba] Removing default Samba config..."
+      mv /etc/samba/smb.conf /etc/samba/smb.conf.bak 2>/dev/null || true
+
+      echo "[samba] Provisioning domain ${ad_domain} ..."
+      samba-tool domain provision \
+        --domain="${ad_domain_netbios}" \
+        --realm="${ad_domain}" \
+        --adminpass="${ad_admin_password}" \
+        --dns-backend=SAMBA_INTERNAL \
+        --server-role=dc \
+        --use-rfc2307
+
+      echo "[samba] Configuring DNS forwarder..."
+      grep -q 'dns forwarder' /etc/samba/smb.conf \
+        || sed -i '/\[global\]/a \tdns forwarder = 8.8.8.8' /etc/samba/smb.conf
+
+      echo "[samba] Configuring Kerberos..."
+      cp /var/lib/samba/private/krb5.conf /etc/krb5.conf
+
+      echo "[samba] Starting samba-ad-dc..."
+      systemctl unmask samba-ad-dc
+      systemctl enable samba-ad-dc
+      systemctl start samba-ad-dc
+
+      echo "[samba] Waiting for LDAP to be ready..."
+      for i in $(seq 1 30); do
+        samba-tool domain info 127.0.0.1 2>/dev/null \
+          && echo "[samba] Domain ready after $i attempts" && break
+        sleep 2
+      done
+
+      echo "[samba] Creating lab OU and users..."
+      samba-tool ou create "OU=lab-users,${dc_path}" 2>/dev/null || true
+      samba-tool user create testuser1 "${ad_test_user1_pass}" \
+        --userou="OU=lab-users" \
+        --given-name="Test" --surname="User One" 2>/dev/null || true
+      samba-tool user create testuser2 "${ad_test_user2_pass}" \
+        --userou="OU=lab-users" \
+        --given-name="Test" --surname="User Two" 2>/dev/null || true
+      samba-tool group add lab-users 2>/dev/null || true
+      samba-tool group addmembers lab-users testuser1,testuser2 2>/dev/null || true
+
+      echo "[samba] Provisioning complete."
+
+packages:
+  - samba
+  - winbind
+  - krb5-user
+  - attr
+  - dnsutils
+  - ldap-utils
+  - acl
+
+runcmd:
+  - [bash, /root/samba-provision.sh]

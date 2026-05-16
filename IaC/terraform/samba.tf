@@ -21,164 +21,98 @@ resource "null_resource" "multipass_check" {
 # Samba 4 implements the full AD DS protocol stack — LDAP, Kerberos, DNS, SMB —
 # making it wire-compatible with Windows AD clients and tools.
 #
-# The VM runs on the Multipass hypervisor (HVF on Apple Silicon), which gives it
-# a real network interface on the Multipass subnet (192.168.64.0/24).
-# This means the Minikube cluster can reach it if CoreDNS is configured to
-# forward corp.internal queries to the VM's IP.
+# Provisioned via cloud-init: packages install in parallel with VM boot,
+# and a single embedded shell script handles all Samba configuration.
+# This eliminates ~15 sequential multipass exec round-trips and halves
+# provisioning time vs. the old approach.
+
+locals {
+  # "corp.internal" → "DC=corp,DC=internal"
+  samba_dc_path = join(",", [for part in split(".", var.ad_domain) : "DC=${part}"])
+}
+
+# Render the cloud-init template with domain/credential variables and write
+# it to a temp file. The file path (non-sensitive) is passed to multipass
+# launch; the sensitive values never appear in the null_resource command
+# string, so Terraform does not suppress provisioner output.
+resource "local_file" "samba_cloud_init" {
+  filename        = "/tmp/samba-ad-cloud-init.yaml"
+  file_permission = "0600"
+  content = templatefile("${path.module}/cloud-init/samba-ad.tpl.yaml", {
+    ad_domain          = var.ad_domain
+    ad_domain_netbios  = var.ad_domain_netbios
+    ad_admin_password  = var.ad_admin_password
+    ad_test_user1_pass = var.ad_test_user1_pass
+    ad_test_user2_pass = var.ad_test_user2_pass
+    dc_path            = local.samba_dc_path
+  })
+}
+
 resource "null_resource" "samba_vm" {
-  depends_on = [null_resource.multipass_check]
+  depends_on = [
+    null_resource.multipass_check,
+    local_file.samba_cloud_init,
+  ]
 
   triggers = {
     ad_domain         = var.ad_domain
     ad_domain_netbios = var.ad_domain_netbios
+    template_hash     = filemd5("${path.module}/cloud-init/samba-ad.tpl.yaml")
   }
 
   provisioner "local-exec" {
     command = <<-BASH
       set -euo pipefail
 
-      echo "[samba] Removing any pre-existing samba-ad VM ..."
+      echo "[samba] Removing any pre-existing samba-ad VM..."
       multipass delete samba-ad --purge 2>/dev/null || true
 
-      echo "[samba] Creating Multipass VM samba-ad ..."
+      echo "[samba] Launching samba-ad VM (packages install during boot)..."
       multipass launch 24.04 \
         --name samba-ad \
         --cpus "${var.samba_vm_cpus}" \
         --memory "${var.samba_vm_memory}" \
         --disk "${var.samba_vm_disk}" \
+        --cloud-init /tmp/samba-ad-cloud-init.yaml \
         --timeout 300
 
-      echo "[samba] Waiting for network connectivity in VM ..."
-      _mp_ping() {
-        python3 -c "
+      echo "[samba] Streaming cloud-init log..."
+      multipass exec samba-ad -- bash -c '
+        until [ -f /var/log/cloud-init-output.log ]; do sleep 1; done
+        exec tail -F /var/log/cloud-init-output.log
+      ' &
+      _TAIL_PID=$!
+
+      echo "[samba] Waiting for cloud-init to complete (packages + domain provision)..."
+      _CI_RC=0
+      python3 -c "
 import subprocess, sys
-try:
-    r = subprocess.run(
-        ['multipass','exec','samba-ad','--','ping','-c','1','-W','2','8.8.8.8'],
-        timeout=10, capture_output=True)
-    sys.exit(r.returncode)
-except Exception:
-    sys.exit(1)
-" 2>/dev/null
-      }
-      for i in $(seq 1 24); do
-        if _mp_ping; then
-          echo "[samba] Network ready after $i attempts"
-          break
-        fi
-        sleep 5
-      done
-      _mp_ping || {
-        echo ""
-        echo "[samba] ERROR: samba-ad VM has no internet connectivity after 2 minutes."
-        echo ""
-        echo "  This is usually caused by Docker Desktop disrupting multipass NAT rules"
-        echo "  when minikube starts (reconfigures network bridges on macOS)."
-        echo ""
-        echo "  Fix: reload the Multipass daemon, then re-run setup-lab.sh"
-        echo ""
-        echo "    sudo launchctl load /Library/LaunchDaemons/com.canonical.multipassd.plist"
-        echo ""
-        echo "  Verify the fix first:"
-        echo "    multipass exec samba-ad -- ping -c 2 8.8.8.8"
-        echo ""
+r = subprocess.run(
+    ['multipass', 'exec', 'samba-ad', '--', 'cloud-init', 'status', '--wait'],
+    timeout=600)
+sys.exit(r.returncode)
+" || _CI_RC=$?
+
+      kill $_TAIL_PID 2>/dev/null || true
+      wait $_TAIL_PID 2>/dev/null || true
+
+      if [[ $_CI_RC -ne 0 ]]; then
+        echo "[samba] ERROR: cloud-init failed (rc=$_CI_RC) — last 60 lines of log:"
+        multipass exec samba-ad -- sudo tail -60 /var/log/cloud-init-output.log 2>/dev/null || true
         exit 1
-      }
-
-      echo "[samba] Forcing IPv4 for apt (Multipass VMs often lack IPv6 routing) ..."
-      multipass exec samba-ad -- sudo bash -c \
-        'echo "Acquire::ForceIPv4 \"true\";" > /etc/apt/apt.conf.d/99force-ipv4'
-
-      echo "[samba] Installing packages ..."
-      for i in $(seq 1 3); do
-        multipass exec samba-ad -- sudo apt-get update -qq && break
-        echo "[samba] apt-get update attempt $i failed, retrying in 10s..."
-        sleep 10
-      done
-      multipass exec samba-ad -- sudo bash -c "
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-          samba winbind krb5-user attr dnsutils ldap-utils acl
-      "
-
-      echo "[samba] Stopping default samba services ..."
-      multipass exec samba-ad -- sudo systemctl stop smbd nmbd winbind 2>/dev/null || true
-      multipass exec samba-ad -- sudo systemctl disable smbd nmbd winbind 2>/dev/null || true
-
-      echo "[samba] Removing default Samba config ..."
-      multipass exec samba-ad -- sudo mv /etc/samba/smb.conf /etc/samba/smb.conf.bak 2>/dev/null || true
-
-      echo "[samba] Provisioning domain ${var.ad_domain} (realm ${upper(var.ad_domain_netbios)}.${element(split(".", var.ad_domain), 1)}) ..."
-      multipass exec samba-ad -- sudo samba-tool domain provision \
-        --domain="${var.ad_domain_netbios}" \
-        --realm="${var.ad_domain}" \
-        --adminpass="${var.ad_admin_password}" \
-        --dns-backend=SAMBA_INTERNAL \
-        --server-role=dc \
-        --use-rfc2307
-
-      echo "[samba] Configuring DNS forwarder ..."
-      multipass exec samba-ad -- sudo bash -c "
-        grep -q 'dns forwarder' /etc/samba/smb.conf \
-          || sed -i '/\[global\]/a \\tdns forwarder = 8.8.8.8' /etc/samba/smb.conf
-      "
-
-      echo "[samba] Configuring Kerberos ..."
-      multipass exec samba-ad -- sudo bash -c "
-        cp /var/lib/samba/private/krb5.conf /etc/krb5.conf
-      "
-
-      echo "[samba] Starting samba-ad-dc service ..."
-      multipass exec samba-ad -- sudo systemctl unmask samba-ad-dc
-      multipass exec samba-ad -- sudo systemctl enable samba-ad-dc
-      multipass exec samba-ad -- sudo systemctl start samba-ad-dc
-
-      echo "[samba] Waiting for LDAP to be ready ..."
-      for i in $(seq 1 30); do
-        if python3 -c "
-import subprocess, sys
-try:
-    r = subprocess.run(
-        ['multipass','exec','samba-ad','--','sudo','samba-tool','domain','info','127.0.0.1'],
-        timeout=15, capture_output=True)
-    sys.exit(r.returncode)
-except Exception:
-    sys.exit(1)
-" 2>/dev/null; then
-          echo "[samba] Domain ready after $i s"
-          break
-        fi
-        sleep 2
-      done
-
-      echo "[samba] Creating lab OU and users ..."
-      multipass exec samba-ad -- sudo samba-tool ou create \
-        "OU=lab-users,DC=${lower(var.ad_domain_netbios)},DC=${element(split(".", var.ad_domain), length(split(".", var.ad_domain)) - 1)}" || true
-
-      multipass exec samba-ad -- sudo samba-tool user create testuser1 \
-        "${var.ad_test_user1_pass}" \
-        --userou="OU=lab-users" \
-        --given-name="Test" --surname="User One" 2>/dev/null || true
-
-      multipass exec samba-ad -- sudo samba-tool user create testuser2 \
-        "${var.ad_test_user2_pass}" \
-        --userou="OU=lab-users" \
-        --given-name="Test" --surname="User Two" 2>/dev/null || true
-
-      multipass exec samba-ad -- sudo samba-tool group add lab-users 2>/dev/null || true
-      multipass exec samba-ad -- sudo samba-tool group addmembers lab-users testuser1,testuser2 2>/dev/null || true
+      fi
 
       SAMBA_IP=$(multipass info samba-ad --format json \
         | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])")
       echo "[samba] VM ready — IP: $SAMBA_IP"
-      echo "[samba] Domain: ${var.ad_domain}  Realm: ${upper(var.ad_domain)}"
-      echo "[samba] Admin password: ${var.ad_admin_password}"
+      echo "[samba] Domain: ${var.ad_domain}"
     BASH
   }
 
   provisioner "local-exec" {
     when    = destroy
     command = <<-BASH
-      echo "[samba] Deleting samba-ad VM ..."
+      echo "[samba] Deleting samba-ad VM..."
       multipass delete samba-ad --purge 2>/dev/null || true
       echo "[samba] samba-ad VM deleted"
     BASH

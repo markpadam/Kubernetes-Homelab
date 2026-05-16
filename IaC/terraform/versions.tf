@@ -9,6 +9,12 @@ terraform {
       version = "~> 3.2"
     }
 
+    # Writes rendered cloud-init templates to disk before VM launch.
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.5"
+    }
+
     # Configures Vault after it starts: secrets engines, policies, auth methods.
     # Azure equivalent: the AzureRM provider configuring azurerm_key_vault resources.
     vault = {

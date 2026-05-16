@@ -934,14 +934,14 @@ except Exception:
   log "Terraform will create the samba-ad Multipass VM."
   log "This may take 8–12 minutes on first run (image download + Samba provisioning)."
   _start_progress /tmp/samba-terraform-apply.log \
-    "Launching VM:Creating Multipass VM" \
-    "Checking connectivity:Waiting for network connectivity" \
-    "Network ready:Network ready after" \
-    "Installing packages:Installing packages" \
-    "Provisioning AD domain:Provisioning domain" \
-    "Starting AD DC:Starting samba-ad-dc" \
-    "Waiting for LDAP:Waiting for LDAP" \
-    "Creating users:Creating lab OU"
+    "Launching VM:Launching samba-ad VM" \
+    "Packages installing:Streaming cloud-init log" \
+    "Packages done:\[samba\] Stopping default" \
+    "Provisioning domain:\[samba\] Provisioning domain" \
+    "Starting DC:\[samba\] Starting samba-ad-dc" \
+    "Waiting for LDAP:\[samba\] Waiting for LDAP" \
+    "Creating users:\[samba\] Creating lab OU" \
+    "Domain ready:\[samba\] Provisioning complete"
   _SAMBA_RC=0
   { terraform -chdir=IaC/terraform apply -auto-approve -input=false \
       -target=null_resource.multipass_check \
