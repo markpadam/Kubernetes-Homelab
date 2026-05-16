@@ -16,29 +16,26 @@
 #  record types supported: A, CNAME
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Internal corporate zones — simulates ADDS authoritative zones
+# Internal corporate zones
+# NOTE: corp.internal is now authoritative via SambaAD (Multipass VM).
+# CoreDNS forwards corp.internal → SambaAD VM IP (set at setup/resume time).
+# These records are registered in SambaAD's internal DNS by setup-lab.sh.
+# Bind9 no longer serves corp.internal — only privatelink zones below.
 internal_zones:
 
   - zone: corp.internal
+    # Records below are managed by SambaAD (samba-tool dns add), not Bind9.
+    # The samba-ad VM IP is dynamic (Multipass DHCP); captured at setup time.
     records:
+      - name: samba-ad        # → SambaAD DC (Multipass VM, dynamic IP from Multipass)
+        type: A
+        value: dynamic        # injected by setup-lab.sh via multipass info
       - name: sqlserver       # → Azure SQL Edge (mssql.azure-sql, port 1433)
         type: A
-        value: 10.105.102.35
-      - name: webserver
+        value: svc:mssql/azure-sql
+      - name: mydb            # → Azure SQL Edge (same instance, different alias)
         type: A
-        value: 10.10.0.21
-      - name: fileserver
-        type: A
-        value: 10.10.0.22
-      - name: ldap
-        type: A
-        value: 10.10.0.23
-      - name: api
-        type: A
-        value: 10.10.0.24
-      - name: mydb            # → Azure SQL Edge (mssql.azure-sql, port 1433)
-        type: A
-        value: 10.105.102.35
+        value: svc:mssql/azure-sql
       - name: servicebus      # → RabbitMQ AMQP (service-bus ns, port 5672)
         type: A
         value: svc:servicebus/service-bus
@@ -48,6 +45,7 @@ internal_zones:
       - name: cosmosdb        # → MongoDB (cosmos-db ns, port 27017)
         type: A
         value: svc:cosmosdb/cosmos-db
+      # ldap: removed — SambaAD provides real LDAP on its VM IP (port 389)
 
 # Private Link zones — simulates ADDS hosting Azure Private DNS zones
 # In production ADDS conditionally forwards these back to Azure DNS (168.63.129.16)

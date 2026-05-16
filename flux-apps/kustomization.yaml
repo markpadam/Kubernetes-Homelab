@@ -7,3 +7,5 @@ resources:
   - service-bus/
   - container-registry/
   - cosmos-db/
+  - dex/
+  - oauth2-proxy/

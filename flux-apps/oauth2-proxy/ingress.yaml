@@ -1,0 +1,22 @@
+# The OAuth2 Proxy ingress exposes only the /oauth2 path.
+# NGINX ingress controllers on other services will call /oauth2/auth as a
+# sub-request to validate sessions; the /oauth2/start and /oauth2/callback
+# paths handle the login redirect flow and OIDC code exchange.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oauth2-proxy
+  namespace: oauth2-proxy
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: oauth2-proxy.aks-lab.local
+      http:
+        paths:
+          - path: /oauth2
+            pathType: Prefix
+            backend:
+              service:
+                name: oauth2-proxy
+                port:
+                  number: 4180

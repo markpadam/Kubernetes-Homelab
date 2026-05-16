@@ -34,7 +34,7 @@ fi
 # ── Kill port-forwards ────────────────────────
 step "Killing Port-Forwards"
 
-for port in 2222 3000 8080; do
+for port in 2222 9980 2746 1433 5672 5300 5000 8081 1234 9997; do
   pids=$(lsof -ti:$port 2>/dev/null || true)
   if [[ -n "$pids" ]]; then
     echo "$pids" | xargs kill -9 2>/dev/null || true
@@ -42,10 +42,36 @@ for port in 2222 3000 8080; do
   fi
 done
 
-# Kill any lingering minikube tunnel processes
 pkill -f "minikube tunnel" 2>/dev/null || true
+pkill -f "dashboard-server.py" 2>/dev/null || true
 
 success "Port-forwards cleared"
+
+# ── Stop Vault ────────────────────────────────
+step "Stopping Vault"
+
+if [[ -f /tmp/vault-dev.pid ]]; then
+  VAULT_PID=$(cat /tmp/vault-dev.pid)
+  kill "$VAULT_PID" 2>/dev/null && success "Vault dev server stopped (PID $VAULT_PID)" || warn "Vault PID $VAULT_PID already gone"
+  rm -f /tmp/vault-dev.pid
+else
+  pkill -f "vault server -dev" 2>/dev/null && success "Vault dev server stopped" || warn "Vault dev server not running"
+fi
+
+# ── Multipass VMs ─────────────────────────────
+step "Deleting Multipass VMs"
+
+for VM in samba-ad corp-client; do
+  VM_STATUS=$(multipass info "$VM" --format json 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['$VM']['state'])" 2>/dev/null || echo "missing")
+  if [[ "$VM_STATUS" != "missing" ]]; then
+    log "Deleting Multipass VM: $VM..."
+    multipass delete --purge "$VM"
+    success "$VM deleted"
+  else
+    warn "$VM not found — already deleted"
+  fi
+done
 
 # ── Delete Minikube cluster ───────────────────
 step "Deleting Minikube Cluster"
@@ -75,9 +101,15 @@ fi
 step "Cleaning Up Temp Files"
 
 rm -f /tmp/corefile-backup.txt
-rm -f /tmp/toolbox-portforward.log
+rm -f /tmp/toolbox-portforward.log /tmp/ingress-portforward.log
+rm -f /tmp/argo-workflows-portforward.log /tmp/azure-sql-portforward.log
+rm -f /tmp/servicebus-portforward.log /tmp/servicebus-mgmt-portforward.log
+rm -f /tmp/registry-portforward.log /tmp/cosmosdb-portforward.log
+rm -f /tmp/cosmosdb-explorer-portforward.log
+rm -f /tmp/vault-dev.log /tmp/vault-terraform-apply.log
+rm -f /tmp/dashboard-server.log /tmp/lab-dashboard.html
 rm -f /tmp/toolbox-*.yaml
-rm -f /tmp/dns-apply/*.json 2>/dev/null || true
+rm -rf /tmp/dns-apply/ 2>/dev/null || true
 
 success "Temp files removed"
 

@@ -36,13 +36,14 @@ step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━�
 # ── Preflight checks ─────────────────────────
 step "Preflight Checks"
 
-command -v docker    &>/dev/null || error "Docker not found. Install Docker Desktop first."
-command -v minikube  &>/dev/null || error "Minikube not found. Run: brew install minikube"
-command -v kubectl   &>/dev/null || error "kubectl not found. Run: brew install kubectl"
-command -v helm      &>/dev/null || error "Helm not found. Run: brew install helm"
-command -v flux      &>/dev/null || error "Flux CLI not found. Run: brew install fluxcd/tap/flux"
-command -v terraform &>/dev/null || error "Terraform not found. Run: brew install terraform"
-command -v vault     &>/dev/null || error "Vault CLI not found. Run: brew install hashicorp/tap/vault"
+command -v docker     &>/dev/null || error "Docker not found. Install Docker Desktop first."
+command -v minikube   &>/dev/null || error "Minikube not found. Run: brew install minikube"
+command -v kubectl    &>/dev/null || error "kubectl not found. Run: brew install kubectl"
+command -v helm       &>/dev/null || error "Helm not found. Run: brew install helm"
+command -v flux       &>/dev/null || error "Flux CLI not found. Run: brew install fluxcd/tap/flux"
+command -v terraform  &>/dev/null || error "Terraform not found. Run: brew install terraform"
+command -v vault      &>/dev/null || error "Vault CLI not found. Run: brew install hashicorp/tap/vault"
+command -v multipass  &>/dev/null || error "Multipass not found. Run: brew install multipass"
 
 if ! docker info &>/dev/null; then
   log "Docker daemon not running — launching Docker Desktop..."
@@ -566,6 +567,75 @@ log "  KV v2 secrets:  ${VAULT_KV_PATH}/azure-services/*"
 log "  K8s auth path:  ${VAULT_AUTH_PATH}/login"
 log "  Full log:       /tmp/vault-terraform-apply.log"
 
+# ── Step 11b: SambaAD + Corp Client VMs ──────────────────────────────────────
+step "Step 11b — SambaAD Active Directory + Corp Client VM"
+
+log "Terraform will create two Multipass VMs (samba-ad, corp-client)."
+log "This may take 3–5 minutes on first run (image download + Samba provisioning)."
+
+# Terraform apply handles both VMs via null_resource.samba_vm and null_resource.corp_client_vm.
+# Vault was already applied above; this re-apply is idempotent for Vault resources and
+# adds the samba resources on top.
+terraform -chdir=terraform/local-mac apply -auto-approve -input=false \
+  -target=null_resource.multipass_check \
+  -target=null_resource.samba_vm \
+  -target=time_sleep.samba_stabilise \
+  -target=null_resource.corp_client_vm \
+  2>&1 | tee /tmp/samba-terraform-apply.log
+
+# Capture SambaAD VM IP for downstream config
+SAMBA_IP=$(multipass info samba-ad --format json 2>/dev/null \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" \
+  2>/dev/null || echo "")
+
+if [[ -z "$SAMBA_IP" ]]; then
+  warn "Could not determine samba-ad VM IP — DNS and Dex config may need manual update"
+  SAMBA_IP="<samba-ad-ip>"
+else
+  success "SambaAD VM running — IP: $SAMBA_IP"
+fi
+export SAMBA_IP
+
+# Patch CoreDNS to forward corp.internal to SambaAD instead of Bind9.
+# Bind9 is kept for privatelink zones only.
+log "Updating CoreDNS to forward corp.internal → SambaAD ($SAMBA_IP)..."
+kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}' \
+  | sed "s|forward . 10.96.0.200|forward . ${SAMBA_IP}|g" \
+  | kubectl create configmap coredns -n kube-system \
+      --from-file=Corefile=/dev/stdin \
+      --dry-run=client -o yaml \
+  | kubectl apply -f -
+kubectl rollout restart deployment coredns -n kube-system
+kubectl rollout status deployment coredns -n kube-system --timeout=60s
+success "CoreDNS updated — corp.internal now resolves via SambaAD"
+
+# Generate and apply the Dex ConfigMap with SambaAD IP substituted in.
+# DEX_CLIENT_SECRET is a fixed lab value shared between Dex and OAuth2 Proxy.
+DEX_CLIENT_SECRET="dex-lab-client-secret-aks"
+export DEX_CLIENT_SECRET AD_ADMIN_PASSWORD="AksLab!AdDev1"
+log "Applying Dex ConfigMap (SambaAD IP: $SAMBA_IP)..."
+python3 -c "
+import os, string
+from pathlib import Path
+t = Path('flux-apps/dex/config.yaml').read_text()
+Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
+"
+kubectl apply -f /tmp/dex-config-rendered.yaml
+success "Dex ConfigMap applied"
+
+# Generate a random 32-byte cookie secret and apply the OAuth2 Proxy secret.
+COOKIE_SECRET=$(python3 -c "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())")
+export COOKIE_SECRET
+log "Applying OAuth2 Proxy secret..."
+python3 -c "
+import os, string
+from pathlib import Path
+t = Path('flux-apps/oauth2-proxy/secret.yaml').read_text()
+Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
+"
+kubectl apply -f /tmp/oauth2-proxy-secret-rendered.yaml
+success "OAuth2 Proxy secret applied"
+
 # ── Step 12: Argo Workflows ──────────────────
 step "Step 12 — Installing Argo Workflows"
 
@@ -641,9 +711,9 @@ _start_portforward() {
   fi
 }
 
-_start_portforward "TaskFlow"     8081 "kubectl port-forward svc/frontend 8081:80 -n taskapp"                                       /tmp/taskflow-portforward.log
-_start_portforward "Grafana"      3000 "kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring"                          /tmp/grafana-portforward.log
-_start_portforward "Blob Explorer"    8082 "kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer"      /tmp/blob-explorer-portforward.log
+# Web apps now route through NGINX Ingress + OAuth2 Proxy on port 9980.
+# A single ingress controller port-forward replaces individual service port-forwards.
+_start_portforward "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx" /tmp/ingress-portforward.log
 _start_portforward "Argo Workflows"  2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                               /tmp/argo-workflows-portforward.log
 _start_portforward "Azure SQL"       1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"                                /tmp/azure-sql-portforward.log
 _start_portforward "Service Bus AMQP" 5672 "kubectl port-forward svc/servicebus 5672:5672 -n service-bus"                      /tmp/servicebus-portforward.log
@@ -672,6 +742,8 @@ _add_hosts_entry "argocd.aks-lab.local"
 _add_hosts_entry "blob-explorer.aks-lab.local"
 _add_hosts_entry "vault.aks-lab.local"
 _add_hosts_entry "argo-workflows.aks-lab.local"
+_add_hosts_entry "dex.aks-lab.local"
+_add_hosts_entry "oauth2-proxy.aks-lab.local"
 
 # ── Dashboard ─────────────────────────────────
 step "Generating Dashboard"
@@ -705,17 +777,29 @@ fi
 step "Lab Ready"
 
 echo -e "
-${BOLD}  Service URLs${RESET}
-  TaskFlow:      ${GREEN}http://taskflow.aks-lab.local:8081${RESET}
-  Grafana:       ${GREEN}http://grafana.aks-lab.local:3000${RESET}       login: admin / $GRAFANA_PASSWORD
-  ArgoCD:        ${GREEN}https://argocd.aks-lab.local:8080${RESET}      login: admin / $ARGOCD_PASSWORD
-  Blob Explorer: ${GREEN}http://blob-explorer.aks-lab.local:8082${RESET}
+${BOLD}  Web Apps (via NGINX Ingress + OAuth2 SSO — login with AD credentials)${RESET}
+  TaskFlow:      ${GREEN}http://taskflow.aks-lab.local:9980${RESET}
+  Grafana:       ${GREEN}http://grafana.aks-lab.local:9980${RESET}
+  ArgoCD:        ${GREEN}http://argocd.aks-lab.local:9980${RESET}
+  Blob Explorer: ${GREEN}http://blob-explorer.aks-lab.local:9980${RESET}
+  Login with AD: testuser1@corp.internal / AksLab!User1
+
+${BOLD}  Auth Services${RESET}
+  Dex (OIDC):    ${GREEN}http://dex.aks-lab.local:9980/.well-known/openid-configuration${RESET}
+  OAuth2 Proxy:  ${GREEN}http://oauth2-proxy.aks-lab.local:9980/oauth2/auth${RESET}
+  SambaAD VM:    IP: ${SAMBA_IP:-<run: multipass info samba-ad>}
+
+${BOLD}  Azure Emulators (direct port-forwards — no auth gate)${RESET}
   Azure SQL:     ${GREEN}localhost:1433${RESET}                         login: sa / AksLab!SqlDev1
   Service Bus:   ${GREEN}localhost:5672${RESET}                          AMQP · SAS key: SAS_KEY_VALUE
-  Registry:      ${GREEN}localhost:5000${RESET}                          (no auth — push via localhost:5000/img:tag)
+  Registry:      ${GREEN}localhost:5000${RESET}                          (no auth)
   Cosmos DB:     ${GREEN}http://localhost:8081${RESET}                   NoSQL API · Explorer: http://localhost:1234
   Vault UI:      ${GREEN}http://vault.aks-lab.local:8200/ui${RESET}        token: ${VAULT_TOKEN}
   Argo Workflows: ${GREEN}http://argo-workflows.aks-lab.local:2746${RESET}
+
+${BOLD}  Corp Client VM (domain-joined Ubuntu)${RESET}
+  Shell in:      multipass shell corp-client
+  AD user login: su - testuser1  (or testuser2)
 
 ${BOLD}  Vault (Azure Key Vault equivalent)${RESET}
   KV v2 path:  vault kv list ${VAULT_KV_PATH}/azure-services

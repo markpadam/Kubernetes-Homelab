@@ -79,18 +79,60 @@ _start_portforward() {
 }
 
 log "Clearing stale port-forwards and starting fresh..."
-_start_portforward "Toolbox SSH"   2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"                                  /tmp/toolbox-portforward.log
-_start_portforward "ArgoCD"        8080 "kubectl port-forward svc/argocd-server 8080:443 -n argocd"                                 /tmp/argocd-portforward.log
-_start_portforward "TaskFlow"      8081 "kubectl port-forward svc/frontend 8081:80 -n taskapp"                                      /tmp/taskflow-portforward.log
-_start_portforward "Grafana"       3000 "kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring"                         /tmp/grafana-portforward.log
-_start_portforward "Blob Explorer"   8082 "kubectl port-forward svc/blob-explorer-blob-explorer 8082:80 -n blob-explorer"      /tmp/blob-explorer-portforward.log
-_start_portforward "Argo Workflows" 2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                               /tmp/argo-workflows-portforward.log
-_start_portforward "Azure SQL"      1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"                                /tmp/azure-sql-portforward.log
-_start_portforward "Service Bus AMQP" 5672 "kubectl port-forward svc/servicebus 5672:5672 -n service-bus"                      /tmp/servicebus-portforward.log
-_start_portforward "Service Bus Mgmt" 5300 "kubectl port-forward svc/servicebus 5300:5300 -n service-bus"                     /tmp/servicebus-mgmt-portforward.log
-_start_portforward "Registry"         5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"                /tmp/registry-portforward.log
-_start_portforward "Cosmos DB"        8081 "kubectl port-forward svc/cosmosdb 8081:8081 -n cosmos-db"                         /tmp/cosmosdb-portforward.log
-_start_portforward "Cosmos Explorer"  1234 "kubectl port-forward svc/cosmosdb 1234:1234 -n cosmos-db"                         /tmp/cosmosdb-explorer-portforward.log
+_start_portforward "Toolbox SSH"      2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"                            /tmp/toolbox-portforward.log
+_start_portforward "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx"       /tmp/ingress-portforward.log
+_start_portforward "Argo Workflows"   2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                             /tmp/argo-workflows-portforward.log
+_start_portforward "Azure SQL"        1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"                              /tmp/azure-sql-portforward.log
+_start_portforward "Service Bus AMQP" 5672 "kubectl port-forward svc/servicebus 5672:5672 -n service-bus"                       /tmp/servicebus-portforward.log
+_start_portforward "Service Bus Mgmt" 5300 "kubectl port-forward svc/servicebus 5300:5300 -n service-bus"                       /tmp/servicebus-mgmt-portforward.log
+_start_portforward "Registry"         5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"                  /tmp/registry-portforward.log
+_start_portforward "Cosmos DB"        8081 "kubectl port-forward svc/cosmosdb 8081:8081 -n cosmos-db"                           /tmp/cosmosdb-portforward.log
+_start_portforward "Cosmos Explorer"  1234 "kubectl port-forward svc/cosmosdb 1234:1234 -n cosmos-db"                           /tmp/cosmosdb-explorer-portforward.log
+
+# ── SambaAD VMs ───────────────────────────────
+step "Restoring SambaAD VMs"
+
+for VM in samba-ad corp-client; do
+  VM_STATUS=$(multipass info "$VM" --format json 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['$VM']['state'])" 2>/dev/null || echo "missing")
+  if [[ "$VM_STATUS" == "Stopped" ]]; then
+    log "Starting $VM VM..."
+    multipass start "$VM"
+    success "$VM started"
+  elif [[ "$VM_STATUS" == "Running" ]]; then
+    success "$VM already running"
+  else
+    warn "$VM not found — run setup-lab.sh to recreate it"
+  fi
+done
+
+# Print VNC connection URL if corp-client is running
+CORP_CLIENT_IP=$(multipass info corp-client --format json 2>/dev/null \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['ipv4'][0])" \
+  2>/dev/null || echo "")
+if [[ -n "$CORP_CLIENT_IP" ]]; then
+  success "Corp Client desktop: open vnc://${CORP_CLIENT_IP}:5901  (password: AksLab1!)"
+fi
+
+# Re-apply CoreDNS patch in case it was reset when the cluster restarted
+SAMBA_IP=$(multipass info samba-ad --format json 2>/dev/null \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" \
+  2>/dev/null || echo "")
+
+if [[ -n "$SAMBA_IP" ]]; then
+  log "Re-patching CoreDNS to forward corp.internal → SambaAD ($SAMBA_IP)..."
+  kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}' \
+    | sed "s|forward . 10.96.0.200|forward . ${SAMBA_IP}|g" \
+    | kubectl create configmap coredns -n kube-system \
+        --from-file=Corefile=/dev/stdin \
+        --dry-run=client -o yaml \
+    | kubectl apply -f -
+  kubectl rollout restart deployment coredns -n kube-system
+  success "CoreDNS patched — corp.internal → $SAMBA_IP"
+else
+  warn "Could not determine samba-ad IP — CoreDNS corp.internal forwarding may be stale"
+fi
+export SAMBA_IP
 
 # ── Vault ─────────────────────────────────────
 step "Restoring Vault"

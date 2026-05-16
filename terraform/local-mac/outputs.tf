@@ -75,3 +75,42 @@ output "azure_services_secret_path" {
   DESC
   value = "${vault_mount.kv_v2.path}/azure-services"
 }
+
+# ── SambaAD / Active Directory outputs ────────────────────────────────────────
+
+output "samba_ad_ip" {
+  description = <<-DESC
+    IP address of the samba-ad Multipass VM.
+    Captured at apply time — use this to configure CoreDNS and Dex.
+    Run: multipass info samba-ad --format json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])"
+  DESC
+  value = "run: multipass info samba-ad --format json | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])\""
+}
+
+output "ad_domain" {
+  description = "Active Directory domain name — corp.internal."
+  value       = var.ad_domain
+}
+
+output "ldap_url" {
+  description = <<-DESC
+    LDAP URL for the SambaAD VM. Used by Dex's LDAP connector.
+    Azure equivalent: ldap://<domain-controller>:389 behind a private endpoint.
+    Substitute the actual IP from samba_ad_ip.
+  DESC
+  value = "ldap://<samba_ad_ip>:389"
+}
+
+output "ad_admin_password" {
+  description = "SambaAD Administrator password (lab only)."
+  value       = var.ad_admin_password
+  sensitive   = true
+}
+
+output "corp_client_ip" {
+  description = <<-DESC
+    IP address of the corp-client Multipass VM.
+    Run: multipass info corp-client --format json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['ipv4'][0])"
+  DESC
+  value = "run: multipass info corp-client --format json | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['ipv4'][0])\""
+}

@@ -64,24 +64,24 @@
 
 <div class="section-title">Services</div>
 <div class="services">
-  <a class="card" href="http://taskflow.aks-lab.local:8081" target="_blank">
+  <a class="card" href="http://taskflow.aks-lab.local:9980" target="_blank">
     <div class="card-name"><span class="card-dot"></span>TaskFlow</div>
-    <div class="card-url">taskflow.aks-lab.local:8081</div>
+    <div class="card-url">taskflow.aks-lab.local:9980</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
-  <a class="card" href="http://grafana.aks-lab.local:3000" target="_blank">
+  <a class="card" href="http://grafana.aks-lab.local:9980" target="_blank">
     <div class="card-name"><span class="card-dot"></span>Grafana</div>
-    <div class="card-url">grafana.aks-lab.local:3000</div>
+    <div class="card-url">grafana.aks-lab.local:9980</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
-  <a class="card" href="https://argocd.aks-lab.local:8080" target="_blank">
+  <a class="card" href="http://argocd.aks-lab.local:9980" target="_blank">
     <div class="card-name"><span class="card-dot"></span>ArgoCD</div>
-    <div class="card-url">argocd.aks-lab.local:8080</div>
+    <div class="card-url">argocd.aks-lab.local:9980</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
-  <a class="card" href="http://blob-explorer.aks-lab.local:8082" target="_blank">
+  <a class="card" href="http://blob-explorer.aks-lab.local:9980" target="_blank">
     <div class="card-name"><span class="card-dot"></span>Blob Explorer</div>
-    <div class="card-url">blob-explorer.aks-lab.local:8082</div>
+    <div class="card-url">blob-explorer.aks-lab.local:9980</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
   <div class="card">
@@ -94,9 +94,9 @@
     <div class="card-url">vault.aks-lab.local:8200/ui</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
-  <a class="card" href="http://argo-workflows.aks-lab.local:2746" target="_blank">
+  <a class="card" href="http://localhost:2746" target="_blank">
     <div class="card-name"><span class="card-dot"></span>Argo Workflows</div>
-    <div class="card-url">argo-workflows.aks-lab.local:2746</div>
+    <div class="card-url">localhost:2746</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
   <div class="card">
@@ -114,6 +114,38 @@
     <div class="card-url">localhost:1234 (Explorer)</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
+</div>
+
+<div class="section-title">Identity &amp; Auth</div>
+<div class="four-col">
+  <div class="panel">
+    <div class="row"><span class="row-label">VM</span><span class="row-val">samba-ad (Multipass)</span></div>
+    <div class="row"><span class="row-label">Domain</span><span class="row-val">corp.internal</span></div>
+    <div class="row"><span class="row-label">LDAP</span><span class="row-val">:389</span></div>
+    <div class="row"><span class="row-label">Admin</span><span class="row-val">Administrator / AksLab!AdDev1</span></div>
+    <div class="row" style="border:none; padding-top:10px; font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.06em; text-transform:uppercase">SambaAD (Active Directory)</div>
+  </div>
+  <div class="panel">
+    <div class="row"><span class="row-label">testuser1</span><span class="row-val">AksLab!User1</span></div>
+    <div class="row"><span class="row-label">testuser2</span><span class="row-val">AksLab!User2</span></div>
+    <div class="row"><span class="row-label">Group</span><span class="row-val">lab-users</span></div>
+    <div class="row"><span class="row-label">UPN</span><span class="row-val" style="font-size:11px">user@corp.internal</span></div>
+    <div class="row" style="border:none; padding-top:10px; font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.06em; text-transform:uppercase">AD Test Users</div>
+  </div>
+  <div class="panel">
+    <div class="row"><span class="row-label">Issuer</span><span class="row-val" style="font-size:11px">dex.aks-lab.local:9980</span></div>
+    <div class="row"><span class="row-label">Client</span><span class="row-val">oauth2-proxy</span></div>
+    <div class="row"><span class="row-label">LDAP</span><span class="row-val">→ SambaAD :389</span></div>
+    <div class="row"><span class="row-label">Discovery</span><span class="row-val" style="font-size:11px">/.well-known/openid-configuration</span></div>
+    <div class="row" style="border:none; padding-top:10px; font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.06em; text-transform:uppercase">Dex (OIDC)</div>
+  </div>
+  <div class="panel">
+    <div class="row"><span class="row-label">VM</span><span class="row-val">corp-client (Multipass)</span></div>
+    <div class="row"><span class="row-label">Joined to</span><span class="row-val">corp.internal</span></div>
+    <div class="row"><span class="row-label">Auth stack</span><span class="row-val">realmd + SSSD</span></div>
+    <div class="row"><span class="row-label">Shell</span><span class="row-val" style="font-size:11px">multipass shell corp-client</span></div>
+    <div class="row" style="border:none; padding-top:10px; font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.06em; text-transform:uppercase">Corp Client VM</div>
+  </div>
 </div>
 
 <div class="section-title">Credentials &amp; Toolbox</div>
@@ -144,6 +176,11 @@
 <div class="cmd-row">vault status<button class="copy-btn" onclick="cp(this,'vault status')">copy</button></div>
 <div class="cmd-row">vault kv list ${VAULT_KV_PATH}/azure-services<button class="copy-btn" onclick="cp(this,'vault kv list ${VAULT_KV_PATH}/azure-services')">copy</button></div>
 <div class="cmd-row">export VAULT_ADDR=${VAULT_ADDR} VAULT_TOKEN=${VAULT_TOKEN}<button class="copy-btn" onclick="cp(this,'export VAULT_ADDR=${VAULT_ADDR} VAULT_TOKEN=${VAULT_TOKEN}')">copy</button></div>
+<div class="cmd-row">multipass exec samba-ad -- samba-tool user list<button class="copy-btn" onclick="cp(this,'multipass exec samba-ad -- samba-tool user list')">copy</button></div>
+<div class="cmd-row">multipass exec corp-client -- id testuser1@corp.internal<button class="copy-btn" onclick="cp(this,'multipass exec corp-client -- id testuser1@corp.internal')">copy</button></div>
+<div class="cmd-row">curl -s http://dex.aks-lab.local:9980/.well-known/openid-configuration | python3 -m json.tool<button class="copy-btn" onclick="cp(this,'curl -s http://dex.aks-lab.local:9980/.well-known/openid-configuration | python3 -m json.tool')">copy</button></div>
+<div class="cmd-row">kubectl logs -n dex deploy/dex -f<button class="copy-btn" onclick="cp(this,'kubectl logs -n dex deploy/dex -f')">copy</button></div>
+<div class="cmd-row">kubectl logs -n oauth2-proxy deploy/oauth2-proxy -f<button class="copy-btn" onclick="cp(this,'kubectl logs -n oauth2-proxy deploy/oauth2-proxy -f')">copy</button></div>
 
 <div class="section-title">Infrastructure</div>
 <div class="four-col">
@@ -156,8 +193,8 @@
   </div>
   <div class="panel">
     <div class="row"><span class="row-label">bind9 IP</span><span class="row-val">${BIND9_IP}</span></div>
-    <div class="row"><span class="row-label">Zone</span><span class="row-val">corp.internal</span></div>
-    <div class="row"><span class="row-label">Zone</span><span class="row-val">privatelink.*</span></div>
+    <div class="row"><span class="row-label">corp.internal</span><span class="row-val" style="font-size:11px">→ SambaAD (Multipass)</span></div>
+    <div class="row"><span class="row-label">privatelink.*</span><span class="row-val">→ Bind9</span></div>
     <div class="row"><span class="row-label">Edit</span><span class="row-val" style="font-size:11px">dns-lab/dns-config.yaml</span></div>
     <div class="row" style="border:none; padding-top:10px; font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.06em; text-transform:uppercase">DNS Lab</div>
   </div>
