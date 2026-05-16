@@ -17,13 +17,13 @@ K8S_VERSION="v1.29.0"
 NODES=3
 CPUS=2
 MEMORY=4096
-APP_DIR="Apps/taskflow"
-DNS_DIR="infra/dns"
-TOOLBOX_DIR="toolbox"
+APP_DIR="apps/base/taskflow"
+DNS_DIR="infrastructure/base/dns"
+TOOLBOX_DIR="infrastructure/base/toolbox"
 GRAFANA_PASSWORD="admin123"
 GITHUB_REPO="https://github.com/markpadam/Kubernetes-Homelab.git"
 GITHUB_BRANCH="main"
-FLUX_APPS_PATH="./flux-apps"
+FLUX_APPS_PATH="./clusters/lab"
 
 # ── Colours ──────────────────────────────────
 RED='\033[0;31m'
@@ -182,7 +182,7 @@ IMAGES_TO_DIST=()
 
 if feature_enabled taskflow; then
   log "Building backend image..."
-  minikube image build -t aks-lab/backend:latest Apps/taskflow/backend/ -p "$PROFILE"
+  minikube image build -t aks-lab/backend:latest apps/taskflow/backend/ -p "$PROFILE"
   success "Backend image built"
   IMAGES_TO_BUILD+=(aks-lab/backend:latest)
 fi
@@ -196,7 +196,7 @@ fi
 
 if feature_enabled blob-explorer; then
   log "Building blob-explorer image..."
-  minikube image build -t aks-lab/blob-explorer:latest Apps/blob-explorer/ -p "$PROFILE"
+  minikube image build -t aks-lab/blob-explorer:latest apps/blob-explorer/ -p "$PROFILE"
   success "Blob-explorer image built"
   IMAGES_TO_BUILD+=(aks-lab/blob-explorer:latest)
 fi
@@ -276,7 +276,7 @@ if feature_enabled taskflow; then
   step "Step 6 — Deploying TaskFlow Demo App"
 
   log "Applying manifests from ./$APP_DIR ..."
-  kubectl apply -f "$APP_DIR/"
+  kubectl apply -k "$APP_DIR/"
 
   log "Waiting for pods to be ready (up to 3 minutes)..."
   for deploy in postgres backend frontend; do
@@ -582,8 +582,8 @@ spec:
     name: flux-system
 EOF
 
-# Apply the Kustomization that watches flux-apps/
-log "Applying Kustomization for flux-apps/..."
+# Apply the Kustomization that watches clusters/lab/
+log "Applying Kustomization for clusters/lab/..."
 kubectl apply -f - <<EOF
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -705,7 +705,7 @@ if feature_enabled samba-ad; then
     python3 -c "
 import os, string
 from pathlib import Path
-t = Path('flux-apps/dex/config.yaml').read_text()
+t = Path('infrastructure/base/identity/dex/config.yaml').read_text()
 Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
 "
     kubectl apply -f /tmp/dex-config-rendered.yaml
@@ -719,7 +719,7 @@ Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substit
     python3 -c "
 import os, string
 from pathlib import Path
-t = Path('flux-apps/oauth2-proxy/secret.yaml').read_text()
+t = Path('infrastructure/base/identity/oauth2-proxy/secret.yaml').read_text()
 Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
 "
     kubectl apply -f /tmp/oauth2-proxy-secret-rendered.yaml
@@ -923,7 +923,7 @@ ${BOLD}  DNS Lab${RESET}
 
 ${BOLD}  Flux (GitOps)${RESET}
   Watching:    $GITHUB_REPO @ $FLUX_APPS_PATH
-  Add apps:    commit manifests to flux-apps/ and push — Flux syncs within 1 min
+  Add apps:    commit manifests to apps/base/ or infrastructure/base/ and push — Flux syncs within 1 min
   Status:      flux get all -n flux-system
   Force sync:  flux reconcile kustomization flux-apps -n flux-system
 

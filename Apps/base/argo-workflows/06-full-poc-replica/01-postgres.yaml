@@ -1,0 +1,131 @@
+# ── Phase 7 / Step 1: PostgreSQL Persistence ─────────────────────────────────
+#
+# Without this, completed workflow history lives only in etcd. If the Argo
+# controller pod restarts, history is gone. With Postgres, every workflow run
+# is archived and searchable forever — including the full DAG, params, and logs.
+#
+# This mirrors the POC's 1-postgres/postgres-deployment.yaml exactly.
+#
+# In AKS production this would be Azure Database for PostgreSQL (Flexible Server)
+# rather than an in-cluster pod. The workflow-controller-configmap connection
+# string is identical either way.
+#
+# Apply:
+#   kubectl apply -f 01-postgres.yaml
+#
+# Verify Postgres is ready:
+#   kubectl get pod -n argo -l app=argo-postgres
+#   kubectl exec -n argo deploy/argo-postgres -- pg_isready -U argo
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Credentials secret — in production this would come from Vault/AKV via ESO.
+# We keep it inline here as infrastructure config (not an app secret).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argo-postgres-creds
+  namespace: argo
+  labels:
+    app: argo-postgres
+type: Opaque
+stringData:
+  username: argo
+  password: "argo123!@#"
+
+---
+# PersistentVolumeClaim — Minikube provisions this automatically from the
+# 'standard' StorageClass (hostPath driver). In AKS this would be managed-csi.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: argo-postgres-pvc
+  namespace: argo
+  labels:
+    app: argo-postgres
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argo-postgres
+  namespace: argo
+  labels:
+    app: argo-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: argo-postgres
+  template:
+    metadata:
+      labels:
+        app: argo-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: argo-postgres-creds
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: argo-postgres-creds
+                  key: password
+            - name: POSTGRES_DB
+              value: argo_workflows
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            exec:
+              command: [pg_isready, -U, argo]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, argo]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: argo-postgres-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: argo-postgres-svc
+  namespace: argo
+  labels:
+    app: argo-postgres
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+  selector:
+    app: argo-postgres

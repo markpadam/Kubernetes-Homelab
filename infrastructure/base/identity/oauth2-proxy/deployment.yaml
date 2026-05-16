@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy
+  namespace: oauth2-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oauth2-proxy
+  template:
+    metadata:
+      labels:
+        app: oauth2-proxy
+    spec:
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:latest
+          args:
+            # OIDC provider — Dex running in-cluster
+            # Azure equivalent: --provider=azure with a registered App Registration
+            - --provider=oidc
+            - --oidc-issuer-url=http://dex.dex.svc.cluster.local:5556
+            - --insecure-oidc-allow-unverified-email=true
+            - --skip-oidc-discovery=false
+
+            # Redirect URL — must match the redirectURI registered in Dex
+            - --redirect-url=http://oauth2-proxy.aks-lab.local:9980/oauth2/callback
+
+            # Forward auth mode — OAuth2 Proxy validates sessions but does not
+            # serve the upstream itself. NGINX handles the upstream proxy.
+            - --upstream=file:///dev/null
+
+            # Network
+            - --http-address=0.0.0.0:4180
+
+            # Restrict to corp.internal email addresses
+            - --email-domain=corp.internal
+
+            # Session cookie — not secure (no TLS in lab)
+            - --cookie-secure=false
+            - --cookie-name=_oauth2_proxy_lab
+
+            # Skip the Dex "pick a provider" screen (only one connector)
+            - --skip-provider-button=true
+
+            # Pass user identity to the backend via headers
+            - --set-xauthrequest=true
+            - --pass-access-token=true
+          env:
+            - name: OAUTH2_PROXY_CLIENT_ID
+              value: oauth2-proxy
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-proxy-secret
+                  key: client-secret
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-proxy-secret
+                  key: cookie-secret
+          ports:
+            - containerPort: 4180
+              name: http
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 4180
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 4180
+            initialDelaySeconds: 20
+            periodSeconds: 30

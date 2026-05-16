@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: servicebus
+  namespace: service-bus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: servicebus
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: servicebus
+    spec:
+      containers:
+        - name: servicebus
+          image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+          # AMD64-only image — runs via Rosetta on Apple Silicon
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5672
+              name: amqp
+            - containerPort: 5300
+              name: management
+          env:
+            - name: ACCEPT_EULA
+              value: "Y"
+            - name: SQL_SERVER
+              value: "mssql.azure-sql.svc.cluster.local"
+            - name: MSSQL_SA_PASSWORD
+              value: "AksLab!SqlDev1"
+            - name: SQL_WAIT_INTERVAL
+              value: "30"
+            - name: CONFIG_PATH
+              value: "/ServiceBus_Emulator/ConfigFiles/Config.json"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5300
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5300
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          volumeMounts:
+            - name: config
+              mountPath: /ServiceBus_Emulator/ConfigFiles
+      volumes:
+        - name: config
+          configMap:
+            name: servicebus-config

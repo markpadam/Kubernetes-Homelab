@@ -1,0 +1,459 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-html
+  namespace: taskapp
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+      <title>TaskFlow — AKS Lab</title>
+      <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+      <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+          --bg: #0a0a0f;
+          --surface: #13131a;
+          --surface2: #1c1c28;
+          --border: #2a2a3d;
+          --accent: #7c6af7;
+          --accent2: #f76a8a;
+          --text: #e8e8f0;
+          --muted: #6b6b80;
+          --done: #3a3a50;
+        }
+
+        body {
+          font-family: 'Syne', sans-serif;
+          background: var(--bg);
+          color: var(--text);
+          min-height: 100vh;
+          padding: 0;
+          overflow-x: hidden;
+        }
+
+        .noise {
+          position: fixed; inset: 0; z-index: 0; pointer-events: none;
+          background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+          opacity: 0.4;
+        }
+
+        .glow {
+          position: fixed;
+          width: 600px; height: 600px;
+          border-radius: 50%;
+          background: radial-gradient(circle, rgba(124,106,247,0.12) 0%, transparent 70%);
+          top: -200px; left: -100px;
+          pointer-events: none; z-index: 0;
+        }
+        .glow2 {
+          position: fixed;
+          width: 400px; height: 400px;
+          border-radius: 50%;
+          background: radial-gradient(circle, rgba(247,106,138,0.08) 0%, transparent 70%);
+          bottom: -100px; right: -100px;
+          pointer-events: none; z-index: 0;
+        }
+
+        .container {
+          position: relative; z-index: 1;
+          max-width: 720px;
+          margin: 0 auto;
+          padding: 60px 24px 80px;
+        }
+
+        header {
+          margin-bottom: 48px;
+          animation: fadeUp 0.6s ease both;
+        }
+
+        .eyebrow {
+          font-family: 'DM Mono', monospace;
+          font-size: 11px;
+          letter-spacing: 0.2em;
+          color: var(--accent);
+          text-transform: uppercase;
+          margin-bottom: 12px;
+          display: flex; align-items: center; gap: 8px;
+        }
+
+        .eyebrow::before {
+          content: '';
+          display: inline-block;
+          width: 20px; height: 1px;
+          background: var(--accent);
+        }
+
+        h1 {
+          font-size: clamp(2.5rem, 6vw, 4rem);
+          font-weight: 800;
+          line-height: 1;
+          background: linear-gradient(135deg, var(--text) 40%, var(--accent));
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          margin-bottom: 8px;
+        }
+
+        .subtitle {
+          color: var(--muted);
+          font-size: 0.9rem;
+          font-family: 'DM Mono', monospace;
+          font-weight: 400;
+        }
+
+        .pod-badge {
+          display: inline-block;
+          margin-top: 16px;
+          background: var(--surface2);
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          padding: 6px 12px;
+          font-family: 'DM Mono', monospace;
+          font-size: 11px;
+          color: var(--muted);
+        }
+
+        .pod-badge span { color: var(--accent2); }
+
+        .input-row {
+          display: flex; gap: 10px;
+          margin-bottom: 40px;
+          animation: fadeUp 0.6s 0.15s ease both;
+        }
+
+        input[type="text"] {
+          flex: 1;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 14px 18px;
+          color: var(--text);
+          font-family: 'Syne', sans-serif;
+          font-size: 0.95rem;
+          outline: none;
+          transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        input[type="text"]::placeholder { color: var(--muted); }
+
+        input[type="text"]:focus {
+          border-color: var(--accent);
+          box-shadow: 0 0 0 3px rgba(124,106,247,0.15);
+        }
+
+        button.add-btn {
+          background: var(--accent);
+          color: #fff;
+          border: none;
+          border-radius: 10px;
+          padding: 14px 24px;
+          font-family: 'Syne', sans-serif;
+          font-size: 0.95rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.2s, transform 0.1s;
+          white-space: nowrap;
+        }
+
+        button.add-btn:hover { background: #9181f9; }
+        button.add-btn:active { transform: scale(0.97); }
+
+        .section-label {
+          font-family: 'DM Mono', monospace;
+          font-size: 11px;
+          letter-spacing: 0.15em;
+          text-transform: uppercase;
+          color: var(--muted);
+          margin-bottom: 16px;
+          animation: fadeUp 0.6s 0.25s ease both;
+        }
+
+        .task-list {
+          display: flex; flex-direction: column; gap: 10px;
+        }
+
+        .task {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          padding: 16px 20px;
+          display: flex; align-items: center; gap: 14px;
+          transition: border-color 0.2s, opacity 0.3s;
+          animation: fadeUp 0.4s ease both;
+        }
+
+        .task:hover { border-color: #3a3a55; }
+
+        .task.done {
+          opacity: 0.5;
+          border-color: var(--done);
+        }
+
+        .task.done .task-title {
+          text-decoration: line-through;
+          color: var(--muted);
+        }
+
+        .check-btn {
+          width: 22px; height: 22px;
+          border-radius: 50%;
+          border: 2px solid var(--border);
+          background: transparent;
+          cursor: pointer;
+          flex-shrink: 0;
+          transition: all 0.2s;
+          display: flex; align-items: center; justify-content: center;
+          color: #fff;
+          font-size: 13px;
+        }
+
+        .check-btn:hover { border-color: var(--accent); }
+        .task.done .check-btn { background: var(--accent); border-color: var(--accent); }
+
+        .task-title {
+          flex: 1;
+          font-size: 0.95rem;
+          font-weight: 600;
+          transition: color 0.2s;
+        }
+
+        .task-time {
+          font-family: 'DM Mono', monospace;
+          font-size: 10px;
+          color: var(--muted);
+          flex-shrink: 0;
+        }
+
+        .del-btn {
+          background: transparent;
+          border: none;
+          color: var(--muted);
+          cursor: pointer;
+          font-size: 18px;
+          line-height: 1;
+          padding: 2px 4px;
+          transition: color 0.2s;
+          flex-shrink: 0;
+        }
+        .del-btn:hover { color: var(--accent2); }
+
+        .empty {
+          text-align: center;
+          color: var(--muted);
+          font-family: 'DM Mono', monospace;
+          font-size: 0.85rem;
+          padding: 60px 0;
+          border: 1px dashed var(--border);
+          border-radius: 12px;
+        }
+
+        .stats {
+          display: flex; gap: 12px;
+          margin-bottom: 32px;
+          animation: fadeUp 0.6s 0.2s ease both;
+        }
+
+        .stat {
+          flex: 1;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 14px 16px;
+          text-align: center;
+        }
+
+        .stat-num {
+          font-size: 1.8rem;
+          font-weight: 800;
+          background: linear-gradient(135deg, var(--accent), var(--accent2));
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+        }
+
+        .stat-label {
+          font-family: 'DM Mono', monospace;
+          font-size: 10px;
+          color: var(--muted);
+          text-transform: uppercase;
+          letter-spacing: 0.1em;
+          margin-top: 2px;
+        }
+
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(16px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        .error { color: var(--accent2); font-family: 'DM Mono', monospace; font-size: 0.85rem; padding: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="noise"></div>
+      <div class="glow"></div>
+      <div class="glow2"></div>
+      <div class="container">
+        <header>
+          <div class="eyebrow">AKS Lab · Minikube</div>
+          <h1>TaskFlow</h1>
+          <p class="subtitle">Multi-tier · PostgreSQL · Kubernetes</p>
+          <div class="pod-badge">API Pod: <span id="pod-name">connecting...</span></div>
+        </header>
+
+        <div class="stats">
+          <div class="stat"><div class="stat-num" id="total">0</div><div class="stat-label">Total</div></div>
+          <div class="stat"><div class="stat-num" id="pending">0</div><div class="stat-label">Pending</div></div>
+          <div class="stat"><div class="stat-num" id="done-count">0</div><div class="stat-label">Done</div></div>
+        </div>
+
+        <div class="input-row">
+          <input type="text" id="task-input" placeholder="Add a new task..." />
+          <button class="add-btn" onclick="addTask()">Add Task</button>
+        </div>
+
+        <div class="section-label">Tasks</div>
+        <div class="task-list" id="task-list"></div>
+      </div>
+
+      <script>
+        const API = '/api';
+
+        async function load() {
+          try {
+            const [health, tasks] = await Promise.all([
+              fetch(`${API}/health`).then(r => r.json()),
+              fetch(`${API}/tasks`).then(r => r.json())
+            ]);
+            document.getElementById('pod-name').textContent = health.pod || 'unknown';
+            render(tasks);
+          } catch (e) {
+            document.getElementById('task-list').innerHTML = `<div class="error">⚠ Cannot reach backend API. Is the backend running?</div>`;
+          }
+        }
+
+        function render(tasks) {
+          const list = document.getElementById('task-list');
+          document.getElementById('total').textContent = tasks.length;
+          document.getElementById('pending').textContent = tasks.filter(t => !t.done).length;
+          document.getElementById('done-count').textContent = tasks.filter(t => t.done).length;
+
+          if (!tasks.length) {
+            list.innerHTML = '<div class="empty">No tasks yet — add one above</div>';
+            return;
+          }
+
+          list.innerHTML = tasks.map(t => `
+            <div class="task ${t.done ? 'done' : ''}" id="task-${t.id}">
+              <button class="check-btn" onclick="toggle(${t.id})">${t.done ? '✓' : ''}</button>
+              <span class="task-title">${escHtml(t.title)}</span>
+              <span class="task-time">${new Date(t.created_at).toLocaleDateString()}</span>
+              <button class="del-btn" onclick="del(${t.id})" title="Delete">×</button>
+            </div>
+          `).join('');
+        }
+
+        async function addTask() {
+          const input = document.getElementById('task-input');
+          const title = input.value.trim();
+          if (!title) return;
+          input.value = '';
+          await fetch(`${API}/tasks`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ title }) });
+          load();
+        }
+
+        async function toggle(id) {
+          await fetch(`${API}/tasks/${id}`, { method: 'PUT' });
+          load();
+        }
+
+        async function del(id) {
+          await fetch(`${API}/tasks/${id}`, { method: 'DELETE' });
+          load();
+        }
+
+        function escHtml(s) {
+          return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        document.getElementById('task-input').addEventListener('keydown', e => {
+          if (e.key === 'Enter') addTask();
+        });
+
+        load();
+      </script>
+    </body>
+    </html>
+  nginx.conf: |
+    server {
+      listen 80;
+      root /usr/share/nginx/html;
+      index index.html;
+
+      location /api/ {
+        proxy_pass http://backend:3000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+      }
+
+      location / {
+        try_files $uri $uri/ /index.html;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: taskapp
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: html
+              mountPath: /usr/share/nginx/html/index.html
+              subPath: index.html
+            - name: html
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: nginx.conf
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+      volumes:
+        - name: html
+          configMap:
+            name: frontend-html
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: taskapp
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080
+  type: NodePort

@@ -1,0 +1,5 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Optional components are managed by lab-feature.sh (enable/disable on demand).
+# Add resources here only for always-on base components.
+resources: []

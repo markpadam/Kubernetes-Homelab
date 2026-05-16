@@ -1,0 +1,144 @@
+# ── Phase 4: WorkflowTemplate ─────────────────────────────────────────────────
+#
+# Concepts covered:
+#   - WorkflowTemplate     — a PERSISTENT, reusable template stored in Kubernetes
+#                            (unlike Workflow which creates a one-shot run object)
+#   - workflowTemplateRef  — how a CronWorkflow references this template (Phase 5)
+#   - enum parameters      — gives you a dropdown in the UI instead of a free-text box
+#   - isManualRun pattern  — the exact pattern from the production POC:
+#                            manual UI runs default to true; CronWorkflow overrides to false
+#
+# Key difference from previous phases:
+#   Workflow     = runs immediately, creates a pod, disappears when done
+#   WorkflowTemplate = sits in the cluster indefinitely, like a function definition.
+#                      You invoke it with `argo submit --from workflowtemplate/<name>`
+#
+# Apply (idempotent — use apply, not create):
+#   kubectl apply -f 03-workflow-template.yaml
+#
+# Submit a run from the stored template:
+#   argo submit -n argo --from workflowtemplate/lab-report-runner
+#
+# Submit overriding parameters:
+#   argo submit -n argo --from workflowtemplate/lab-report-runner \
+#     -p run-summary=true \
+#     -p run-cleanup=true
+#
+# Watch / logs (same as before):
+#   argo watch -n argo @latest
+#   argo logs  -n argo @latest
+#
+# Or submit via UI → Workflow Templates → lab-report-runner → Submit
+# The UI shows dropdowns for each enum parameter.
+#
+# List stored templates:
+#   kubectl get workflowtemplates -n argo
+#
+# Delete:
+#   kubectl delete workflowtemplate lab-report-runner -n argo
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate         # <── NOT Workflow. This is stored, not run immediately.
+metadata:
+  name: lab-report-runner      # fixed name — reference this in CronWorkflow (Phase 5)
+  namespace: argo
+  labels:
+    app: lab-demo
+spec:
+  entrypoint: main
+
+  # These appear as inputs in the UI when you hit "Submit".
+  # enum restricts the input to a dropdown — no free text.
+  # This mirrors the POC's runHoliday / runFutureMonthlyExpiry / runForwardMonthlyExpiry.
+  arguments:
+    parameters:
+      - name: run-summary
+        value: "true"
+        enum: ["true", "false"]
+
+      - name: run-cleanup
+        value: "false"
+        enum: ["true", "false"]
+
+      - name: run-audit
+        value: "false"
+        enum: ["true", "false"]
+
+  templates:
+
+    - name: main
+      inputs:
+        parameters:
+          # isManualRun is NOT in the arguments block above — it does NOT appear in the UI.
+          # It defaults to "true" here. The CronWorkflow (Phase 5) will override it to "false".
+          # This is exactly the isManualRun pattern from the production POC.
+          - name: is-manual-run
+            value: "true"
+          - name: run-summary
+          - name: run-cleanup
+          - name: run-audit
+
+      steps:
+        # Stage 1: the three report jobs run in parallel (or are skipped).
+        # Each `when` mirrors how the POC gates runHoliday / runFutureMonthlyExpiry.
+        - - name: summary-report
+            template: run-report
+            when: "'{{inputs.parameters.run-summary}}' == 'true'"
+            arguments:
+              parameters:
+                - name: report-name
+                  value: "summary"
+                - name: is-manual-run
+                  value: "{{inputs.parameters.is-manual-run}}"
+
+          - name: cleanup-report
+            template: run-report
+            when: "'{{inputs.parameters.run-cleanup}}' == 'true'"
+            arguments:
+              parameters:
+                - name: report-name
+                  value: "cleanup"
+                - name: is-manual-run
+                  value: "{{inputs.parameters.is-manual-run}}"
+
+          - name: audit-report
+            template: run-report
+            when: "'{{inputs.parameters.run-audit}}' == 'true'"
+            arguments:
+              parameters:
+                - name: report-name
+                  value: "audit"
+                - name: is-manual-run
+                  value: "{{inputs.parameters.is-manual-run}}"
+
+        # Stage 2: always runs after stage 1 (even if all stage-1 steps were skipped).
+        - - name: notify
+            template: run-report
+            arguments:
+              parameters:
+                - name: report-name
+                  value: "notify"
+                - name: is-manual-run
+                  value: "{{inputs.parameters.is-manual-run}}"
+
+    # Worker template — does the actual work.
+    # Prints whether this is a manual or automated run, then simulates work.
+    - name: run-report
+      inputs:
+        parameters:
+          - name: report-name
+          - name: is-manual-run
+      container:
+        image: alpine:latest
+        command: [sh, -c]
+        args:
+          - |
+            if [ "{{inputs.parameters.is-manual-run}}" = "true" ]; then
+              MODE="Manual (triggered from UI or CLI)"
+            else
+              MODE="Automated (triggered by CronWorkflow)"
+            fi
+            echo "=== {{inputs.parameters.report-name}} | Mode: $MODE ==="
+            sleep 3
+            echo "=== {{inputs.parameters.report-name}} complete ==="

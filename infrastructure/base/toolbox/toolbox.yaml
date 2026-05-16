@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: toolbox
+---
+# ── SSH key ConfigMap ─────────────────────────────────────────────────────────
+# The setup script replaces the placeholder with your actual public key
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: toolbox-ssh-keys
+  namespace: toolbox
+data:
+  authorized_keys: "REPLACE_WITH_YOUR_PUBLIC_KEY"
+---
+# ── Toolbox Deployment ────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toolbox
+  namespace: toolbox
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: toolbox
+  template:
+    metadata:
+      labels:
+        app: toolbox
+    spec:
+      containers:
+        - name: toolbox
+          image: aks-lab/toolbox:latest
+          imagePullPolicy: Never
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              cp /etc/ssh-keys/authorized_keys /root/.ssh/authorized_keys
+              chmod 600 /root/.ssh/authorized_keys
+              exec /usr/sbin/sshd -D -e
+          ports:
+            - containerPort: 22
+          volumeMounts:
+            - name: ssh-keys
+              mountPath: /etc/ssh-keys
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            tcpSocket:
+              port: 22
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: 22
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: ssh-keys
+          configMap:
+            name: toolbox-ssh-keys
+---
+# ── Service — NodePort so minikube service can proxy it ──────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: toolbox-ssh
+  namespace: toolbox
+spec:
+  selector:
+    app: toolbox
+  ports:
+    - name: ssh
+      port: 22
+      targetPort: 22
+      nodePort: 30022
+  type: NodePort
