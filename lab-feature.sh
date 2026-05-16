@@ -631,7 +631,10 @@ cmd_init() {
       log "Standard install — default components"
       ;;
     --interactive|-i)
-      mapfile -t selected < <(_show_interactive_menu "$defaults" "$all_ids_str")
+      selected=()
+      while IFS= read -r _line; do
+        [[ -n "$_line" ]] && selected+=("$_line")
+      done < <(_show_interactive_menu "$defaults" "$all_ids_str")
       ;;
     *)
       error "Unknown init mode: $mode  (use --all, --minimal, --standard, or --interactive)"
@@ -656,11 +659,14 @@ print(str(ids).replace(\"'\", '\"'))
 _show_interactive_menu() {
   local defaults="$1"
   local all_ids_str="$2"
-  local -a ids=($all_ids_str)
-  declare -A checked
+  local ids=($all_ids_str)
+  # checked_str: space-delimited list of currently-selected IDs (no associative array)
+  local checked_str=" $defaults "
 
-  for id in $defaults; do checked[$id]=1; done
-  for id in "${ids[@]}"; do [[ -z "${checked[$id]:-}" ]] && checked[$id]=0; done
+  _chk_is()     { [[ " $checked_str " =~ " $1 " ]]; }
+  _chk_set()    { _chk_is "$1" || checked_str="$checked_str$1 "; }
+  _chk_unset()  { checked_str=$(echo "$checked_str" | tr ' ' '\n' | grep -vx "$1" | tr '\n' ' '); }
+  _chk_toggle() { _chk_is "$1" && _chk_unset "$1" || _chk_set "$1"; }
 
   while true; do
     clear
@@ -679,7 +685,7 @@ _show_interactive_menu() {
         cur_group="$grp"
       fi
       local mark="  [ ]"
-      [[ "${checked[$id]:-0}" == "1" ]] && mark="  ${GREEN}[x]${RESET}"
+      _chk_is "$id" && mark="  ${GREEN}[x]${RESET}"
       local dep_note=""
       [[ -n "$deps" ]] && dep_note=" ${DIM}← $deps${RESET}"
       printf "%b %2d. %-24s %s%b\n" "$mark" "$i" "$id" "$name" "$dep_note"
@@ -693,17 +699,15 @@ _show_interactive_menu() {
       "")
         break ;;
       a|A)
-        for id in "${ids[@]}"; do checked[$id]=1; done ;;
+        for id in "${ids[@]}"; do _chk_set "$id"; done ;;
       n|N)
-        for id in "${ids[@]}"; do checked[$id]=0; done ;;
+        checked_str=" " ;;
       d|D)
-        for id in "${ids[@]}"; do checked[$id]=0; done
-        for id in $defaults; do checked[$id]=1; done ;;
+        checked_str=" $defaults " ;;
       *)
         for num in $input; do
           if [[ "$num" =~ ^[0-9]+$ ]] && (( num >= 1 && num <= ${#ids[@]} )); then
-            local tid="${ids[$((num-1))]}"
-            checked[$tid]=$(( 1 - ${checked[$tid]:-0} ))
+            _chk_toggle "${ids[$((num-1))]}"
           fi
         done ;;
     esac
@@ -711,7 +715,7 @@ _show_interactive_menu() {
   clear
 
   for id in "${ids[@]}"; do
-    [[ "${checked[$id]:-0}" == "1" ]] && echo "$id"
+    _chk_is "$id" && echo "$id"
   done
 }
 
