@@ -1,3 +1,4 @@
+# Validates every PR by doing a full teardown + fresh deploy on the local self-hosted runner.
 name: PR Lab Validation
 
 on:
