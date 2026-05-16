@@ -199,19 +199,44 @@ success "All dependencies found"
 # ── Step 1: Cluster ──────────────────────────
 step "Step 1 — Starting Multi-Node Cluster"
 
-if minikube status -p "$PROFILE" &>/dev/null; then
-  warn "Profile '$PROFILE' already exists."
-  printf "         Delete and recreate it? [y/N] " >&3
-  read -r confirm <&0
-  if [[ "$(echo "$confirm" | tr '[:upper:]' '[:lower:]')" == "y" ]]; then
-    log "Deleting existing profile..."
-    minikube delete -p "$PROFILE"
+_delete_profile() {
+  for container in "${PROFILE}" "${PROFILE}-m02" "${PROFILE}-m03"; do
+    docker kill "$container" 2>/dev/null || true
+    docker rm -f "$container" 2>/dev/null || true
+  done
+  minikube delete -p "$PROFILE" --purge 2>/dev/null || true
+}
+
+CLUSTER_NEEDS_START=true
+
+# Check if any minikube profile state exists (running, stopped, or broken)
+if minikube profile list -o json 2>/dev/null \
+    | python3 -c "
+import sys,json
+try:
+  d=json.load(sys.stdin)
+  names=[p.get('Name','') for p in d.get('valid',[])+d.get('invalid',[])]
+  sys.exit(0 if '${PROFILE}' in names else 1)
+except: sys.exit(1)
+" 2>/dev/null; then
+  if minikube status -p "$PROFILE" 2>/dev/null | grep -q "Running"; then
+    warn "Profile '$PROFILE' is already running."
+    printf "         Delete and recreate it? [y/N] " >&3
+    read -r confirm <&0
+    if [[ "$(echo "$confirm" | tr '[:upper:]' '[:lower:]')" == "y" ]]; then
+      log "Deleting existing profile..."
+      _delete_profile
+    else
+      log "Reusing existing cluster — skipping start."
+      CLUSTER_NEEDS_START=false
+    fi
   else
-    log "Reusing existing cluster — skipping start."
+    warn "Profile '$PROFILE' exists but is stopped or broken — cleaning up before restart..."
+    _delete_profile
   fi
 fi
 
-if ! minikube status -p "$PROFILE" &>/dev/null; then
+if $CLUSTER_NEEDS_START; then
   log "Starting $NODES-node cluster (this may take a few minutes)..."
   minikube start \
     --driver=docker \
