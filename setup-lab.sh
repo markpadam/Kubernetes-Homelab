@@ -932,7 +932,7 @@ except Exception:
   fi
 
   log "Terraform will create the samba-ad Multipass VM."
-  log "This may take 3–5 minutes on first run (image download + Samba provisioning)."
+  log "This may take 8–12 minutes on first run (image download + Samba provisioning)."
   _start_progress /tmp/samba-terraform-apply.log \
     "Launching VM:Creating Multipass VM" \
     "Checking connectivity:Waiting for network connectivity" \

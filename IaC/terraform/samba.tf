@@ -95,8 +95,10 @@ except Exception:
         echo "[samba] apt-get update attempt $i failed, retrying in 10s..."
         sleep 10
       done
-      multipass exec samba-ad -- sudo apt-get install -y -qq \
-        samba winbind krb5-user attr dnsutils ldap-utils acl
+      multipass exec samba-ad -- sudo bash -c "
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+          samba winbind krb5-user attr dnsutils ldap-utils acl
+      "
 
       echo "[samba] Stopping default samba services ..."
       multipass exec samba-ad -- sudo systemctl stop smbd nmbd winbind 2>/dev/null || true
