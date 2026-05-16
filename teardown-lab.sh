@@ -34,7 +34,7 @@ fi
 # ── Kill port-forwards ────────────────────────
 step "Killing Port-Forwards"
 
-for port in 2222 9980 2746 1433 5672 5300 5000 8081 1234 9997; do
+for port in 2222 8080 9980 2746 1433 5672 5300 5000 8081 1234 9997; do
   pids=$(lsof -ti:$port 2>/dev/null || true)
   if [[ -n "$pids" ]]; then
     echo "$pids" | xargs kill -9 2>/dev/null || true
@@ -56,6 +56,27 @@ if [[ -f /tmp/vault-dev.pid ]]; then
   rm -f /tmp/vault-dev.pid
 else
   pkill -f "vault server -dev" 2>/dev/null && success "Vault dev server stopped" || warn "Vault dev server not running"
+fi
+
+# ── Terraform State ───────────────────────────
+step "Cleaning Up Terraform State"
+
+TF_DIR="IaC/terraform"
+
+# Kill any in-flight terraform processes so the lock is released before we remove it
+pkill -f "terraform" 2>/dev/null || true
+sleep 1
+
+if [[ -f "$TF_DIR/.terraform.tfstate.lock.info" ]]; then
+  rm -f "$TF_DIR/.terraform.tfstate.lock.info"
+  success "Removed stale Terraform state lock"
+fi
+
+if [[ -f "$TF_DIR/terraform.tfstate" ]]; then
+  rm -f "$TF_DIR/terraform.tfstate" "$TF_DIR/terraform.tfstate.backup"
+  success "Removed Terraform state files"
+else
+  warn "No Terraform state found — skipping"
 fi
 
 # ── Multipass VMs ─────────────────────────────
@@ -84,6 +105,30 @@ else
   warn "Profile '$PROFILE' not found — already deleted or never created."
 fi
 
+# ── Clean up /etc/hosts ───────────────────────
+step "Cleaning Up /etc/hosts"
+
+HOSTS_ENTRIES=(
+  "taskflow.aks-lab.local"
+  "grafana.aks-lab.local"
+  "argocd.aks-lab.local"
+  "blob-explorer.aks-lab.local"
+  "vault.aks-lab.local"
+  "argo-workflows.aks-lab.local"
+  "dex.aks-lab.local"
+  "oauth2-proxy.aks-lab.local"
+)
+
+REMOVED=0
+for host in "${HOSTS_ENTRIES[@]}"; do
+  if grep -qF "127.0.0.1 $host" /etc/hosts 2>/dev/null; then
+    sudo sed -i '' "/127\.0\.0\.1 ${host}/d" /etc/hosts
+    success "Removed $host"
+    REMOVED=$(( REMOVED + 1 ))
+  fi
+done
+[[ "$REMOVED" -eq 0 ]] && warn "No aks-lab.local entries in /etc/hosts — already clean"
+
 # ── Clean up SSH config entry ─────────────────
 step "Cleaning Up SSH Config"
 
@@ -102,14 +147,19 @@ step "Cleaning Up Temp Files"
 
 rm -f /tmp/corefile-backup.txt
 rm -f /tmp/toolbox-portforward.log /tmp/ingress-portforward.log
+rm -f /tmp/argocd-portforward.log
 rm -f /tmp/argo-workflows-portforward.log /tmp/azure-sql-portforward.log
 rm -f /tmp/servicebus-portforward.log /tmp/servicebus-mgmt-portforward.log
 rm -f /tmp/registry-portforward.log /tmp/cosmosdb-portforward.log
 rm -f /tmp/cosmosdb-explorer-portforward.log
-rm -f /tmp/vault-dev.log /tmp/vault-terraform-apply.log
+rm -f /tmp/vault-dev.log /tmp/vault-terraform-apply.log /tmp/vault-terraform-init.log
+rm -f /tmp/samba-terraform-apply.log /tmp/corp-client-terraform-apply.log
+rm -f /tmp/dex-config-rendered.yaml /tmp/oauth2-proxy-secret-rendered.yaml
 rm -f /tmp/dashboard-server.log /tmp/lab-dashboard.html
-rm -f /tmp/toolbox-*.yaml
+rm -f /tmp/toolbox-*.yaml /tmp/minikube-image-*.tar
+rm -f /tmp/lab-setup-*.log
 rm -rf /tmp/dns-apply/ 2>/dev/null || true
+rm -f .lab-state.json
 
 success "Temp files removed"
 

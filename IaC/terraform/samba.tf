@@ -49,15 +49,26 @@ resource "null_resource" "samba_vm" {
         --timeout 300
 
       echo "[samba] Waiting for network connectivity in VM ..."
+      _mp_ping() {
+        python3 -c "
+import subprocess, sys
+try:
+    r = subprocess.run(
+        ['multipass','exec','samba-ad','--','ping','-c','1','-W','2','8.8.8.8'],
+        timeout=10, capture_output=True)
+    sys.exit(r.returncode)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null
+      }
       for i in $(seq 1 24); do
-        if multipass exec samba-ad -- ping -c 1 -W 2 8.8.8.8 &>/dev/null; then
+        if _mp_ping; then
           echo "[samba] Network ready after $i attempts"
           break
         fi
         sleep 5
       done
-      multipass exec samba-ad -- ping -c 1 -W 5 8.8.8.8 \
-        || { echo "[samba] ERROR: no network in VM after 2 minutes"; exit 1; }
+      _mp_ping || { echo "[samba] ERROR: no network in VM after 2 minutes"; exit 1; }
 
       echo "[samba] Forcing IPv4 for apt (Multipass VMs often lack IPv6 routing) ..."
       multipass exec samba-ad -- sudo bash -c \
@@ -106,7 +117,16 @@ resource "null_resource" "samba_vm" {
 
       echo "[samba] Waiting for LDAP to be ready ..."
       for i in $(seq 1 30); do
-        if multipass exec samba-ad -- sudo samba-tool domain info 127.0.0.1 &>/dev/null; then
+        if python3 -c "
+import subprocess, sys
+try:
+    r = subprocess.run(
+        ['multipass','exec','samba-ad','--','sudo','samba-tool','domain','info','127.0.0.1'],
+        timeout=15, capture_output=True)
+    sys.exit(r.returncode)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
           echo "[samba] Domain ready after $i s"
           break
         fi
@@ -201,7 +221,16 @@ resource "null_resource" "corp_client_vm" {
 
       echo "[client] Verifying DNS to domain ..."
       for i in $(seq 1 15); do
-        if multipass exec corp-client -- nslookup "${var.ad_domain}" &>/dev/null; then
+        if python3 -c "
+import subprocess, sys
+try:
+    r = subprocess.run(
+        ['multipass','exec','corp-client','--','nslookup','${var.ad_domain}'],
+        timeout=10, capture_output=True)
+    sys.exit(r.returncode)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
           echo "[client] DNS OK after $i s"
           break
         fi
@@ -229,7 +258,16 @@ resource "null_resource" "corp_client_vm" {
 
       echo "[client] Verifying domain join ..."
       for i in $(seq 1 10); do
-        if multipass exec corp-client -- id testuser1 &>/dev/null; then
+        if python3 -c "
+import subprocess, sys
+try:
+    r = subprocess.run(
+        ['multipass','exec','corp-client','--','id','testuser1'],
+        timeout=10, capture_output=True)
+    sys.exit(r.returncode)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
           echo "[client] Domain join verified — testuser1 resolves"
           break
         fi

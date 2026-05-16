@@ -80,29 +80,32 @@ fi
 # ── Feature selection ─────────────────────────
 step "Component Selection"
 
-if [[ -f ".lab-state.json" && -z "$SETUP_FLAG" ]]; then
-  warn "Existing feature selection found in .lab-state.json"
-  warn "Using it — to change: rm .lab-state.json and re-run, or use ./lab-feature.sh"
+if [[ -n "$SETUP_FLAG" ]]; then
+  bash "$(dirname "$0")/lab-feature.sh" init "$SETUP_FLAG" >&3 2>&3
 else
-  case "$SETUP_FLAG" in
-    --all|--minimal|--standard)
-      bash "$(dirname "$0")/lab-feature.sh" init "$SETUP_FLAG" >&3 2>&3
-      ;;
-    "")
-      echo -e "\n${BOLD}  Which feature set would you like to install?${RESET}" >&3
-      echo -e "  ${GREEN}1) Standard${RESET}   — default components (recommended for most labs)" >&3
-      echo -e "  ${CYAN}2) All${RESET}        — every component including identity (SambaAD, Dex, OAuth2)" >&3
-      echo -e "  ${DIM}3) Minimal${RESET}    — core cluster only, no optional components" >&3
-      echo -e "  4) Custom     — choose components from lab-components.json\n" >&3
-      printf "  Choice [1]: " >&3
-      read -r _choice <&0
-      case "${_choice:-1}" in
-        1|s|S) bash "$(dirname "$0")/lab-feature.sh" init --standard  >&3 2>&3 ;;
-        2|a|A) bash "$(dirname "$0")/lab-feature.sh" init --all       >&3 2>&3 ;;
-        3|m|M) bash "$(dirname "$0")/lab-feature.sh" init --minimal   >&3 2>&3 ;;
-        4|c|C)
-          echo -e "\n${BOLD}  Available components (from lab-components.json):${RESET}" >&3
-          python3 -c "
+  if [[ -f ".lab-state.json" ]]; then
+    _existing=$(python3 -c "import json; print(', '.join(json.load(open('.lab-state.json')).get('enabled', [])))" 2>/dev/null || echo "unknown")
+    warn "Existing selection found: ${_existing}"
+    echo -e "  ${DIM}Press Enter to keep it, or choose a new preset below.${RESET}" >&3
+  fi
+  echo -e "\n${BOLD}  Which feature set would you like to install?${RESET}" >&3
+  echo -e "  ${GREEN}1) Standard${RESET}   — default components (recommended for most labs)" >&3
+  echo -e "  ${CYAN}2) All${RESET}        — every component including identity (SambaAD, Dex, OAuth2)" >&3
+  echo -e "  ${DIM}3) Minimal${RESET}    — core cluster only, no optional components" >&3
+  echo -e "  4) Custom     — choose components from lab-components.json" >&3
+  [[ -f ".lab-state.json" ]] && echo -e "  5) Keep existing selection" >&3
+  echo "" >&3
+  _default=$( [[ -f ".lab-state.json" ]] && echo 5 || echo 1 )
+  printf "  Choice [%s]: " "$_default" >&3
+  read -r _choice <&0
+  case "${_choice:-$_default}" in
+    1|s|S) bash "$(dirname "$0")/lab-feature.sh" init --standard  >&3 2>&3 ;;
+    2|a|A) bash "$(dirname "$0")/lab-feature.sh" init --all       >&3 2>&3 ;;
+    3|m|M) bash "$(dirname "$0")/lab-feature.sh" init --minimal   >&3 2>&3 ;;
+    5|k|K) log "Keeping existing feature selection" ;;
+    4|c|C)
+      echo -e "\n${BOLD}  Available components (from lab-components.json):${RESET}" >&3
+      python3 -c "
 import json
 from pathlib import Path
 cs = json.loads(Path('lab-components.json').read_text())['components']
@@ -116,13 +119,13 @@ for c in cs:
     print(f'    {mark} {c[\"id\"]:<22} {c[\"desc\"]}{deps}')
 print()
 " >&3
-          echo -e "  Enter component IDs (space-separated), or press Enter for interactive picker:" >&3
-          printf "  > " >&3
-          read -r _ids <&0
-          if [[ -z "$_ids" ]]; then
-            bash "$(dirname "$0")/lab-feature.sh" init --interactive >&3 2>&3 <&0
-          else
-            _ids_json=$(python3 -c "
+      echo -e "  Enter component IDs (space-separated), or press Enter for interactive picker:" >&3
+      printf "  > " >&3
+      read -r _ids <&0
+      if [[ -z "$_ids" ]]; then
+        bash "$(dirname "$0")/lab-feature.sh" init --interactive >&3 2>&3 <&0
+      else
+        _ids_json=$(python3 -c "
 ids = '${_ids}'.split()
 valid = [c['id'] for c in __import__('json').loads(open('lab-components.json').read())['components']]
 chosen = [i for i in ids if i in valid]
@@ -132,20 +135,15 @@ if bad:
     __import__(\"sys\").exit(1)
 print(str(chosen).replace(\"'\", '\"'))
 " 2>&3) || error "Invalid component ID(s) — check 'lab-feature.sh list' for valid IDs"
-            python3 -c "
+        python3 -c "
 import json
 state = {'version': 1, 'enabled': $_ids_json}
 open('.lab-state.json', 'w').write(json.dumps(state, indent=2))
 " >&3
-            echo -e "  ${GREEN}${BOLD}[✓]${RESET} Custom selection saved: ${_ids}" >&3
-          fi
-          ;;
-        *) error "Invalid choice '${_choice}' — re-run and enter 1, 2, 3, or 4" ;;
-      esac
+        echo -e "  ${GREEN}${BOLD}[✓]${RESET} Custom selection saved: ${_ids}" >&3
+      fi
       ;;
-    *)
-      error "Unknown flag: $SETUP_FLAG  (use --all, --minimal, or --standard)"
-      ;;
+    *) error "Invalid choice '${_choice:-}' — enter 1–4$( [[ -f ".lab-state.json" ]] && echo " or 5" )" ;;
   esac
 fi
 
@@ -203,7 +201,8 @@ step "Step 1 — Starting Multi-Node Cluster"
 
 if minikube status -p "$PROFILE" &>/dev/null; then
   warn "Profile '$PROFILE' already exists."
-  read -rp "         Delete and recreate it? [y/N] " confirm
+  printf "         Delete and recreate it? [y/N] " >&3
+  read -r confirm <&0
   if [[ "$(echo "$confirm" | tr '[:upper:]' '[:lower:]')" == "y" ]]; then
     log "Deleting existing profile..."
     minikube delete -p "$PROFILE"
@@ -458,7 +457,8 @@ if feature_enabled toolbox; then
 
   if [[ -z "$SSH_KEY_PATH" ]]; then
     warn "No SSH public key found in ~/.ssh/"
-    read -rp "         Enter path to your public key, or press Enter to generate one: " custom_path
+    printf "         Enter path to your public key, or press Enter to generate one: " >&3
+    read -r custom_path <&0
     if [[ -n "$custom_path" ]]; then
       [[ -f "$custom_path" ]] || error "Key not found at $custom_path"
       SSH_KEY_PATH="$custom_path"

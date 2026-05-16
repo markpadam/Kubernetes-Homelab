@@ -58,7 +58,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/features":
             rc, out = _run_feature_cmd(["list-json"])
             try:
-                data = json.loads(out).encode()
+                json.loads(out)  # validate
+                data = out.strip().encode()
             except Exception:
                 data = b"[]"
             self.send_response(200 if rc == 0 else 500)

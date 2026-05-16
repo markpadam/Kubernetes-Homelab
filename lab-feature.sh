@@ -199,7 +199,22 @@ _enable_vault() {
       || error "Vault failed to start — check /tmp/vault-dev.log"
   fi
   log "Applying Vault Terraform config..."
-  terraform -chdir="$TF_DIR" apply -auto-approve -input=false \
+  VAULT_REPLACE_FLAGS=""
+  if ! kubectl get secret vault-reviewer-token -n kube-system &>/dev/null; then
+    log "vault-reviewer-token not found — forcing K8s reviewer recreation..."
+    VAULT_REPLACE_FLAGS="-replace=null_resource.k8s_vault_reviewer"
+  fi
+  terraform -chdir="$TF_DIR" apply -auto-approve -input=false $VAULT_REPLACE_FLAGS \
+    -target=null_resource.vault_dev_server \
+    -target=null_resource.vault_health_check \
+    -target=null_resource.k8s_vault_reviewer \
+    -target=data.external.k8s_vault_config \
+    -target=vault_mount.kv_v2 \
+    -target=vault_kv_secret_v2.azure_services_placeholder \
+    -target=vault_policy.azure_services \
+    -target=vault_auth_backend.kubernetes \
+    -target=vault_kubernetes_auth_backend_config.minikube \
+    -target=vault_kubernetes_auth_backend_role.azure_services \
     2>&1 | tee /tmp/vault-terraform-apply.log
   success "Vault ready — http://127.0.0.1:8200/ui  (token: root)"
 }
@@ -731,7 +746,7 @@ except Exception:
     enabled = []
 for c in components:
     c['enabled'] = c['id'] in enabled
-print(json.dumps({'components': components, 'enabled': enabled}, indent=2))
+print(json.dumps(components))
 "
 }
 
