@@ -96,9 +96,19 @@ sys.exit(r.returncode)
       kill $_TAIL_PID 2>/dev/null || true
       wait $_TAIL_PID 2>/dev/null || true
 
-      if [[ $_CI_RC -ne 0 ]]; then
-        echo "[samba] ERROR: cloud-init failed (rc=$_CI_RC) — last 60 lines of log:"
+      # cloud-init exit codes: 0=done, 1=error, 2=recoverable_error (warnings only).
+      # Treat 0 and 2 as success — 2 means non-fatal warnings, provisioning still ran.
+      if [[ $_CI_RC -eq 1 ]]; then
+        echo "[samba] ERROR: cloud-init hard failure (rc=$_CI_RC) — last 60 lines of log:"
         multipass exec samba-ad -- sudo tail -60 /var/log/cloud-init-output.log 2>/dev/null || true
+        exit 1
+      fi
+
+      # Belt-and-suspenders: verify the provisioning script reached completion.
+      if ! multipass exec samba-ad -- grep -q '\[samba\] Provisioning complete\.' \
+          /var/log/cloud-init-output.log 2>/dev/null; then
+        echo "[samba] ERROR: samba-provision.sh did not reach completion — last 30 lines:"
+        multipass exec samba-ad -- sudo tail -30 /var/log/cloud-init-output.log 2>/dev/null || true
         exit 1
       fi
 
