@@ -82,6 +82,42 @@ else
   step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
 fi
 
+# ── Progress indicator ─────────────────────────
+# Spins a background subshell that prints spinner + elapsed time + stage name
+# to the terminal while a long-running command writes to a log file.
+# Stages are "Label:grep-pattern" pairs ordered from earliest to latest;
+# the display advances to the last label whose pattern appears in the log.
+_PROGRESS_PID=""
+_start_progress() {
+  [[ "$VERBOSE" == "1" ]] && return
+  local log="$1"; shift
+  local stage_specs=("$@")
+  (
+    local i=0 status="working..." start=$SECONDS
+    local sp=('|' '/' '-' '\')
+    while true; do
+      for spec in "${stage_specs[@]}"; do
+        grep -q "${spec#*:}" "$log" 2>/dev/null && status="${spec%%:*}" || true
+      done
+      local e=$(( SECONDS - start ))
+      printf "\r    %s [%d:%02d] %-44s" "${sp[$((i % 4))]}" "$(( e / 60 ))" "$(( e % 60 ))" "$status" >&3
+      sleep 1
+      i=$(( i + 1 ))
+    done
+  ) &
+  _PROGRESS_PID=$!
+}
+
+_stop_progress() {
+  [[ -z "$_PROGRESS_PID" ]] && return
+  kill "$_PROGRESS_PID" 2>/dev/null || true
+  wait "$_PROGRESS_PID" 2>/dev/null || true
+  printf "\r%70s\r" "" >&3
+  _PROGRESS_PID=""
+}
+
+trap '_stop_progress' EXIT
+
 # ── Feature selection ─────────────────────────
 step "Component Selection"
 
@@ -305,6 +341,15 @@ fi
 
 if $CLUSTER_NEEDS_START; then
   log "Starting $NODES-node cluster (this may take a few minutes)..."
+  _start_progress "$LAB_LOG" \
+    "Pulling node image:Pulling base image" \
+    "Downloading K8s preload:Downloading Kubernetes" \
+    "Starting control plane:Starting control-plane node" \
+    "Starting worker nodes:Starting worker node" \
+    "Configuring networking:Configuring bridge CNI" \
+    "Verifying components:Verifying Kubernetes" \
+    "Cluster ready:Done! kubectl"
+  _MK_RC=0
   minikube start \
     --driver=docker \
     --nodes="$NODES" \
@@ -312,7 +357,9 @@ if $CLUSTER_NEEDS_START; then
     --memory="$MEMORY" \
     --profile="$PROFILE" \
     --kubernetes-version="$K8S_VERSION" \
-    --apiserver-ips=127.0.0.1
+    --apiserver-ips=127.0.0.1 || _MK_RC=$?
+  _stop_progress
+  [[ $_MK_RC -eq 0 ]] || error "Minikube failed to start — check $LAB_LOG"
 fi
 
 log "Waiting for all nodes to be Ready..."
@@ -886,7 +933,16 @@ except Exception:
 
   log "Terraform will create the samba-ad Multipass VM."
   log "This may take 3–5 minutes on first run (image download + Samba provisioning)."
-
+  _start_progress /tmp/samba-terraform-apply.log \
+    "Launching VM:Creating Multipass VM" \
+    "Checking connectivity:Waiting for network connectivity" \
+    "Network ready:Network ready after" \
+    "Installing packages:Installing packages" \
+    "Provisioning AD domain:Provisioning domain" \
+    "Starting AD DC:Starting samba-ad-dc" \
+    "Waiting for LDAP:Waiting for LDAP" \
+    "Creating users:Creating lab OU"
+  _SAMBA_RC=0
   { terraform -chdir=IaC/terraform apply -auto-approve -input=false \
       -target=null_resource.multipass_check \
       -target=null_resource.samba_vm \
@@ -894,8 +950,9 @@ except Exception:
       -var="samba_vm_cpus=${SAMBA_CPUS}" \
       -var="samba_vm_memory=${SAMBA_MEM}" \
       -var="samba_vm_disk=${SAMBA_DISK}" \
-      2>&1 | tee /tmp/samba-terraform-apply.log; } \
-    || error "SambaAD VM provisioning failed. Full provisioner log: /tmp/samba-terraform-apply.log"
+      2>&1 | tee /tmp/samba-terraform-apply.log; } || _SAMBA_RC=$?
+  _stop_progress
+  [[ $_SAMBA_RC -eq 0 ]] || error "SambaAD VM provisioning failed. Full provisioner log: /tmp/samba-terraform-apply.log"
 
   SAMBA_IP=$(multipass info samba-ad --format json 2>/dev/null \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" \
@@ -955,13 +1012,23 @@ fi
 if feature_enabled corp-client; then
   step "Step 11c — Corp Client VM"
   log "Provisioning domain-joined corp-client VM..."
+  _start_progress /tmp/corp-client-terraform-apply.log \
+    "Launching VM:Creating Multipass VM corp-client" \
+    "Installing packages:Installing packages" \
+    "Configuring DNS:Configuring DNS" \
+    "Discovering realm:Discovering realm" \
+    "Joining domain:Joining domain" \
+    "Verifying join:Verifying domain join" \
+    "Setting up desktop:Setting up XFCE4"
+  _CLIENT_RC=0
   { terraform -chdir=IaC/terraform apply -auto-approve -input=false \
       -target=null_resource.corp_client_vm \
       -var="client_vm_cpus=${CLIENT_CPUS}" \
       -var="client_vm_memory=${CLIENT_MEM}" \
       -var="client_vm_disk=${CLIENT_DISK}" \
-      2>&1 | tee /tmp/corp-client-terraform-apply.log; } \
-    || error "Corp Client VM provisioning failed — check /tmp/corp-client-terraform-apply.log"
+      2>&1 | tee /tmp/corp-client-terraform-apply.log; } || _CLIENT_RC=$?
+  _stop_progress
+  [[ $_CLIENT_RC -eq 0 ]] || error "Corp Client VM provisioning failed — check /tmp/corp-client-terraform-apply.log"
   success "Corp Client VM ready — multipass shell corp-client"
 else
   log "Skipping Step 11c — Corp Client VM not selected"
