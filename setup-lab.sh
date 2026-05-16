@@ -221,6 +221,9 @@ fi
 if feature_enabled samba-ad || feature_enabled corp-client; then
   command -v multipass &>/dev/null || error "Multipass required for AD VMs. Run: brew install multipass"
   command -v terraform &>/dev/null || error "Terraform required for AD VMs. Run: brew install terraform"
+  multipass list &>/dev/null \
+    || error "Multipass daemon is not running. Reload it with:
+    sudo launchctl load /Library/LaunchDaemons/com.canonical.multipassd.plist"
 fi
 
 if ! docker info &>/dev/null; then
@@ -315,6 +318,23 @@ fi
 log "Waiting for all nodes to be Ready..."
 kubectl wait --for=condition=Ready nodes --all --timeout=120s
 success "Cluster is up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes ready"
+
+# ── Multipass NAT restore ─────────────────────
+# Starting minikube causes Docker Desktop to reconfigure its network bridges,
+# which corrupts multipass NAT rules on macOS. Proactively cycle any running
+# multipass VMs now so NAT is healthy before the samba-ad provisioner runs.
+if $CLUSTER_NEEDS_START && command -v multipass &>/dev/null; then
+  if feature_enabled samba-ad || feature_enabled corp-client; then
+    _mp_vms=$(multipass list --format csv 2>/dev/null \
+      | tail -n +2 | grep -iv "^samba-ad," | grep -i ",Running," | cut -d, -f1 || true)
+    if [[ -n "$_mp_vms" ]]; then
+      log "Cycling Multipass VMs to restore NAT rules disrupted by minikube start..."
+      for _vm in $_mp_vms; do multipass stop  "$_vm" 2>/dev/null || true; done
+      for _vm in $_mp_vms; do multipass start "$_vm" 2>/dev/null || true; done
+      success "Multipass VMs cycled — NAT rules restored"
+    fi
+  fi
+fi
 
 # ── Step 2: Build Lab Images ─────────────────
 step "Step 2 — Building Lab Images"
@@ -819,6 +839,39 @@ fi
 SAMBA_IP=""
 if feature_enabled samba-ad; then
   step "Step 11b — SambaAD Active Directory"
+
+  # Docker Desktop reconfigures network bridges when minikube starts, which can
+  # corrupt multipass's NAT rules on macOS — VMs launch but have no internet.
+  # Check now and auto-recover by cycling existing VMs to force NAT re-establishment.
+  _mp_check_nat() {
+    for _vm in $(multipass list --format csv 2>/dev/null | tail -n +2 \
+                   | grep -v "^samba-ad," | cut -d, -f1); do
+      multipass exec "$_vm" -- ping -c 1 -W 2 8.8.8.8 &>/dev/null && return 0
+    done
+    return 1
+  }
+
+  log "Checking Multipass NAT connectivity..."
+  if ! _mp_check_nat; then
+    warn "Multipass NAT is broken (Docker Desktop disrupted routing when minikube started)."
+    log "Cycling Multipass VMs to restore NAT rules..."
+    for _vm in $(multipass list --format csv 2>/dev/null | tail -n +2 \
+                   | grep -v "^samba-ad," | cut -d, -f1); do
+      multipass stop "$_vm" 2>/dev/null || true
+    done
+    for _vm in $(multipass list --format csv 2>/dev/null | tail -n +2 \
+                   | grep -v "^samba-ad," | cut -d, -f1); do
+      multipass start "$_vm" 2>/dev/null || true
+    done
+    log "Waiting 10s for multipass to re-establish NAT..."
+    sleep 10
+    _mp_check_nat \
+      || error "Multipass NAT still broken after VM cycle. Restart the daemon manually:
+      sudo launchctl load /Library/LaunchDaemons/com.canonical.multipassd.plist"
+    success "Multipass NAT restored"
+  else
+    success "Multipass NAT OK"
+  fi
 
   log "Terraform will create the samba-ad Multipass VM."
   log "This may take 3–5 minutes on first run (image download + Samba provisioning)."
