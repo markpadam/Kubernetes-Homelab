@@ -15,7 +15,7 @@ set -euo pipefail
 SETUP_START=$(date +%s)
 
 PROFILE="aks-lab"
-K8S_VERSION="v1.29.0"
+K8S_VERSION="v1.32.0"
 NODES=3
 CPUS=2
 MEMORY=4096
@@ -213,17 +213,16 @@ _delete_profile() {
 
 CLUSTER_NEEDS_START=true
 
-# Check if any minikube profile state exists (running, stopped, or broken)
-if minikube profile list -o json 2>/dev/null \
-    | python3 -c "
-import sys,json
-try:
-  d=json.load(sys.stdin)
-  names=[p.get('Name','') for p in d.get('valid',[])+d.get('invalid',[])]
-  sys.exit(0 if '${PROFILE}' in names else 1)
-except: sys.exit(1)
-" 2>/dev/null; then
-  if minikube status -p "$PROFILE" 2>/dev/null | grep -q "Running"; then
+# Use docker inspect to detect profile state — avoids minikube CLI quirks with
+# set -o pipefail (minikube profile list exits non-zero on broken profiles).
+_container_running() {
+  docker inspect "$PROFILE" 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d[0]['State']['Running'] else 1)" \
+    2>/dev/null
+}
+
+if [[ -d "$HOME/.minikube/profiles/$PROFILE" ]]; then
+  if _container_running; then
     warn "Profile '$PROFILE' is already running."
     printf "         Delete and recreate it? [y/N] " >&3
     read -r confirm <&0
