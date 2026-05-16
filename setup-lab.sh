@@ -843,10 +843,21 @@ if feature_enabled samba-ad; then
   # Docker Desktop reconfigures network bridges when minikube starts, which can
   # corrupt multipass's NAT rules on macOS — VMs launch but have no internet.
   # Check now and auto-recover by cycling existing VMs to force NAT re-establishment.
+  # Uses python3 subprocess with a hard timeout so a hung multipass exec (e.g. after
+  # a daemon restart) can never block the script indefinitely.
   _mp_check_nat() {
     for _vm in $(multipass list --format csv 2>/dev/null | tail -n +2 \
-                   | grep -v "^samba-ad," | cut -d, -f1); do
-      multipass exec "$_vm" -- ping -c 1 -W 2 8.8.8.8 &>/dev/null && return 0
+                   | grep -iv "^samba-ad," | grep -i ",Running," | cut -d, -f1); do
+      python3 -c "
+import subprocess, sys
+try:
+    r = subprocess.run(
+        ['multipass','exec','$_vm','--','ping','-c','1','-W','2','8.8.8.8'],
+        timeout=10, capture_output=True)
+    sys.exit(r.returncode)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null && return 0
     done
     return 1
   }
