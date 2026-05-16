@@ -997,6 +997,7 @@ Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substit
     COOKIE_SECRET=$(python3 -c "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())")
     export COOKIE_SECRET
     log "Applying OAuth2 Proxy secret..."
+    kubectl apply -f infrastructure/base/identity/oauth2-proxy/namespace.yaml
     python3 -c "
 import os, string
 from pathlib import Path
