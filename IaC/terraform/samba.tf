@@ -169,9 +169,11 @@ resource "null_resource" "corp_client_vm" {
 
       echo "[client] Installing packages ..."
       multipass exec corp-client -- sudo apt-get update -qq
-      multipass exec corp-client -- sudo apt-get install -y -qq \
-        realmd sssd sssd-tools adcli-utils krb5-user ldap-utils \
-        curl wget dnsutils net-tools
+      multipass exec corp-client -- sudo bash -c "
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+          realmd sssd sssd-tools adcli krb5-user ldap-utils \
+          curl wget dnsutils net-tools
+      "
 
       echo "[client] Configuring DNS to use SambaAD ..."
       multipass exec corp-client -- sudo systemctl disable --now systemd-resolved 2>/dev/null || true
