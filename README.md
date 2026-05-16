@@ -70,51 +70,55 @@ All services use stable ports and friendly local DNS names added to `/etc/hosts`
 ├── teardown-lab.sh           # Wipe everything cleanly
 ├── README.md
 │
-├── Apps/
-│   ├── taskflow/             # TaskFlow demo app (manifests + backend source)
-│   │   ├── backend/          # Node.js backend source (built into Minikube's Docker)
-│   │   │   ├── Dockerfile
-│   │   │   ├── server.js
-│   │   │   └── package.json
-│   │   ├── 01-postgres.yaml
-│   │   ├── 02-backend.yaml
-│   │   ├── 03-frontend.yaml
-│   │   └── 04-ingress.yaml
-│   └── blob-explorer/        # ASP.NET Core app source + Dockerfile
+├── src/                      # Application source code + Dockerfiles
+│   ├── taskflow/             # TaskFlow: Node.js backend source
+│   ├── blob-explorer/        # Blob Explorer: ASP.NET Core source + Kubernetes-Homelab.sln
+│   └── toolbox/              # Toolbox: Ubuntu SSH pod Dockerfile + config
 │
-├── dns-lab/                  # Simulated ADDS DNS (bind9 + CoreDNS config)
-│   ├── dns-config.yaml       # Source of truth for all DNS zones and records
-│   ├── apply-dns-config.sh   # Apply dns-config.yaml changes to the cluster
-│   ├── 01-bind9.yaml         # bind9 deployment
-│   └── patch-coredns.sh      # Standalone CoreDNS patcher (used by setup-lab.sh)
+├── apps/                     # Flux: Kustomize manifests for applications
+│   ├── base/                 # Base manifests (deployed per component)
+│   │   ├── taskflow/         # TaskFlow K8s manifests
+│   │   ├── azurite/          # Azure Storage emulator
+│   │   ├── azure-sql/        # Azure SQL Edge
+│   │   ├── service-bus/      # Microsoft Service Bus emulator
+│   │   ├── container-registry/ # Docker Registry v2
+│   │   ├── cosmos-db/        # Cosmos DB emulator
+│   │   └── blob-explorer/    # HelmRelease for the .NET Blob Explorer app
+│   └── lab/                  # Lab overlay (components managed by lab-feature.sh)
 │
-├── flux-apps/                # Flux-managed apps — deployed automatically on every lab start
-│   ├── kustomization.yaml
-│   ├── azurite/              # Azure Storage emulator (Blob, Queue, Table)
-│   ├── azure-sql/            # Azure SQL Edge (ARM64 SQL Server equivalent)
-│   ├── service-bus/          # Microsoft Service Bus Emulator (AMQP, backed by Azure SQL Edge)
-│   ├── container-registry/   # Docker Registry v2 (Azure Container Registry equivalent)
-│   ├── cosmos-db/            # Microsoft Cosmos DB Emulator (NoSQL API + Explorer UI, ARM64)
-│   └── blob-explorer/        # HelmRelease for the .NET Blob Explorer app
+├── infrastructure/           # Flux: Kustomize manifests for cluster infrastructure
+│   ├── base/
+│   │   ├── dns/              # bind9 deployment + CoreDNS config + dns-config.yaml
+│   │   ├── monitoring/       # Grafana ingress
+│   │   ├── argocd/           # ArgoCD ingress
+│   │   ├── toolbox/          # Toolbox pod manifest
+│   │   └── identity/         # Dex + OAuth2 Proxy (optional SSO stack)
+│   │       ├── dex/
+│   │       └── oauth2-proxy/
+│   └── lab/                  # Lab overlay
 │
-├── helm-charts/
+├── clusters/
+│   └── lab/                  # Flux entry point — GitRepository + Kustomization CRDs
+│       ├── infrastructure.yaml
+│       └── apps.yaml
+│
+├── helm/
 │   └── blob-explorer/        # Helm chart for the .NET Blob Explorer app
 │
-├── terraform/
-│   └── local-mac/            # HashiCorp Vault in dev mode (Azure Key Vault equivalent)
-│       ├── main.tf           # Vault dev server lifecycle + Kubernetes reviewer account
-│       ├── vault_config.tf   # KV v2, policies, Kubernetes auth backend
+├── IaC/                      # Infrastructure as Code
+│   ├── dns/                  # DNS management scripts (apply-dns-config.sh etc.)
+│   └── terraform/            # Vault dev server + SambaAD/Corp Client VMs
+│       ├── main.tf
+│       ├── vault_config.tf
+│       ├── samba.tf
 │       ├── variables.tf
-│       ├── outputs.tf
-│       ├── versions.tf
-│       └── scripts/
-│           └── get-k8s-config.py   # Reads cluster CA cert + reviewer JWT for Vault
+│       └── outputs.tf
 │
-└── toolbox/
-    ├── Dockerfile            # Pre-built toolbox image (all tools installed at build time)
-    ├── sshd_config           # PrintMotd yes — MOTD shown on SSH login
-    ├── motd                  # Banner displayed on SSH connect
-    └── toolbox.yaml          # Ubuntu pod with network/DNS tools + SSH access
+└── docs/
+    ├── guides/               # How-to guides (auth walkthrough, lab features)
+    ├── services/             # Per-service reference docs
+    ├── tools/                # Toolbox, corp-client docs
+    └── examples/             # Example manifests (Argo Workflows, etc.)
 ```
 
 ---
@@ -151,10 +155,10 @@ Deploys a persistent Ubuntu pod with SSH access and a full suite of network and 
 Installs ArgoCD into the `argocd` namespace using server-side apply, waits for the server to be ready, retrieves the initial admin password from the `argocd-initial-admin-secret`, and starts a background port-forward on `localhost:8080`.
 
 **Step 10 — Flux**
-Installs Flux controllers into the `flux-system` namespace, creates a `GitRepository` source pointing to this repo, and applies a `Kustomization` that watches `flux-apps/`. Any manifests committed to `flux-apps/` are automatically reconciled into the cluster within one minute of a push — on every fresh lab start they are restored without any manual intervention.
+Installs Flux controllers into the `flux-system` namespace, creates a `GitRepository` source pointing to this repo, and applies a `Kustomization` that watches `apps/base/`. Any manifests committed to `apps/base/` are automatically reconciled into the cluster within one minute of a push — on every fresh lab start they are restored without any manual intervention.
 
 **Step 11 — HashiCorp Vault**
-Runs `terraform init` and `terraform apply` in `terraform/local-mac/`. This starts a Vault dev server as a background process on the Mac, creates a dedicated Kubernetes reviewer service account (used by Vault to validate pod tokens via the TokenReview API), mounts a KV v2 secrets engine, and configures the Kubernetes auth backend so pods in the `taskapp`, `blob-explorer`, and `azure-storage` namespaces can authenticate without embedding credentials. The Vault UI is available at `http://vault.aks-lab.local:8200/ui` with token `root`.
+Runs `terraform init` and `terraform apply` in `IaC/terraform/`. This starts a Vault dev server as a background process on the Mac, creates a dedicated Kubernetes reviewer service account (used by Vault to validate pod tokens via the TokenReview API), mounts a KV v2 secrets engine, and configures the Kubernetes auth backend so pods in the `taskapp`, `blob-explorer`, and `azure-storage` namespaces can authenticate without embedding credentials. The Vault UI is available at `http://vault.aks-lab.local:8200/ui` with token `root`.
 
 ---
 
@@ -175,13 +179,13 @@ All zones and records are defined in a single file:
 
 ```bash
 # Edit zones and records
-vim dns-lab/dns-config.yaml
+vim infrastructure/base/dns/dns-config.yaml
 
 # Apply changes to the running cluster
-./dns-lab/apply-dns-config.sh
+./IaC/dns/apply-dns-config.sh
 
 # Commit to git
-git add dns-lab/dns-config.yaml
+git add infrastructure/base/dns/dns-config.yaml
 git commit -m "add new DNS record"
 ```
 
@@ -197,18 +201,18 @@ git commit -m "add new DNS record"
 | `privatelink.azurecr.io` | Azure Container Registry private endpoints | Docker Registry (`registry.container-registry`) |
 | `privatelink.documents.azure.com` | Azure Cosmos DB private endpoints | Cosmos DB Emulator (`cosmosdb.cosmos-db`) |
 
-DNS records using `svc:name/namespace` in dns-config.yaml are resolved to ClusterIPs automatically when `apply-dns-config.sh` runs. If a service isn't running yet, that record is skipped with a warning — re-run `./dns-lab/apply-dns-config.sh` after the service comes up.
+DNS records using `svc:name/namespace` in dns-config.yaml are resolved to ClusterIPs automatically when `apply-dns-config.sh` runs. If a service isn't running yet, that record is skipped with a warning — re-run `./IaC/dns/apply-dns-config.sh` after the service comes up.
 
 ---
 
 ## Flux (GitOps)
 
-Apps committed to `flux-apps/` are automatically deployed on every fresh lab start and kept in sync with the repo. This is the place for anything you want to persist across teardowns.
+Apps committed to `apps/base/` are automatically deployed on every fresh lab start and kept in sync with the repo. This is the place for anything you want to persist across teardowns.
 
 ```bash
 # Add an app — Flux reconciles within 1 minute of pushing
-vim flux-apps/my-app.yaml
-git add flux-apps/
+vim apps/base/my-app.yaml
+git add apps/base/
 git commit -m "add my-app"
 git push
 
@@ -216,7 +220,7 @@ git push
 flux get all -n flux-system
 
 # Force an immediate sync
-flux reconcile kustomization flux-apps -n flux-system
+flux reconcile kustomization lab-apps -n flux-system
 
 # Restart the source pull if needed
 flux reconcile source git homelab -n flux-system
@@ -304,7 +308,7 @@ vault auth list
 vault read auth/kubernetes/config
 
 # View what was applied by Terraform
-cd terraform/local-mac
+cd IaC/terraform
 terraform output
 ```
 
@@ -337,10 +341,10 @@ kubectl run vault-test -n blob-explorer --rm -it \
 
 ### Terraform
 
-The Vault infrastructure is defined in `terraform/local-mac/` and is fully reproducible:
+The Vault infrastructure is defined in `IaC/terraform/` and is fully reproducible:
 
 ```bash
-cd terraform/local-mac
+cd IaC/terraform
 terraform init
 terraform plan
 terraform apply
@@ -351,7 +355,7 @@ terraform destroy   # stops Vault and removes K8s reviewer resources
 
 ## ArgoCD
 
-ArgoCD is installed into the `argocd` namespace and exposed on `localhost:8080` via a background port-forward started by `setup-lab.sh`. Apps deployed via the ArgoCD UI are **ephemeral** — they are wiped on teardown. Use `flux-apps/` for anything you want to persist.
+ArgoCD is installed into the `argocd` namespace and exposed on `localhost:8080` via a background port-forward started by `setup-lab.sh`. Apps deployed via the ArgoCD UI are **ephemeral** — they are wiped on teardown. Use `apps/base/` for anything you want to persist.
 
 ```bash
 # Open the UI (self-signed cert — accept the browser warning)
@@ -452,7 +456,7 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.pas
 
 # Flux
 flux get all -n flux-system
-flux reconcile kustomization flux-apps -n flux-system
+flux reconcile kustomization lab-apps -n flux-system
 
 # Blob Explorer + Azurite
 kubectl get pods -n blob-explorer
@@ -467,7 +471,7 @@ vault kv list kv/azure-services
 vault kv put kv/azure-services/my-secret value=hello
 vault kv get kv/azure-services/my-secret
 vault auth list
-cd terraform/local-mac && terraform output
+cd IaC/terraform && terraform output
 
 # Stop and restart without wiping
 minikube stop -p aks-lab
@@ -581,7 +585,7 @@ kubectl logs -l app=cosmosdb -n cosmos-db --tail=30
 | ADDS DNS via Cato SDN | bind9 + CoreDNS stub zones |
 | Azure Private DNS Zones | bind9 privatelink zones |
 | GitOps (ephemeral) | ArgoCD (`argocd` namespace) |
-| GitOps (persistent) | Flux (`flux-system` namespace, `flux-apps/`) |
+| GitOps (persistent) | Flux (`flux-system` namespace, `apps/base/`) |
 | Azure Storage Account | Azurite (`azure-storage` namespace) |
 | App deployed via Helm + GitOps | Blob Explorer (Helm chart + Flux HelmRelease) |
 | Azure Key Vault | HashiCorp Vault dev mode (KV v2 + Kubernetes auth) |

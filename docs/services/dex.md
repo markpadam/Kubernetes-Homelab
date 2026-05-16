@@ -64,7 +64,7 @@ Dex connects to SambaAD using the following settings (injected at setup time):
 
 ## Configuration
 
-Dex config is rendered from the template at `flux-apps/dex/config.yaml` at setup time using Python's `string.Template.safe_substitute()`. The rendered ConfigMap is applied to the cluster before Flux picks up the kustomization.
+Dex config is rendered from the template at `apps/base/dex/config.yaml` at setup time using Python's `string.Template.safe_substitute()`. The rendered ConfigMap is applied to the cluster before Flux picks up the kustomization.
 
 ## Common commands
 

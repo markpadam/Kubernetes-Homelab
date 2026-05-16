@@ -12,7 +12,7 @@ PROFILE="aks-lab"
 GRAFANA_PASSWORD="admin123"
 GITHUB_REPO="https://github.com/markpadam/Kubernetes-Homelab.git"
 GITHUB_BRANCH="main"
-FLUX_APPS_PATH="./flux-apps"
+FLUX_APPS_PATH="./clusters/lab"
 VAULT_ADDR="http://127.0.0.1:8200"
 VAULT_TOKEN="root"
 VAULT_KV_PATH="kv"
@@ -184,7 +184,7 @@ if feature_enabled vault; then
     done
 
     log "Reconfiguring Vault (KV v2, policies, Kubernetes auth)..."
-    terraform -chdir=infra/terraform/local-mac apply -auto-approve -input=false \
+    terraform -chdir=IaC/terraform apply -auto-approve -input=false \
       2>&1 | tee /tmp/vault-terraform-apply.log
     success "Vault configured"
   fi

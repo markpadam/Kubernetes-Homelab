@@ -22,7 +22,7 @@ _PROFILE = os.environ.get("PROFILE", "aks-lab")
 
 COMMANDS = {
     "resume":    ["bash", str(REPO_ROOT / "resume-lab.sh")],
-    "dns":       ["bash", str(REPO_ROOT / "infra/dns/apply-dns-config.sh")],
+    "dns":       ["bash", str(REPO_ROOT / "IaC/dns/apply-dns-config.sh")],
     "flux-sync": ["flux", "reconcile", "kustomization", "flux-apps", "-n", "flux-system", "--with-source"],
     "pods":      ["kubectl", "get", "pods", "-A", "-o", "wide"],
     "nodes":     ["kubectl", "get", "nodes", "-o", "wide"],

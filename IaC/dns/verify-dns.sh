@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────
 #  DNS Lab — Deploy & Verify
-#  Run from repo root: ./dns-lab/verify-dns.sh
+#  Run from repo root: ./IaC/dns/verify-dns.sh
 # ─────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -21,7 +21,7 @@ step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━�
 # ── Deploy bind9 ─────────────────────────────────────────────
 step "Deploying bind9 (simulated ADDS DNS)"
 
-kubectl apply -f dns-lab/01-bind9.yaml
+kubectl apply -f infrastructure/base/dns/01-bind9.yaml
 
 log "Waiting for bind9 to be ready..."
 kubectl wait deployment bind9 \
@@ -34,7 +34,7 @@ success "bind9 is running"
 # ── Apply CoreDNS custom config ───────────────────────────────
 step "Applying CoreDNS custom forwarding rules"
 
-kubectl apply -f dns-lab/02-coredns-custom.yaml
+kubectl apply -f infrastructure/base/dns/02-coredns-custom.yaml
 
 log "Restarting CoreDNS to pick up changes..."
 kubectl rollout restart deployment coredns -n kube-system

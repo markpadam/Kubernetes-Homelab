@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────
 #  Patch CoreDNS Corefile directly (Minikube — no import support)
-#  Run from repo root: ./dns-lab/patch-coredns.sh
+#  Run from repo root: ./IaC/dns/patch-coredns.sh
 # ─────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -22,7 +22,7 @@ step "Getting bind9 ClusterIP"
 BIND9_IP=$(kubectl get svc bind9 -n dns-lab -o jsonpath='{.spec.clusterIP}')
 
 if [[ -z "$BIND9_IP" ]]; then
-  echo "ERROR: bind9 service not found. Deploy dns-lab/01-bind9.yaml first."
+  echo "ERROR: bind9 service not found. Deploy infrastructure/base/dns/01-bind9.yaml first."
   exit 1
 fi
 

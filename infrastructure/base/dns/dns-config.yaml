@@ -2,7 +2,7 @@
 #  dns-config.yaml — Source of truth for all DNS zones and records
 #
 #  This file is the single place to manage DNS for the lab.
-#  Running ./dns-lab/apply-dns-config.sh will apply any changes to the cluster.
+#  Running ./IaC/dns/apply-dns-config.sh will apply any changes to the cluster.
 #
 #  Cluster service IPs (update if services are recreated):
 #    mssql.azure-sql             10.105.102.35
@@ -10,7 +10,7 @@
 #    host.minikube.internal      192.168.65.254  (Mac host — Vault runs here)
 #
 #  For values prefixed with "svc:", apply-dns-config.sh looks up the ClusterIP
-#  automatically via kubectl. Run ./dns-lab/apply-dns-config.sh after new
+#  automatically via kubectl. Run ./IaC/dns/apply-dns-config.sh after new
 #  services come up to pick up their IPs.
 #
 #  record types supported: A, CNAME

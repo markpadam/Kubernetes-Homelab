@@ -68,7 +68,7 @@ nginx.ingress.kubernetes.io/auth-response-headers: "X-Auth-Request-User,X-Auth-R
 
 ## Secret
 
-The `oauth2-proxy-secret` Kubernetes secret is rendered from the template at `flux-apps/oauth2-proxy/secret.yaml` at setup time. It contains:
+The `oauth2-proxy-secret` Kubernetes secret is rendered from the template at `apps/base/oauth2-proxy/secret.yaml` at setup time. It contains:
 
 - `OAUTH2_PROXY_CLIENT_SECRET` — matches the Dex static client secret (`DEX_CLIENT_SECRET`)
 - `OAUTH2_PROXY_COOKIE_SECRET` — 32-byte random base64 string generated at setup time

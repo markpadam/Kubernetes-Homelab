@@ -2,7 +2,7 @@
 
 **Namespace:** `taskapp`  
 **URL:** `http://taskflow.aks-lab.local:8081` (via Minikube tunnel)  
-**Source:** `apps/taskflow/`
+**Source:** `src/taskflow/`
 
 ## Overview
 

@@ -9,6 +9,9 @@
 *.tfstate.lock.info
 .terraform.lock.hcl
 
+# Claude Code
+.claude/
+
 # macOS
 .DS_Store
 

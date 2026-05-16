@@ -2,7 +2,7 @@
 
 **Namespace:** `cosmos-db`  
 **Azure equivalent:** Azure Cosmos DB (NoSQL API)  
-**Managed by:** Flux (`flux-apps/cosmos-db/`)
+**Managed by:** Flux (`apps/base/cosmos-db/`)
 
 ## Overview
 

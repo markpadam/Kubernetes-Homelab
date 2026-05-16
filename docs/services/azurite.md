@@ -2,7 +2,7 @@
 
 **Namespace:** `azure-storage`  
 **Azure equivalent:** Azure Blob Storage, Azure Queue Storage, Azure Table Storage  
-**Managed by:** Flux (`flux-apps/azurite/`)
+**Managed by:** Flux (`apps/base/azurite/`)
 
 ## Overview
 

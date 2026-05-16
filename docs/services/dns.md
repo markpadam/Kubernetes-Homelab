@@ -1,7 +1,7 @@
 # DNS — Bind9 + CoreDNS
 
 **Namespace:** `dns-lab` (Bind9), `kube-system` (CoreDNS)  
-**Source:** `dns-lab/`
+**Source:** `IaC/dns/`
 
 ## Overview
 
@@ -82,13 +82,13 @@ Bind9 has a fixed ClusterIP of `10.96.0.200` so the CoreDNS Corefile doesn't nee
 
 ## Managing DNS Records
 
-All zones and records are defined in a single source-of-truth file: `dns-lab/dns-config.yaml`.
+All zones and records are defined in a single source-of-truth file: `infrastructure/base/dns/dns-config.yaml`.
 
 Values prefixed with `svc:name/namespace` are resolved to ClusterIPs at apply time — you don't need to look up IPs manually.
 
 To add or change a record:
-1. Edit `dns-lab/dns-config.yaml`
-2. Run `./dns-lab/apply-dns-config.sh` (or click **Apply DNS** in the dashboard)
+1. Edit `infrastructure/base/dns/dns-config.yaml`
+2. Run `./IaC/dns/apply-dns-config.sh` (or click **Apply DNS** in the dashboard)
 3. Commit the change
 
 The script generates ConfigMaps for Bind9 and a Corefile for CoreDNS, applies them via kubectl, restarts both deployments, and runs a smoke test against one record per zone.

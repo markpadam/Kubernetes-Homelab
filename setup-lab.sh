@@ -182,21 +182,21 @@ IMAGES_TO_DIST=()
 
 if feature_enabled taskflow; then
   log "Building backend image..."
-  minikube image build -t aks-lab/backend:latest apps/taskflow/backend/ -p "$PROFILE"
+  minikube image build -t aks-lab/backend:latest src/taskflow/backend/ -p "$PROFILE"
   success "Backend image built"
   IMAGES_TO_BUILD+=(aks-lab/backend:latest)
 fi
 
 if feature_enabled toolbox; then
   log "Building toolbox image (packages install at build time — takes a few minutes)..."
-  minikube image build -t aks-lab/toolbox:latest toolbox/ -p "$PROFILE"
+  minikube image build -t aks-lab/toolbox:latest src/toolbox/ -p "$PROFILE"
   success "Toolbox image built"
   IMAGES_TO_BUILD+=(aks-lab/toolbox:latest)
 fi
 
 if feature_enabled blob-explorer; then
   log "Building blob-explorer image..."
-  minikube image build -t aks-lab/blob-explorer:latest apps/blob-explorer/ -p "$PROFILE"
+  minikube image build -t aks-lab/blob-explorer:latest src/blob-explorer/ -p "$PROFILE"
   success "Blob-explorer image built"
   IMAGES_TO_BUILD+=(aks-lab/blob-explorer:latest)
 fi
@@ -616,7 +616,7 @@ if feature_enabled vault; then
   step "Step 11 — HashiCorp Vault (Azure Key Vault equivalent)"
 
   log "Initialising Terraform providers (first run downloads ~100 MB)..."
-  terraform -chdir=infra/terraform/local-mac init -input=false \
+  terraform -chdir=IaC/terraform init -input=false \
     2>&1 | tee /tmp/vault-terraform-init.log
 
   # The Vault Terraform provider authenticates the moment `terraform apply` starts,
@@ -649,7 +649,7 @@ if feature_enabled vault; then
     log "vault-reviewer-token not found — forcing K8s reviewer recreation..."
     VAULT_REPLACE_FLAGS="-replace=null_resource.k8s_vault_reviewer"
   fi
-  terraform -chdir=infra/terraform/local-mac apply -auto-approve -input=false $VAULT_REPLACE_FLAGS \
+  terraform -chdir=IaC/terraform apply -auto-approve -input=false $VAULT_REPLACE_FLAGS \
     2>&1 | tee /tmp/vault-terraform-apply.log
 
   success "Vault ready — ${VAULT_ADDR}/ui  (token: ${VAULT_TOKEN})"
@@ -668,7 +668,7 @@ if feature_enabled samba-ad; then
   log "Terraform will create the samba-ad Multipass VM."
   log "This may take 3–5 minutes on first run (image download + Samba provisioning)."
 
-  terraform -chdir=infra/terraform/local-mac apply -auto-approve -input=false \
+  terraform -chdir=IaC/terraform apply -auto-approve -input=false \
     -target=null_resource.multipass_check \
     -target=null_resource.samba_vm \
     -target=time_sleep.samba_stabilise \
@@ -732,7 +732,7 @@ fi
 if feature_enabled corp-client; then
   step "Step 11c — Corp Client VM"
   log "Provisioning domain-joined corp-client VM..."
-  terraform -chdir=infra/terraform/local-mac apply -auto-approve -input=false \
+  terraform -chdir=IaC/terraform apply -auto-approve -input=false \
     -target=null_resource.corp_client_vm \
     2>&1 | tee /tmp/corp-client-terraform-apply.log
   success "Corp Client VM ready — multipass shell corp-client"
@@ -916,7 +916,7 @@ ${BOLD}  Vault (Azure Key Vault equivalent)${RESET}
 
 ${BOLD}  DNS Lab${RESET}
   bind9 IP:    $BIND9_IP (simulated ADDS)
-  Edit zones:  edit infra/dns/dns-config.yaml then run ./infra/dns/apply-dns-config.sh
+  Edit zones:  edit infrastructure/base/dns/dns-config.yaml then run ./IaC/dns/apply-dns-config.sh
   Restore DNS: kubectl create configmap coredns -n kube-system \\
                  --from-file=Corefile=/tmp/corefile-backup.txt \\
                  --dry-run=client -o yaml | kubectl apply -f -
