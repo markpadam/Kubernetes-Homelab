@@ -6,8 +6,8 @@ set -euo pipefail
 #  Usage: ./setup-lab.sh [--all|--minimal|--standard] [--verbose]
 #         --all       Install every component
 #         --minimal   Core cluster only (no optional features)
-#         --standard  Default components (same as interactive defaults)
-#         (no flag)   Interactive component selector
+#         --standard  Default components
+#         (no flag)   Prompts: Standard / All / Minimal / Custom
 #         --verbose   Stream all command output to the terminal
 #                     Default: quiet — all output logged to /tmp/lab-setup-<date>.log
 # ─────────────────────────────────────────────
@@ -87,8 +87,59 @@ else
       bash "$(dirname "$0")/lab-feature.sh" init "$SETUP_FLAG" >&3 2>&3
       ;;
     "")
-      # Interactive menu must run on the real terminal (fd 3)
-      bash "$(dirname "$0")/lab-feature.sh" init --interactive >&3 2>&3 <&0
+      echo -e "\n${BOLD}  Which feature set would you like to install?${RESET}" >&3
+      echo -e "  ${GREEN}1) Standard${RESET}   — default components (recommended for most labs)" >&3
+      echo -e "  ${CYAN}2) All${RESET}        — every component including identity (SambaAD, Dex, OAuth2)" >&3
+      echo -e "  ${DIM}3) Minimal${RESET}    — core cluster only, no optional components" >&3
+      echo -e "  4) Custom     — choose components from lab-components.json\n" >&3
+      printf "  Choice [1]: " >&3
+      read -r _choice <&0
+      case "${_choice:-1}" in
+        1|s|S) bash "$(dirname "$0")/lab-feature.sh" init --standard  >&3 2>&3 ;;
+        2|a|A) bash "$(dirname "$0")/lab-feature.sh" init --all       >&3 2>&3 ;;
+        3|m|M) bash "$(dirname "$0")/lab-feature.sh" init --minimal   >&3 2>&3 ;;
+        4|c|C)
+          echo -e "\n${BOLD}  Available components (from lab-components.json):${RESET}" >&3
+          python3 -c "
+import json
+from pathlib import Path
+cs = json.loads(Path('lab-components.json').read_text())['components']
+cur_group = ''
+for c in cs:
+    if c['group'] != cur_group:
+        cur_group = c['group']
+        print(f'\n  \033[36m\033[1m{cur_group.upper()}\033[0m')
+    mark = '\033[32m●\033[0m' if c.get('default') else '○'
+    deps = ('  ← requires: ' + ', '.join(c['depends'])) if c.get('depends') else ''
+    print(f'    {mark} {c[\"id\"]:<22} {c[\"desc\"]}{deps}')
+print()
+" >&3
+          echo -e "  Enter component IDs (space-separated), or press Enter for interactive picker:" >&3
+          printf "  > " >&3
+          read -r _ids <&0
+          if [[ -z "$_ids" ]]; then
+            bash "$(dirname "$0")/lab-feature.sh" init --interactive >&3 2>&3 <&0
+          else
+            _ids_json=$(python3 -c "
+ids = '${_ids}'.split()
+valid = [c['id'] for c in __import__('json').loads(open('lab-components.json').read())['components']]
+chosen = [i for i in ids if i in valid]
+bad = [i for i in ids if i not in valid]
+if bad:
+    print(f'INVALID: {\" \".join(bad)}', flush=True, file=__import__(\"sys\").stderr)
+    __import__(\"sys\").exit(1)
+print(str(chosen).replace(\"'\", '\"'))
+" 2>&3) || error "Invalid component ID(s) — check 'lab-feature.sh list' for valid IDs"
+            python3 -c "
+import json
+state = {'version': 1, 'enabled': $_ids_json}
+open('.lab-state.json', 'w').write(json.dumps(state, indent=2))
+" >&3
+            echo -e "  ${GREEN}${BOLD}[✓]${RESET} Custom selection saved: ${_ids}" >&3
+          fi
+          ;;
+        *) error "Invalid choice '${_choice}' — re-run and enter 1, 2, 3, or 4" ;;
+      esac
       ;;
     *)
       error "Unknown flag: $SETUP_FLAG  (use --all, --minimal, or --standard)"
