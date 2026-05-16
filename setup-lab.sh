@@ -200,6 +200,20 @@ fi
 
 success "All dependencies found"
 
+# ── Docker Desktop ────────────────────────────
+if ! docker info &>/dev/null; then
+  warn "Docker Desktop is not running — starting it..."
+  open -a Docker
+  for i in $(seq 1 30); do
+    docker info &>/dev/null && break
+    sleep 3
+  done
+  if ! docker info &>/dev/null; then
+    error "Docker Desktop did not start in time. Please open it manually and re-run."
+  fi
+  success "Docker Desktop ready"
+fi
+
 # ── Step 1: Cluster ──────────────────────────
 step "Step 1 — Starting Multi-Node Cluster"
 
@@ -247,7 +261,8 @@ if $CLUSTER_NEEDS_START; then
     --cpus="$CPUS" \
     --memory="$MEMORY" \
     --profile="$PROFILE" \
-    --kubernetes-version="$K8S_VERSION"
+    --kubernetes-version="$K8S_VERSION" \
+    --apiserver-ips=127.0.0.1
 fi
 
 log "Waiting for all nodes to be Ready..."
