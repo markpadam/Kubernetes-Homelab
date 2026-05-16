@@ -14,7 +14,7 @@ set -euo pipefail
 
 SETUP_START=$(date +%s)
 
-PROFILE="aks-lab"
+PROFILE="${LAB_PROFILE:-aks-lab}"
 K8S_VERSION="v1.32.0"
 NODES=3
 # CPUS / MEMORY / SAMBA_* / CLIENT_* are set by the resource tier prompt below
@@ -42,12 +42,14 @@ RESET='\033[0m'
 # ── Parse args ────────────────────────────────
 SETUP_FLAG=""
 VERBOSE=0
+CI_MODE=0
 for _arg in "$@"; do
   case "$_arg" in
-    --verbose|-v)              VERBOSE=1 ;;
+    --verbose|-v)               VERBOSE=1 ;;
     --all|--minimal|--standard) SETUP_FLAG="$_arg" ;;
-    "")                        ;;
-    *) echo -e "${RED}${BOLD}[✗]${RESET} Unknown flag: $_arg  (use --all, --minimal, --standard, --verbose)"; exit 1 ;;
+    --ci)                       CI_MODE=1 ;;
+    "")                         ;;
+    *) echo -e "${RED}${BOLD}[✗]${RESET} Unknown flag: $_arg  (use --all, --minimal, --standard, --ci, --verbose)"; exit 1 ;;
   esac
 done
 
@@ -168,14 +170,19 @@ success "Features loaded: ${ENABLED_FEATURES:-none}"
 #   Low      2C/2G per node  →  6GB total   leaves ~10GB free  (Mac stays snappy)
 #   Standard 2C/3G per node  →  9GB total   leaves ~6GB free   (recommended)
 #   High     3C/4G per node  → 12GB total   leaves ~3GB free   (max perf, Mac slows)
-printf "\n" >&3
-printf "  ${BOLD}Resource tier${RESET} (sized for M3 Pro / 18 GB):\n" >&3
-printf "    1) Low      — 2 CPU / 2 GB per node  (6 GB total, Mac stays responsive)\n" >&3
-printf "    2) Standard — 2 CPU / 3 GB per node  (9 GB total, recommended) [default]\n" >&3
-printf "    3) High     — 3 CPU / 4 GB per node  (12 GB total, max performance)\n" >&3
-printf "\n" >&3
-printf "  Choice [1-3, Enter=2]: " >&3
-read -r _tier <&0
+if [[ -n "${LAB_RESOURCE_TIER:-}" || "$CI_MODE" == "1" ]]; then
+  _tier="${LAB_RESOURCE_TIER:-1}"
+  [[ "$CI_MODE" == "1" ]] && log "CI mode: resource tier auto-set to Low (override with LAB_RESOURCE_TIER)"
+else
+  printf "\n" >&3
+  printf "  ${BOLD}Resource tier${RESET} (sized for M3 Pro / 18 GB):\n" >&3
+  printf "    1) Low      — 2 CPU / 2 GB per node  (6 GB total, Mac stays responsive)\n" >&3
+  printf "    2) Standard — 2 CPU / 3 GB per node  (9 GB total, recommended) [default]\n" >&3
+  printf "    3) High     — 3 CPU / 4 GB per node  (12 GB total, max performance)\n" >&3
+  printf "\n" >&3
+  printf "  Choice [1-3, Enter=2]: " >&3
+  read -r _tier <&0
+fi
 
 case "${_tier:-2}" in
   1)

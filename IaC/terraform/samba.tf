@@ -68,7 +68,23 @@ except Exception:
         fi
         sleep 5
       done
-      _mp_ping || { echo "[samba] ERROR: no network in VM after 2 minutes"; exit 1; }
+      _mp_ping || {
+        echo ""
+        echo "[samba] ERROR: samba-ad VM has no internet connectivity after 2 minutes."
+        echo ""
+        echo "  This is usually caused by Multipass's NAT daemon losing its routing"
+        echo "  after a Mac sleep/wake cycle or VPN change."
+        echo ""
+        echo "  Fix: restart the Multipass daemon, then re-run setup-lab.sh"
+        echo ""
+        echo "    sudo launchctl stop com.canonical.multipassd"
+        echo "    sudo launchctl start com.canonical.multipassd"
+        echo ""
+        echo "  Verify the fix first:"
+        echo "    multipass exec samba-ad -- ping -c 2 8.8.8.8"
+        echo ""
+        exit 1
+      }
 
       echo "[samba] Forcing IPv4 for apt (Multipass VMs often lack IPv6 routing) ..."
       multipass exec samba-ad -- sudo bash -c \
