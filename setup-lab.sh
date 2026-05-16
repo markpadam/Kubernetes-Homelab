@@ -23,6 +23,10 @@ APP_DIR="apps/base/taskflow"
 DNS_DIR="infrastructure/base/dns"
 TOOLBOX_DIR="infrastructure/base/toolbox"
 GRAFANA_PASSWORD="admin123"
+# ── Fork note ─────────────────────────────────────────────────────────────────
+# If you forked this repo, update GITHUB_REPO to point at your fork so that
+# Flux pulls from the right place. Questions / issues: markpadam@hotmail.com
+# ──────────────────────────────────────────────────────────────────────────────
 GITHUB_REPO="https://github.com/markpadam/Kubernetes-Homelab.git"
 GITHUB_BRANCH="main"
 FLUX_APPS_PATH="./clusters/lab"

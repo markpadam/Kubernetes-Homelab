@@ -285,3 +285,11 @@ vim infrastructure/base/dns/dns-config.yaml
 ---
 
 *Built for learning Azure-shaped infrastructure patterns without the Azure bill.*
+
+---
+
+## Forking
+
+If you fork this repo, update `GITHUB_REPO` on line 26 of `setup-lab.sh` to point at your fork — Flux uses that URL to sync manifests.
+
+Questions or issues: [markpadam@hotmail.com](mailto:markpadam@hotmail.com)
