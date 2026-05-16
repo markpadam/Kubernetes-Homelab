@@ -7,7 +7,7 @@ set -euo pipefail
 #  Run from repo root: ./teardown-lab.sh
 # ─────────────────────────────────────────────
 
-PROFILE="aks-lab"
+PROFILE="${LAB_PROFILE:-aks-lab}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -22,13 +22,17 @@ warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*"; }
 step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
 
 # ── Confirm ───────────────────────────────────
-echo -e "\n${RED}${BOLD}  This will permanently delete the '$PROFILE' Minikube cluster${RESET}"
-echo -e "  and kill all related port-forwards.\n"
-read -rp "  Are you sure? [y/N] " confirm
+if [[ -z "${CI:-}" ]]; then
+  echo -e "\n${RED}${BOLD}  This will permanently delete the '$PROFILE' Minikube cluster${RESET}"
+  echo -e "  and kill all related port-forwards.\n"
+  read -rp "  Are you sure? [y/N] " confirm
 
-if [[ "$(echo "$confirm" | tr '[:upper:]' '[:lower:]')" != "y" ]]; then
-  echo "Aborted."
-  exit 0
+  if [[ "$(echo "$confirm" | tr '[:upper:]' '[:lower:]')" != "y" ]]; then
+    echo "Aborted."
+    exit 0
+  fi
+else
+  log "CI environment detected — skipping confirmation prompt for profile '$PROFILE'"
 fi
 
 # ── Kill port-forwards ────────────────────────

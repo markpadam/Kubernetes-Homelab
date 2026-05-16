@@ -1,0 +1,36 @@
+name: PR Lab Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Only one lab deploy at a time — queue rather than cancel so no PR is skipped.
+concurrency:
+  group: lab-deploy
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    env:
+      LAB_PROFILE: ci-lab
+      LAB_RESOURCE_TIER: "1"
+      GITHUB_TOKEN: ${{ secrets.FLUX_GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Teardown any existing CI lab
+        run: ./teardown-lab.sh
+        continue-on-error: true
+
+      - name: Deploy lab (minimal preset)
+        run: ./setup-lab.sh --minimal --ci
+
+      - name: Smoke tests
+        run: .github/scripts/smoke-test.sh
+
+      - name: Teardown CI lab
+        if: always()
+        run: ./teardown-lab.sh
