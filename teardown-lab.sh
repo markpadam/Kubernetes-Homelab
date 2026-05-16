@@ -97,12 +97,18 @@ done
 # ── Delete Minikube cluster ───────────────────
 step "Deleting Minikube Cluster"
 
-if minikube status -p "$PROFILE" &>/dev/null; then
-  log "Deleting profile '$PROFILE'..."
-  minikube delete -p "$PROFILE"
-  success "Cluster deleted"
+# Force-remove the Docker containers first — avoids minikube status hanging
+# when the cluster API is unresponsive after a failed or interrupted setup.
+for container in "${PROFILE}" "${PROFILE}-m02" "${PROFILE}-m03"; do
+  if docker inspect "$container" &>/dev/null; then
+    docker rm -f "$container" 2>/dev/null && log "Removed container: $container" || true
+  fi
+done
+
+if minikube delete -p "$PROFILE" 2>/dev/null; then
+  success "Minikube profile '$PROFILE' deleted"
 else
-  warn "Profile '$PROFILE' not found — already deleted or never created."
+  warn "Minikube profile '$PROFILE' not found — already deleted or never created."
 fi
 
 # ── Clean up /etc/hosts ───────────────────────
