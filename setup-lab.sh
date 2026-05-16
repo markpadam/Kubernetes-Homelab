@@ -12,6 +12,8 @@ set -euo pipefail
 #                     Default: quiet — all output logged to /tmp/lab-setup-<date>.log
 # ─────────────────────────────────────────────
 
+SETUP_START=$(date +%s)
+
 PROFILE="aks-lab"
 K8S_VERSION="v1.29.0"
 NODES=3
@@ -701,6 +703,16 @@ if feature_enabled vault; then
     VAULT_REPLACE_FLAGS="-replace=null_resource.k8s_vault_reviewer"
   fi
   terraform -chdir=IaC/terraform apply -auto-approve -input=false $VAULT_REPLACE_FLAGS \
+    -target=null_resource.vault_dev_server \
+    -target=null_resource.vault_health_check \
+    -target=null_resource.k8s_vault_reviewer \
+    -target=data.external.k8s_vault_config \
+    -target=vault_mount.kv_v2 \
+    -target=vault_kv_secret_v2.azure_services_placeholder \
+    -target=vault_policy.azure_services \
+    -target=vault_auth_backend.kubernetes \
+    -target=vault_kubernetes_auth_backend_config.minikube \
+    -target=vault_kubernetes_auth_backend_role.azure_services \
     2>&1 | tee /tmp/vault-terraform-apply.log
 
   success "Vault ready — ${VAULT_ADDR}/ui  (token: ${VAULT_TOKEN})"
@@ -933,7 +945,29 @@ else
 fi
 
 # ── Done ─────────────────────────────────────
+SETUP_END=$(date +%s)
+ELAPSED=$(( SETUP_END - SETUP_START ))
+ELAPSED_MIN=$(( ELAPSED / 60 ))
+ELAPSED_SEC=$(( ELAPSED % 60 ))
+
 step "Lab Ready"
+
+# ── Banner ────────────────────────────────────
+{
+  if command -v figlet &>/dev/null; then
+    figlet -f slant "AKS Lab" 2>/dev/null || figlet "AKS Lab"
+  else
+    echo -e "${BOLD}${CYAN}"
+    echo '    ___   __ __ _____   __        __     __  '
+    echo '   /   | / //_// ___/  / /  ___ _/ /__  / /  '
+    echo '  / /| |/ ,<   \__ \  / /__/ _ `/ __/  /_/   '
+    echo ' / ___ / /| | ___/ / /____/\_,_/\__/  (_)    '
+    echo '/_/  |_/_/ |_|/____/                          '
+    echo -e "${RESET}"
+  fi
+  echo -e "${GREEN}${BOLD}  Deployed in ${ELAPSED_MIN}m ${ELAPSED_SEC}s${RESET}"
+  echo ""
+} >&3
 
 echo -e "
 ${BOLD}  Web Apps (via NGINX Ingress + OAuth2 SSO — login with AD credentials)${RESET}
