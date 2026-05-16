@@ -264,6 +264,9 @@ _delete_profile() {
     docker rm -f "$container" 2>/dev/null || true
   done
   minikube delete -p "$PROFILE" --purge 2>/dev/null || true
+  # Remove stale profile certs so the next minikube start does a full fresh init
+  # rather than the "updating cluster" partial path (which skips writing manifests).
+  rm -rf "$HOME/.minikube/profiles/$PROFILE"
 }
 
 CLUSTER_NEEDS_START=true
@@ -753,8 +756,9 @@ if feature_enabled vault; then
   step "Step 11 — HashiCorp Vault (Azure Key Vault equivalent)"
 
   log "Initialising Terraform providers (first run downloads ~100 MB)..."
-  terraform -chdir=IaC/terraform init -input=false \
-    2>&1 | tee /tmp/vault-terraform-init.log
+  { terraform -chdir=IaC/terraform init -input=false \
+      2>&1 | tee /tmp/vault-terraform-init.log; } \
+    || error "Terraform init failed — check /tmp/vault-terraform-init.log"
 
   # The Vault Terraform provider authenticates the moment `terraform apply` starts,
   # before any local-exec provisioners run. Pre-start Vault here so the provider
@@ -786,18 +790,19 @@ if feature_enabled vault; then
     log "vault-reviewer-token not found — forcing K8s reviewer recreation..."
     VAULT_REPLACE_FLAGS="-replace=null_resource.k8s_vault_reviewer"
   fi
-  terraform -chdir=IaC/terraform apply -auto-approve -input=false $VAULT_REPLACE_FLAGS \
-    -target=null_resource.vault_dev_server \
-    -target=null_resource.vault_health_check \
-    -target=null_resource.k8s_vault_reviewer \
-    -target=data.external.k8s_vault_config \
-    -target=vault_mount.kv_v2 \
-    -target=vault_kv_secret_v2.azure_services_placeholder \
-    -target=vault_policy.azure_services \
-    -target=vault_auth_backend.kubernetes \
-    -target=vault_kubernetes_auth_backend_config.minikube \
-    -target=vault_kubernetes_auth_backend_role.azure_services \
-    2>&1 | tee /tmp/vault-terraform-apply.log
+  { terraform -chdir=IaC/terraform apply -auto-approve -input=false $VAULT_REPLACE_FLAGS \
+      -target=null_resource.vault_dev_server \
+      -target=null_resource.vault_health_check \
+      -target=null_resource.k8s_vault_reviewer \
+      -target=data.external.k8s_vault_config \
+      -target=vault_mount.kv_v2 \
+      -target=vault_kv_secret_v2.azure_services_placeholder \
+      -target=vault_policy.azure_services \
+      -target=vault_auth_backend.kubernetes \
+      -target=vault_kubernetes_auth_backend_config.minikube \
+      -target=vault_kubernetes_auth_backend_role.azure_services \
+      2>&1 | tee /tmp/vault-terraform-apply.log; } \
+    || error "Vault Terraform apply failed — check /tmp/vault-terraform-apply.log"
 
   success "Vault ready — ${VAULT_ADDR}/ui  (token: ${VAULT_TOKEN})"
   log "  KV v2 secrets:  ${VAULT_KV_PATH}/azure-services/*"
@@ -815,14 +820,15 @@ if feature_enabled samba-ad; then
   log "Terraform will create the samba-ad Multipass VM."
   log "This may take 3–5 minutes on first run (image download + Samba provisioning)."
 
-  terraform -chdir=IaC/terraform apply -auto-approve -input=false \
-    -target=null_resource.multipass_check \
-    -target=null_resource.samba_vm \
-    -target=time_sleep.samba_stabilise \
-    -var="samba_vm_cpus=${SAMBA_CPUS}" \
-    -var="samba_vm_memory=${SAMBA_MEM}" \
-    -var="samba_vm_disk=${SAMBA_DISK}" \
-    2>&1 | tee /tmp/samba-terraform-apply.log
+  { terraform -chdir=IaC/terraform apply -auto-approve -input=false \
+      -target=null_resource.multipass_check \
+      -target=null_resource.samba_vm \
+      -target=time_sleep.samba_stabilise \
+      -var="samba_vm_cpus=${SAMBA_CPUS}" \
+      -var="samba_vm_memory=${SAMBA_MEM}" \
+      -var="samba_vm_disk=${SAMBA_DISK}" \
+      2>&1 | tee /tmp/samba-terraform-apply.log; } \
+    || error "SambaAD VM provisioning failed. Full provisioner log: /tmp/samba-terraform-apply.log"
 
   SAMBA_IP=$(multipass info samba-ad --format json 2>/dev/null \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" \
@@ -882,12 +888,13 @@ fi
 if feature_enabled corp-client; then
   step "Step 11c — Corp Client VM"
   log "Provisioning domain-joined corp-client VM..."
-  terraform -chdir=IaC/terraform apply -auto-approve -input=false \
-    -target=null_resource.corp_client_vm \
-    -var="client_vm_cpus=${CLIENT_CPUS}" \
-    -var="client_vm_memory=${CLIENT_MEM}" \
-    -var="client_vm_disk=${CLIENT_DISK}" \
-    2>&1 | tee /tmp/corp-client-terraform-apply.log
+  { terraform -chdir=IaC/terraform apply -auto-approve -input=false \
+      -target=null_resource.corp_client_vm \
+      -var="client_vm_cpus=${CLIENT_CPUS}" \
+      -var="client_vm_memory=${CLIENT_MEM}" \
+      -var="client_vm_disk=${CLIENT_DISK}" \
+      2>&1 | tee /tmp/corp-client-terraform-apply.log; } \
+    || error "Corp Client VM provisioning failed — check /tmp/corp-client-terraform-apply.log"
   success "Corp Client VM ready — multipass shell corp-client"
 else
   log "Skipping Step 11c — Corp Client VM not selected"
