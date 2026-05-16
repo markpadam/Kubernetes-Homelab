@@ -262,10 +262,13 @@ _delete_profile() {
   for container in "${PROFILE}" "${PROFILE}-m02" "${PROFILE}-m03"; do
     docker kill "$container" 2>/dev/null || true
     docker rm -f "$container" 2>/dev/null || true
+    # The minikube Docker driver mounts a named volume at /var inside each
+    # node container. The volume persists after docker rm, carrying stale
+    # kubeadm.yaml and kubelet state that causes minikube to skip fresh
+    # kubeadm init and silently fail with K8S_APISERVER_MISSING.
+    docker volume rm "$container" 2>/dev/null || true
   done
   minikube delete -p "$PROFILE" --purge 2>/dev/null || true
-  # Remove stale profile certs so the next minikube start does a full fresh init
-  # rather than the "updating cluster" partial path (which skips writing manifests).
   rm -rf "$HOME/.minikube/profiles/$PROFILE"
 }
 
