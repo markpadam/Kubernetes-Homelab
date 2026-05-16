@@ -982,6 +982,7 @@ except Exception:
     DEX_CLIENT_SECRET="dex-lab-client-secret-aks"
     export DEX_CLIENT_SECRET AD_ADMIN_PASSWORD="AksLab!AdDev1"
     log "Applying Dex ConfigMap (SambaAD IP: $SAMBA_IP)..."
+    kubectl apply -f infrastructure/base/identity/dex/namespace.yaml
     python3 -c "
 import os, string
 from pathlib import Path
