@@ -12,7 +12,7 @@ NODES=3
 CPUS=2
 MEMORY=4096
 APP_DIR="Apps/taskflow"
-DNS_DIR="dns-lab"
+DNS_DIR="infra/dns"
 TOOLBOX_DIR="toolbox"
 GRAFANA_PASSWORD="admin123"
 GITHUB_REPO="https://github.com/markpadam/Kubernetes-Homelab.git"
@@ -526,7 +526,7 @@ VAULT_KV_PATH="kv"
 VAULT_AUTH_PATH="kubernetes"
 
 log "Initialising Terraform providers (first run downloads ~100 MB)..."
-terraform -chdir=terraform/local-mac init -input=false \
+terraform -chdir=infra/terraform/local-mac init -input=false \
   2>&1 | tee /tmp/vault-terraform-init.log
 
 # The Vault Terraform provider authenticates the moment `terraform apply` starts,
@@ -559,7 +559,7 @@ if ! kubectl get secret vault-reviewer-token -n kube-system &>/dev/null; then
   log "vault-reviewer-token not found — forcing K8s reviewer recreation..."
   VAULT_REPLACE_FLAGS="-replace=null_resource.k8s_vault_reviewer"
 fi
-terraform -chdir=terraform/local-mac apply -auto-approve -input=false $VAULT_REPLACE_FLAGS \
+terraform -chdir=infra/terraform/local-mac apply -auto-approve -input=false $VAULT_REPLACE_FLAGS \
   2>&1 | tee /tmp/vault-terraform-apply.log
 
 success "Vault ready — ${VAULT_ADDR}/ui  (token: ${VAULT_TOKEN})"
@@ -576,7 +576,7 @@ log "This may take 3–5 minutes on first run (image download + Samba provisioni
 # Terraform apply handles both VMs via null_resource.samba_vm and null_resource.corp_client_vm.
 # Vault was already applied above; this re-apply is idempotent for Vault resources and
 # adds the samba resources on top.
-terraform -chdir=terraform/local-mac apply -auto-approve -input=false \
+terraform -chdir=infra/terraform/local-mac apply -auto-approve -input=false \
   -target=null_resource.multipass_check \
   -target=null_resource.samba_vm \
   -target=time_sleep.samba_stabilise \
@@ -808,7 +808,7 @@ ${BOLD}  Vault (Azure Key Vault equivalent)${RESET}
 
 ${BOLD}  DNS Lab${RESET}
   bind9 IP:    $BIND9_IP (simulated ADDS)
-  Edit zones:  edit dns-lab/dns-config.yaml then run ./dns-lab/apply-dns-config.sh
+  Edit zones:  edit infra/dns/dns-config.yaml then run ./infra/dns/apply-dns-config.sh
   Restore DNS: kubectl create configmap coredns -n kube-system \\
                  --from-file=Corefile=/tmp/corefile-backup.txt \\
                  --dry-run=client -o yaml | kubectl apply -f -

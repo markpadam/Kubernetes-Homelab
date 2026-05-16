@@ -1,0 +1,229 @@
+{
+  "version": 1,
+  "components": [
+    {
+      "id": "vault",
+      "name": "HashiCorp Vault",
+      "group": "infrastructure",
+      "default": true,
+      "type": "special",
+      "ns": "",
+      "flux_dir": "",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [],
+      "desc": "Simulates Azure Key Vault — KV v2 secrets, Kubernetes auth backend"
+    },
+    {
+      "id": "monitoring",
+      "name": "Monitoring (Prometheus + Grafana)",
+      "group": "infrastructure",
+      "default": true,
+      "type": "special",
+      "ns": "monitoring",
+      "flux_dir": "",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [],
+      "desc": "Prometheus + Grafana — metrics, dashboards, alerting"
+    },
+    {
+      "id": "argocd",
+      "name": "ArgoCD",
+      "group": "infrastructure",
+      "default": true,
+      "type": "special",
+      "ns": "argocd",
+      "flux_dir": "",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [],
+      "desc": "GitOps CD platform — visual deployments from Git"
+    },
+    {
+      "id": "toolbox",
+      "name": "Toolbox SSH Pod",
+      "group": "infrastructure",
+      "default": true,
+      "type": "special",
+      "ns": "toolbox",
+      "flux_dir": "",
+      "manifest": "toolbox/toolbox.yaml",
+      "depends": [],
+      "port_forwards": [
+        {"local": 2222, "svc": "toolbox-ssh", "ns": "toolbox", "remote": 22}
+      ],
+      "desc": "In-cluster Ubuntu pod — SSH access for debugging"
+    },
+    {
+      "id": "samba-ad",
+      "name": "SambaAD (Active Directory DC)",
+      "group": "identity",
+      "default": false,
+      "type": "terraform",
+      "ns": "",
+      "flux_dir": "",
+      "manifest": "",
+      "tf_targets": ["null_resource.multipass_check", "null_resource.samba_vm", "time_sleep.samba_stabilise"],
+      "depends": [],
+      "port_forwards": [],
+      "desc": "Samba 4 Active Directory — LDAP :389, Kerberos :88, corp.internal DNS"
+    },
+    {
+      "id": "dex",
+      "name": "Dex (OIDC Provider)",
+      "group": "identity",
+      "default": false,
+      "type": "kubectl",
+      "ns": "dex",
+      "flux_dir": "dex",
+      "manifest": "",
+      "depends": ["samba-ad"],
+      "port_forwards": [],
+      "desc": "Bridges AD LDAP to OAuth2/OIDC — the OIDC issuer for the lab"
+    },
+    {
+      "id": "oauth2-proxy",
+      "name": "OAuth2 Proxy",
+      "group": "identity",
+      "default": false,
+      "type": "kubectl",
+      "ns": "oauth2-proxy",
+      "flux_dir": "oauth2-proxy",
+      "manifest": "",
+      "depends": ["dex"],
+      "port_forwards": [],
+      "desc": "SSO authentication gateway — protects all web services via ingress"
+    },
+    {
+      "id": "corp-client",
+      "name": "Corp Client VM",
+      "group": "identity",
+      "default": false,
+      "type": "terraform",
+      "ns": "",
+      "flux_dir": "",
+      "manifest": "",
+      "tf_targets": ["null_resource.corp_client_vm"],
+      "depends": ["samba-ad"],
+      "port_forwards": [],
+      "desc": "Domain-joined Ubuntu VM with XFCE desktop (VNC :5901)"
+    },
+    {
+      "id": "azurite",
+      "name": "Azurite (Azure Storage)",
+      "group": "storage",
+      "default": true,
+      "type": "kubectl",
+      "ns": "azure-storage",
+      "flux_dir": "azurite",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [],
+      "desc": "Azure Blob/Queue/Table Storage emulator"
+    },
+    {
+      "id": "azure-sql",
+      "name": "Azure SQL",
+      "group": "storage",
+      "default": true,
+      "type": "kubectl",
+      "ns": "azure-sql",
+      "flux_dir": "azure-sql",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [
+        {"local": 1433, "svc": "mssql", "ns": "azure-sql", "remote": 1433}
+      ],
+      "desc": "Azure SQL / SQL Server emulator — localhost:1433"
+    },
+    {
+      "id": "cosmos-db",
+      "name": "Cosmos DB",
+      "group": "storage",
+      "default": false,
+      "type": "kubectl",
+      "ns": "cosmos-db",
+      "flux_dir": "cosmos-db",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [
+        {"local": 8081, "svc": "cosmosdb", "ns": "cosmos-db", "remote": 8081},
+        {"local": 1234, "svc": "cosmosdb", "ns": "cosmos-db", "remote": 1234}
+      ],
+      "desc": "Azure Cosmos DB NoSQL emulator — API :8081, Explorer :1234"
+    },
+    {
+      "id": "service-bus",
+      "name": "Service Bus",
+      "group": "storage",
+      "default": true,
+      "type": "kubectl",
+      "ns": "service-bus",
+      "flux_dir": "service-bus",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [
+        {"local": 5672, "svc": "servicebus", "ns": "service-bus", "remote": 5672},
+        {"local": 5300, "svc": "servicebus", "ns": "service-bus", "remote": 5300}
+      ],
+      "desc": "Azure Service Bus emulator — AMQP :5672, Management :5300"
+    },
+    {
+      "id": "container-registry",
+      "name": "Container Registry",
+      "group": "storage",
+      "default": true,
+      "type": "kubectl",
+      "ns": "container-registry",
+      "flux_dir": "container-registry",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [
+        {"local": 5000, "svc": "registry", "ns": "container-registry", "remote": 5000}
+      ],
+      "desc": "Local Docker registry — localhost:5000"
+    },
+    {
+      "id": "taskflow",
+      "name": "TaskFlow",
+      "group": "apps",
+      "default": true,
+      "type": "kubectl",
+      "ns": "taskapp",
+      "flux_dir": "",
+      "manifest": "apps/taskflow/",
+      "depends": [],
+      "port_forwards": [],
+      "desc": "Three-tier demo app — Nginx → Node.js → PostgreSQL"
+    },
+    {
+      "id": "blob-explorer",
+      "name": "Blob Explorer",
+      "group": "apps",
+      "default": true,
+      "type": "kubectl",
+      "ns": "blob-explorer",
+      "flux_dir": "blob-explorer",
+      "manifest": "",
+      "depends": ["azurite"],
+      "port_forwards": [],
+      "desc": "ASP.NET Core Azure Blob Storage browser"
+    },
+    {
+      "id": "argo-workflows",
+      "name": "Argo Workflows",
+      "group": "apps",
+      "default": false,
+      "type": "special",
+      "ns": "argo",
+      "flux_dir": "",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [
+        {"local": 2746, "svc": "argo-server", "ns": "argo", "remote": 2746}
+      ],
+      "desc": "Kubernetes-native workflow engine"
+    }
+  ]
+}

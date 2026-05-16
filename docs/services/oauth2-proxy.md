@@ -92,4 +92,4 @@ kubectl get secret oauth2-proxy-secret -n oauth2-proxy -o yaml
 curl -v http://taskflow.aks-lab.local:9980 2>&1 | grep -E "< HTTP|< Location"
 ```
 
-See also: [dex.md](dex.md), [samba-ad.md](samba-ad.md), [auth-walkthrough.md](auth-walkthrough.md)
+See also: [dex.md](dex.md), [samba-ad.md](samba-ad.md), [auth-walkthrough.md](../guides/auth-walkthrough.md)

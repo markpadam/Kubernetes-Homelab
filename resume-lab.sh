@@ -158,7 +158,7 @@ else
   done
 
   log "Reconfiguring Vault (KV v2, policies, Kubernetes auth)..."
-  terraform -chdir=terraform/local-mac apply -auto-approve -input=false \
+  terraform -chdir=infra/terraform/local-mac apply -auto-approve -input=false \
     2>&1 | tee /tmp/vault-terraform-apply.log
   success "Vault configured"
 fi

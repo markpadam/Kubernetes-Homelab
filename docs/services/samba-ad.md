@@ -82,7 +82,7 @@ ldapsearch -H ldap://$SAMBA_IP:389 \
 
 ## Provisioning
 
-Created by `terraform/local-mac/samba.tf` (`null_resource.samba_vm`) via `terraform apply`.  
+Created by `infra/terraform/local-mac/samba.tf` (`null_resource.samba_vm`) via `terraform apply`.  
 Destroyed by `terraform destroy` or `teardown-lab.sh`.
 
-See also: [corp-client.md](corp-client.md), [dex.md](dex.md), [auth-walkthrough.md](auth-walkthrough.md)
+See also: [corp-client.md](../tools/corp-client.md), [dex.md](dex.md), [auth-walkthrough.md](../guides/auth-walkthrough.md)

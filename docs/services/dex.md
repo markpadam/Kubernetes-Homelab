@@ -91,4 +91,4 @@ echo $TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | python3 -m json.tool
 
 The payload will contain claims like `iss`, `sub`, `email`, `groups`.
 
-See also: [samba-ad.md](samba-ad.md), [oauth2-proxy.md](oauth2-proxy.md), [auth-walkthrough.md](auth-walkthrough.md)
+See also: [samba-ad.md](samba-ad.md), [oauth2-proxy.md](oauth2-proxy.md), [auth-walkthrough.md](../guides/auth-walkthrough.md)

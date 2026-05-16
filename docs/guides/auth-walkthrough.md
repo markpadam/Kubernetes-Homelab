@@ -290,4 +290,4 @@ curl http://dex.aks-lab.local:9980/keys | python3 -m json.tool
 | Dex logs | `kubectl logs -n dex deploy/dex -f` |
 | OAuth2 Proxy logs | `kubectl logs -n oauth2-proxy deploy/oauth2-proxy -f` |
 
-See also: [samba-ad.md](samba-ad.md), [dex.md](dex.md), [oauth2-proxy.md](oauth2-proxy.md), [corp-client.md](corp-client.md)
+See also: [samba-ad.md](../services/samba-ad.md), [dex.md](../services/dex.md), [oauth2-proxy.md](../services/oauth2-proxy.md), [corp-client.md](../tools/corp-client.md)

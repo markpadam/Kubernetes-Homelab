@@ -100,8 +100,8 @@ cat /etc/sssd/sssd.conf
 
 ## Provisioning
 
-Created by `terraform/local-mac/samba.tf` (`null_resource.corp_client_vm`) via `terraform apply`.  
+Created by `infra/terraform/local-mac/samba.tf` (`null_resource.corp_client_vm`) via `terraform apply`.  
 Depends on `null_resource.samba_vm` — the domain controller must exist before the client can join.  
 Destroyed by `terraform destroy` or `teardown-lab.sh`.
 
-See also: [samba-ad.md](samba-ad.md), [auth-walkthrough.md](auth-walkthrough.md)
+See also: [samba-ad.md](../services/samba-ad.md), [auth-walkthrough.md](../guides/auth-walkthrough.md)
