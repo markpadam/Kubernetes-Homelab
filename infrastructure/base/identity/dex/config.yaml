@@ -14,7 +14,7 @@ data:
     # Dex wraps SambaAD (LDAP/Kerberos) into standard OAuth2/OIDC tokens
     # so that applications like OAuth2 Proxy don't need to know how to speak LDAP.
 
-    issuer: http://dex.aks-lab.local:9980
+    issuer: http://dex.dex.svc.cluster.local:5556
 
     storage:
       type: memory   # in-memory — config is reapplied from this ConfigMap on restart

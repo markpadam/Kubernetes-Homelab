@@ -24,6 +24,11 @@ spec:
             - --insecure-oidc-allow-unverified-email=true
             - --skip-oidc-discovery=false
 
+            # Browser login redirect — Dex's issuer is its internal service URL which
+            # pods can reach but browsers cannot. Override the login URL so browsers
+            # are sent to the external ingress URL for the Dex login page.
+            - --login-url=http://dex.aks-lab.local:9980/auth
+
             # Redirect URL — must match the redirectURI registered in Dex
             - --redirect-url=http://oauth2-proxy.aks-lab.local:9980/oauth2/callback
 

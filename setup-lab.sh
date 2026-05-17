@@ -1223,6 +1223,7 @@ if [[ ${#_ENABLED_STORAGE[@]} -gt 0 ]]; then
     kubectl apply -k "apps/base/${_svc}/" || _SVC_RC=$?
     [[ $_SVC_RC -eq 0 ]] || warn "$_svc manifest apply failed (exit $_SVC_RC) — use 'lab-feature.sh enable $_svc' to retry"
   done
+  feature_enabled cosmos-db && warn "cosmos-db emulator takes 5-8 minutes to pass readiness — it will show ~ in the health check and become healthy on its own"
   success "Storage services applied — pods may still be pulling images"
 else
   log "Skipping Step 14 — no Azure emulators selected"
