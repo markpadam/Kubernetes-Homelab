@@ -20,14 +20,17 @@ spec:
             # OIDC provider — Dex running in-cluster
             # Azure equivalent: --provider=azure with a registered App Registration
             - --provider=oidc
+            # Dex's issuer is the internal cluster URL; tokens carry this as the `iss` claim.
             - --oidc-issuer-url=http://dex.dex.svc.cluster.local:5556
             - --insecure-oidc-allow-unverified-email=true
-            - --skip-oidc-discovery=false
-
-            # Browser login redirect — Dex's issuer is its internal service URL which
-            # pods can reach but browsers cannot. Override the login URL so browsers
-            # are sent to the external ingress URL for the Dex login page.
+            # Skip auto-discovery: the discovery document returns internal cluster URLs for
+            # all endpoints, which browsers cannot reach. We set each endpoint manually so
+            # pod-to-pod calls use the internal service URL and browser redirects use the
+            # external ingress URL.
+            - --skip-oidc-discovery=true
             - --login-url=http://dex.aks-lab.local:9980/auth
+            - --redeem-url=http://dex.dex.svc.cluster.local:5556/token
+            - --oidc-jwks-url=http://dex.dex.svc.cluster.local:5556/keys
 
             # Redirect URL — must match the redirectURI registered in Dex
             - --redirect-url=http://oauth2-proxy.aks-lab.local:9980/oauth2/callback
