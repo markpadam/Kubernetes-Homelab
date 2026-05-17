@@ -38,16 +38,29 @@ fi
 # ── Kill port-forwards ────────────────────────
 step "Killing Port-Forwards"
 
+# Kill self-healing restart-loop wrappers by PID file, then clean up anything
+# still bound to the ports as a fallback.
+for pid_file in /tmp/lab-pf-*.pid; do
+  [[ -f "$pid_file" ]] || continue
+  kill "$(cat "$pid_file")" 2>/dev/null && success "Stopped loop $(basename "$pid_file" .pid)" || true
+  rm -f "$pid_file"
+done
+
 for port in 2222 8080 9980 2746 1433 5672 5300 5000 8081 1234 9997; do
-  pids=$(lsof -ti:$port 2>/dev/null || true)
-  if [[ -n "$pids" ]]; then
-    echo "$pids" | xargs kill -9 2>/dev/null || true
-    success "Killed process on port $port"
-  fi
+  pids=$(lsof -ti:"$port" 2>/dev/null || true)
+  [[ -n "$pids" ]] && echo "$pids" | xargs kill -9 2>/dev/null || true
 done
 
 pkill -f "minikube tunnel" 2>/dev/null || true
 pkill -f "dashboard-server.py" 2>/dev/null || true
+
+# Remove LaunchAgent so the lab doesn't auto-resume after this teardown
+_LAUNCHAGENT_PATH="$HOME/Library/LaunchAgents/local.aks-lab-resume.plist"
+if [[ -f "$_LAUNCHAGENT_PATH" ]]; then
+  launchctl bootout "gui/$(id -u)" "$_LAUNCHAGENT_PATH" 2>/dev/null || true
+  rm -f "$_LAUNCHAGENT_PATH"
+  success "LaunchAgent removed — lab will not auto-resume on next login"
+fi
 
 success "Port-forwards cleared"
 

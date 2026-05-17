@@ -195,13 +195,19 @@ step "Restoring Port-Forwards"
 
 _start_portforward() {
   local name="$1" port="$2" cmd="$3" log="$4"
+  local pid_file="/tmp/lab-pf-${port}.pid"
+  [[ -f "$pid_file" ]] && kill "$(cat "$pid_file")" 2>/dev/null || true
   lsof -ti:"$port" | xargs kill -9 2>/dev/null || true
+  rm -f "$pid_file"
   sleep 1
-  eval "$cmd >> $log 2>&1 &"
-  local pid=$!
+  ( while true; do
+      eval "$cmd" >> "$log" 2>&1
+      sleep 2
+    done ) &
+  echo $! > "$pid_file"
   sleep 2
-  if kill -0 "$pid" 2>/dev/null; then
-    success "$name port-forward running (PID $pid) — localhost:$port"
+  if kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+    success "$name port-forward running (self-healing) — localhost:$port"
   else
     warn "$name port-forward may have failed — check $log"
   fi

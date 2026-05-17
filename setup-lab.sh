@@ -1381,13 +1381,21 @@ step "Starting Port-Forwards"
 
 _start_portforward() {
   local name="$1" port="$2" cmd="$3" log="$4"
+  local pid_file="/tmp/lab-pf-${port}.pid"
+  # Kill existing restart-loop wrapper and anything still bound to the port
+  [[ -f "$pid_file" ]] && kill "$(cat "$pid_file")" 2>/dev/null || true
   lsof -ti:"$port" | xargs kill -9 2>/dev/null || true
+  rm -f "$pid_file"
   sleep 1
-  eval "$cmd >> $log 2>&1 &"
-  local pid=$!
+  # Self-healing loop: kubectl port-forward reconnects automatically when a pod restarts
+  ( while true; do
+      eval "$cmd" >> "$log" 2>&1
+      sleep 2
+    done ) &
+  echo $! > "$pid_file"
   sleep 2
-  if kill -0 "$pid" 2>/dev/null; then
-    success "$name port-forward running (PID $pid) — localhost:$port"
+  if kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+    success "$name port-forward running (self-healing) — localhost:$port"
   else
     warn "$name port-forward may have failed — check $log"
   fi
@@ -1442,6 +1450,37 @@ Path('/tmp/lab-dashboard.html').write_text(string.Template(t).safe_substitute(os
 "
 
 success "Dashboard written to /tmp/lab-dashboard.html"
+
+# ── macOS LaunchAgent (auto-resume on login) ──
+_LAUNCHAGENT_LABEL="local.aks-lab-resume"
+_LAUNCHAGENT_PATH="$HOME/Library/LaunchAgents/${_LAUNCHAGENT_LABEL}.plist"
+_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cat > "$_LAUNCHAGENT_PATH" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${_LAUNCHAGENT_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>${_SCRIPT_DIR}/resume-lab.sh</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>WorkingDirectory</key>
+    <string>${_SCRIPT_DIR}</string>
+    <key>StandardOutPath</key>
+    <string>/tmp/lab-launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/lab-launchd.log</string>
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>
+PLIST
+success "LaunchAgent installed — resume-lab.sh will run automatically on next login"
 
 DASHBOARD_PORT=9997
 lsof -ti:"$DASHBOARD_PORT" | xargs kill -9 2>/dev/null || true
