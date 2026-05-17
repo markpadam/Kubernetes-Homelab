@@ -464,13 +464,21 @@ _enable_azdo_agent() {
   # The agent pod reads credentials from a K8s secret that must exist before
   # the Deployment is applied — prompt and create it here.
   echo ""
-  printf "  Azure DevOps org URL  (e.g. https://dev.azure.com/yourorg): "
-  read -r AZP_URL
+  AZP_URL=""
+  while [[ ! "$AZP_URL" =~ ^https://dev\.azure\.com/ ]]; do
+    printf "  Azure DevOps org URL  (e.g. https://dev.azure.com/yourorg): "
+    read -r AZP_URL
+    [[ "$AZP_URL" =~ ^https://dev\.azure\.com/ ]] || echo "[!] URL must start with https://dev.azure.com/ — try again"
+  done
   printf "  Agent pool name       (must exist in ADO → Org Settings → Agent pools): "
   read -r AZP_POOL
-  printf "  Personal Access Token (Agent Pools: Read & Manage scope): "
-  read -rs AZP_TOKEN
-  printf "\n"
+  AZP_TOKEN=""
+  while [[ -z "$AZP_TOKEN" ]]; do
+    printf "  Personal Access Token (Agent Pools: Read & Manage scope): "
+    read -rs AZP_TOKEN
+    printf "\n"
+    [[ -n "$AZP_TOKEN" ]] || echo "[!] PAT cannot be empty — try again"
+  done
 
   kubectl create namespace azdo-agent --dry-run=client -o yaml | kubectl apply --validate=false -f -
   kubectl create secret generic azdo-agent-secret \
@@ -481,8 +489,13 @@ _enable_azdo_agent() {
     --dry-run=client -o yaml | kubectl apply --validate=false -f -
 
   kubectl apply --validate=false -k "$SCRIPT_DIR/apps/base/azdo-agent/"
-  kubectl rollout status deployment/azdo-agent -n azdo-agent --timeout=120s
-  success "Azure DevOps agent running — check ADO pool: $AZP_POOL"
+  _AZDO_RC=0
+  kubectl rollout status deployment/azdo-agent -n azdo-agent --timeout=120s || _AZDO_RC=$?
+  if [[ $_AZDO_RC -ne 0 ]]; then
+    warn "ADO agent rollout did not complete within 120s — check: kubectl logs -n azdo-agent deployment/azdo-agent"
+  else
+    success "Azure DevOps agent running — check ADO pool: $AZP_POOL"
+  fi
 }
 
 _disable_azdo_agent() {

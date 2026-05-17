@@ -1016,7 +1016,16 @@ t = Path('infrastructure/base/identity/dex/config.yaml').read_text()
 Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
 "
     kubectl apply -f /tmp/dex-config-rendered.yaml
-    success "Dex ConfigMap applied"
+    log "Deploying Dex OIDC server..."
+    # Apply non-templated resources individually so the rendered config.yaml is not overwritten
+    kubectl apply -f infrastructure/base/identity/dex/deployment.yaml
+    kubectl apply -f infrastructure/base/identity/dex/service.yaml
+    kubectl apply -f infrastructure/base/identity/dex/ingress.yaml
+    _DEX_RC=0
+    kubectl wait deployment dex --for=condition=available --namespace=dex --timeout=120s || _DEX_RC=$?
+    [[ $_DEX_RC -eq 0 ]] \
+      && success "Dex OIDC server ready — http://dex.aks-lab.local:9980" \
+      || warn "Dex deployment did not complete within 120s — check: kubectl logs -n dex deployment/dex"
   fi
 
   if feature_enabled oauth2-proxy; then
@@ -1031,7 +1040,16 @@ t = Path('infrastructure/base/identity/oauth2-proxy/secret.yaml').read_text()
 Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
 "
     kubectl apply -f /tmp/oauth2-proxy-secret-rendered.yaml
-    success "OAuth2 Proxy secret applied"
+    log "Deploying OAuth2 Proxy..."
+    # Apply non-templated resources individually so the rendered secret.yaml is not overwritten
+    kubectl apply -f infrastructure/base/identity/oauth2-proxy/deployment.yaml
+    kubectl apply -f infrastructure/base/identity/oauth2-proxy/service.yaml
+    kubectl apply -f infrastructure/base/identity/oauth2-proxy/ingress.yaml
+    _OAUTH_RC=0
+    kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s || _OAUTH_RC=$?
+    [[ $_OAUTH_RC -eq 0 ]] \
+      && success "OAuth2 Proxy ready — SSO gate at oauth2-proxy.aks-lab.local:9980" \
+      || warn "OAuth2 Proxy deployment did not complete within 120s — check: kubectl logs -n oauth2-proxy deployment/oauth2-proxy"
   fi
 else
   log "Skipping Step 11b — SambaAD not selected"
@@ -1135,13 +1153,21 @@ if feature_enabled azdo-agent; then
   else
     [[ "$RECONFIGURE_ADO" -eq 1 ]] && log "Re-configuring ADO credentials..."
     printf "\n" >&3
-    printf "  Azure DevOps org URL  (e.g. https://dev.azure.com/markpadam0046): " >&3
-    read -r AZP_URL <&0
+    AZP_URL=""
+    while [[ ! "$AZP_URL" =~ ^https://dev\.azure\.com/ ]]; do
+      printf "  Azure DevOps org URL  (e.g. https://dev.azure.com/markpadam0046): " >&3
+      read -r AZP_URL <&0
+      [[ "$AZP_URL" =~ ^https://dev\.azure\.com/ ]] || warn "URL must start with https://dev.azure.com/ — try again"
+    done
     printf "  Agent pool name       (create it first in ADO → Org Settings → Agent pools): " >&3
     read -r AZP_POOL <&0
-    printf "  Personal Access Token (needs Agent Pools: Read & Manage scope): " >&3
-    read -rs AZP_TOKEN <&0
-    printf "\n" >&3
+    AZP_TOKEN=""
+    while [[ -z "$AZP_TOKEN" ]]; do
+      printf "  Personal Access Token (needs Agent Pools: Read & Manage scope): " >&3
+      read -rs AZP_TOKEN <&0
+      printf "\n" >&3
+      [[ -n "$AZP_TOKEN" ]] || warn "PAT cannot be empty — try again"
+    done
 
     # Persist for future runs (file is gitignored via ~/.lab-ado, not in repo)
     cat > "$ADO_CONFIG_FILE" <<ADOEOF
@@ -1168,11 +1194,46 @@ ADOEOF
 
   log "Applying agent manifests..."
   kubectl apply --validate=false -k apps/base/azdo-agent/
-  kubectl rollout status deployment/azdo-agent -n azdo-agent --timeout=180s
-
-  success "Azure DevOps agent running — it will appear in ADO under pool: $AZP_POOL"
+  _AZDO_RC=0
+  kubectl rollout status deployment/azdo-agent -n azdo-agent --timeout=180s || _AZDO_RC=$?
+  if [[ $_AZDO_RC -ne 0 ]]; then
+    warn "ADO agent rollout did not complete within 180s (exit $_AZDO_RC)."
+    warn "Check: kubectl logs -n azdo-agent deployment/azdo-agent"
+    warn "The agent may still register once the image finishes pulling. Continuing setup..."
+  else
+    success "Azure DevOps agent running — it will appear in ADO under pool: $AZP_POOL"
+  fi
 else
   log "Skipping Step 13 — Azure DevOps Agent not selected"
+fi
+
+# ── Step 14: Storage / Azure Emulators ───────
+# These services are fully self-contained kustomizations; deploy any that are enabled.
+_STORAGE_SERVICES=(azurite azure-sql cosmos-db service-bus container-registry)
+_ENABLED_STORAGE=()
+for _svc in "${_STORAGE_SERVICES[@]}"; do
+  feature_enabled "$_svc" && _ENABLED_STORAGE+=("$_svc") || true
+done
+
+if [[ ${#_ENABLED_STORAGE[@]} -gt 0 ]]; then
+  step "Step 14 — Azure Emulators & Storage Services"
+  for _svc in "${_ENABLED_STORAGE[@]}"; do
+    log "Deploying $_svc..."
+    _SVC_RC=0
+    kubectl apply -k "apps/base/${_svc}/" || _SVC_RC=$?
+    [[ $_SVC_RC -eq 0 ]] || warn "$_svc manifest apply failed (exit $_SVC_RC) — use 'lab-feature.sh enable $_svc' to retry"
+  done
+  success "Storage services applied — pods may still be pulling images"
+else
+  log "Skipping Step 14 — no Azure emulators selected"
+fi
+
+# blob-explorer is Flux-managed (HelmRelease); apply its manifests so Flux picks it up.
+if feature_enabled blob-explorer; then
+  log "Applying blob-explorer HelmRelease for Flux..."
+  _BE_RC=0
+  kubectl apply -k apps/base/blob-explorer/ || _BE_RC=$?
+  [[ $_BE_RC -eq 0 ]] || warn "blob-explorer apply failed — use 'lab-feature.sh enable blob-explorer' to retry"
 fi
 
 # ── Port-Forwards ────────────────────────────
@@ -1254,6 +1315,98 @@ if command -v code &>/dev/null; then
 else
   open "$DASHBOARD_URL"
 fi
+
+# ── Deployment Health Check ──────────────────
+step "Deployment Health Check"
+
+_CHECKS_PASS=0
+_CHECKS_FAIL=0
+
+_chk_ok()   { printf "  ${GREEN}${BOLD}✓${RESET}  %-24s ${GREEN}%s${RESET}\n"  "$1" "$2" >&3; _CHECKS_PASS=$(( _CHECKS_PASS + 1 )); }
+_chk_warn() { printf "  ${YELLOW}${BOLD}~${RESET}  %-24s ${YELLOW}%s${RESET}\n" "$1" "$2" >&3; _CHECKS_FAIL=$(( _CHECKS_FAIL + 1 )); }
+_chk_fail() { printf "  ${RED}${BOLD}✗${RESET}  %-24s ${RED}%s${RESET}\n"    "$1" "$2" >&3; _CHECKS_FAIL=$(( _CHECKS_FAIL + 1 )); }
+
+_check_ns() {
+  local label="$1" ns="$2"
+  if ! kubectl get namespace "$ns" &>/dev/null; then
+    _chk_fail "$label" "namespace '$ns' not found"
+    return
+  fi
+  local running total
+  running=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | grep -c " Running " || echo 0)
+  total=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | grep -cv "Completed" || echo 0)
+  if [[ "$total" -eq 0 ]]; then
+    _chk_fail "$label" "no pods deployed"
+  elif [[ "$running" -eq "$total" ]]; then
+    _chk_ok "$label" "$running/$total pods running"
+  else
+    _chk_warn "$label" "$running/$total pods running (some not ready)"
+  fi
+}
+
+printf "\n  ${BOLD}Core${RESET}\n" >&3
+_check_ns "ingress-nginx" ingress-nginx
+_check_ns "flux"          flux-system
+_check_ns "dns-lab"       dns-lab
+
+printf "\n  ${BOLD}Infrastructure${RESET}\n" >&3
+if feature_enabled vault; then
+  if curl -sf http://127.0.0.1:8200/v1/sys/health 2>/dev/null \
+      | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if not d.get('sealed') else 1)" 2>/dev/null; then
+    _chk_ok "vault" "dev server unsealed at :8200"
+  else
+    _chk_fail "vault" "not reachable at http://127.0.0.1:8200"
+  fi
+fi
+feature_enabled monitoring && _check_ns "monitoring" monitoring
+feature_enabled argocd     && _check_ns "argocd"     argocd
+feature_enabled toolbox    && _check_ns "toolbox"    toolbox
+
+printf "\n  ${BOLD}Identity${RESET}\n" >&3
+if feature_enabled samba-ad; then
+  _SAMBA_STATE=$(multipass info samba-ad --format json 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); i=d['info']['samba-ad']; print(i['state']+'|'+i['ipv4'][0])" \
+    2>/dev/null || echo "Error|")
+  if [[ "$_SAMBA_STATE" == Running* ]]; then
+    _chk_ok "samba-ad" "VM running — ${_SAMBA_STATE#*|}"
+  else
+    _chk_fail "samba-ad" "VM not running (state: ${_SAMBA_STATE%|*})"
+  fi
+fi
+feature_enabled dex          && _check_ns "dex"          dex
+feature_enabled oauth2-proxy && _check_ns "oauth2-proxy" oauth2-proxy
+if feature_enabled corp-client; then
+  _CLIENT_STATE=$(multipass info corp-client --format json 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['state'])" \
+    2>/dev/null || echo "Error")
+  if [[ "$_CLIENT_STATE" == "Running" ]]; then
+    _chk_ok "corp-client" "VM running"
+  else
+    _chk_fail "corp-client" "VM not running (state: $_CLIENT_STATE)"
+  fi
+fi
+
+printf "\n  ${BOLD}Storage${RESET}\n" >&3
+feature_enabled azurite            && _check_ns "azurite"            azure-storage
+feature_enabled azure-sql          && _check_ns "azure-sql"          azure-sql
+feature_enabled cosmos-db          && _check_ns "cosmos-db"          cosmos-db
+feature_enabled service-bus        && _check_ns "service-bus"        service-bus
+feature_enabled container-registry && _check_ns "container-registry" container-registry
+
+printf "\n  ${BOLD}Apps${RESET}\n" >&3
+feature_enabled taskflow       && _check_ns "taskflow"       taskapp
+feature_enabled blob-explorer  && _check_ns "blob-explorer"  blob-explorer
+feature_enabled argo-workflows && _check_ns "argo-workflows" argo
+feature_enabled azdo-agent     && _check_ns "azdo-agent"     azdo-agent
+
+printf "\n" >&3
+_CHECKS_TOTAL=$(( _CHECKS_PASS + _CHECKS_FAIL ))
+if [[ $_CHECKS_FAIL -eq 0 ]]; then
+  echo -e "  ${GREEN}${BOLD}All ${_CHECKS_TOTAL} components healthy${RESET}" >&3
+else
+  echo -e "  ${YELLOW}${BOLD}${_CHECKS_PASS}/${_CHECKS_TOTAL} components healthy — ${_CHECKS_FAIL} need attention (see above)${RESET}" >&3
+fi
+printf "\n" >&3
 
 # ── Done ─────────────────────────────────────
 SETUP_END=$(date +%s)
