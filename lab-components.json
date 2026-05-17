@@ -191,8 +191,8 @@
       "default": true,
       "type": "kubectl",
       "ns": "taskapp",
-      "flux_dir": "",
-      "manifest": "apps/base/taskflow/",
+      "flux_dir": "apps/base/taskflow",
+      "manifest": "",
       "depends": [],
       "port_forwards": [],
       "desc": "Three-tier demo app — Nginx → Node.js → PostgreSQL"

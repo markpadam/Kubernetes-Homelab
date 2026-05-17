@@ -8,6 +8,17 @@ brew install minikube kubectl helm fluxcd/tap/flux hashicorp/tap/vault terraform
 
 Docker Desktop must be running before any lab script is started.
 
+**Docker Desktop memory** — the cluster runs 3 nodes; each tier allocates:
+
+| Tier | Per node | Total needed | Docker setting |
+|------|----------|-------------|----------------|
+| Low | 2 GB | 6 GB | 8 GB minimum |
+| Standard *(default)* | 3 GB | 9 GB | **11 GB minimum** |
+| High | 4 GB | 12 GB | 14 GB minimum |
+
+Set memory in **Docker Desktop → Settings → Resources → Memory**, then Apply & Restart.  
+The setup script will warn and prompt before starting if Docker has less memory than the selected tier needs. Running below the minimum causes `K8S_APISERVER_MISSING` — the apiserver is starved and never starts.
+
 ---
 
 ## Start the lab

@@ -119,6 +119,9 @@ Components are individually toggleable at setup time or live from the dashboard.
 
 ## Quick Start
 
+> **Docker Desktop memory** — the 3-node cluster needs at least **8 GB** (Low tier) or **11 GB** (Standard, the default) allocated to Docker.  
+> Set it in Docker Desktop → Settings → Resources → Memory before running. The script warns you if there isn't enough.
+
 ```bash
 # Install dependencies (first time only)
 brew install minikube kubectl helm fluxcd/tap/flux \

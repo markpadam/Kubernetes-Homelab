@@ -274,6 +274,27 @@ if ! docker info &>/dev/null; then
   success "Docker daemon ready"
 fi
 
+# ── Docker memory check ───────────────────────
+# Each node gets $MEMORY MiB; the cluster needs NODES × MEMORY total.
+# If Docker Desktop has less, kubeadm starts but the apiserver is starved
+# and exits — minikube then fails with K8S_APISERVER_MISSING.
+_docker_mem_bytes=$(docker info --format '{{.MemTotal}}' 2>/dev/null || echo 0)
+_docker_mem_mib=$(( _docker_mem_bytes / 1024 / 1024 ))
+_cluster_needed_mib=$(( MEMORY * NODES ))
+if [[ $_docker_mem_mib -gt 0 && $_docker_mem_mib -lt $_cluster_needed_mib ]]; then
+  _docker_d10=$(( _docker_mem_mib * 10 / 1024 ))
+  _cluster_gib=$(( (_cluster_needed_mib + 1023) / 1024 ))
+  _rec_gib=$(( _cluster_gib + 2 ))
+  warn "Docker Desktop only has $(( _docker_d10 / 10 )).$(( _docker_d10 % 10 )) GB allocated — this tier needs ${_cluster_gib} GB for the cluster (${NODES} nodes × $(( MEMORY / 1024 )) GB each)."
+  warn "  Fix:  Docker Desktop → Settings → Resources → Memory → set to at least ${_rec_gib} GB, then Apply & Restart."
+  warn "  Or:   re-run and choose the Low tier (2 CPU / 2 GB per node, 6 GB total)."
+  warn "  Risk: continuing with insufficient memory will likely cause K8S_APISERVER_MISSING on minikube start."
+  printf "         Continue anyway? [y/N] " >&3
+  read -r _mem_confirm <&0
+  [[ "$(echo "$_mem_confirm" | tr '[:upper:]' '[:lower:]')" == "y" ]] \
+    || error "Aborted — increase Docker Desktop memory and retry."
+fi
+
 [[ -d "$APP_DIR" ]]     || error "App manifests not found at ./$APP_DIR — run from repo root."
 [[ -d "$DNS_DIR" ]]     || error "DNS lab not found at ./$DNS_DIR — run from repo root."
 [[ -d "$TOOLBOX_DIR" ]] || error "Toolbox not found at ./$TOOLBOX_DIR — run from repo root."
