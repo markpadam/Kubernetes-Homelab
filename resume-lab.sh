@@ -200,10 +200,8 @@ _start_portforward() {
   lsof -ti:"$port" | xargs kill -9 2>/dev/null || true
   rm -f "$pid_file"
   sleep 1
-  ( while true; do
-      eval "$cmd" >> "$log" 2>&1
-      sleep 2
-    done ) &
+  # shellcheck disable=SC2094
+  nohup bash -c "while true; do $cmd >> $log 2>&1; sleep 2; done" > /dev/null 2>&1 &
   echo $! > "$pid_file"
   sleep 2
   if kill -0 "$(cat "$pid_file")" 2>/dev/null; then

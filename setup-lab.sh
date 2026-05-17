@@ -1387,11 +1387,10 @@ _start_portforward() {
   lsof -ti:"$port" | xargs kill -9 2>/dev/null || true
   rm -f "$pid_file"
   sleep 1
-  # Self-healing loop: kubectl port-forward reconnects automatically when a pod restarts
-  ( while true; do
-      eval "$cmd" >> "$log" 2>&1
-      sleep 2
-    done ) &
+  # Self-healing loop: kubectl port-forward reconnects automatically when a pod restarts.
+  # nohup ensures the loop survives the parent shell exiting (no SIGHUP).
+  # shellcheck disable=SC2094
+  nohup bash -c "while true; do $cmd >> $log 2>&1; sleep 2; done" 4>&- > /dev/null 2>&1 &
   echo $! > "$pid_file"
   sleep 2
   if kill -0 "$(cat "$pid_file")" 2>/dev/null; then
@@ -1450,37 +1449,6 @@ Path('/tmp/lab-dashboard.html').write_text(string.Template(t).safe_substitute(os
 "
 
 success "Dashboard written to /tmp/lab-dashboard.html"
-
-# ── macOS LaunchAgent (auto-resume on login) ──
-_LAUNCHAGENT_LABEL="local.aks-lab-resume"
-_LAUNCHAGENT_PATH="$HOME/Library/LaunchAgents/${_LAUNCHAGENT_LABEL}.plist"
-_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cat > "$_LAUNCHAGENT_PATH" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>${_LAUNCHAGENT_LABEL}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/bin/bash</string>
-        <string>${_SCRIPT_DIR}/resume-lab.sh</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>WorkingDirectory</key>
-    <string>${_SCRIPT_DIR}</string>
-    <key>StandardOutPath</key>
-    <string>/tmp/lab-launchd.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/lab-launchd.log</string>
-    <key>KeepAlive</key>
-    <false/>
-</dict>
-</plist>
-PLIST
-success "LaunchAgent installed — resume-lab.sh will run automatically on next login"
 
 DASHBOARD_PORT=9997
 lsof -ti:"$DASHBOARD_PORT" | xargs kill -9 2>/dev/null || true
@@ -1697,6 +1665,39 @@ if [[ "$_TUI_ACTIVE" == "1" ]]; then
   rm -f "$_TUI_FIFO"
   _TUI_FIFO=""
 fi
+
+# ── macOS LaunchAgent (auto-resume on login) ──
+# Installed after TUI exits so a failure here can't prevent the ready page.
+_LAUNCHAGENT_LABEL="local.aks-lab-resume"
+_LAUNCHAGENT_PATH="$HOME/Library/LaunchAgents/${_LAUNCHAGENT_LABEL}.plist"
+_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+mkdir -p "$HOME/Library/LaunchAgents"
+cat > "$_LAUNCHAGENT_PATH" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${_LAUNCHAGENT_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>${_SCRIPT_DIR}/resume-lab.sh</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>WorkingDirectory</key>
+    <string>${_SCRIPT_DIR}</string>
+    <key>StandardOutPath</key>
+    <string>/tmp/lab-launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/lab-launchd.log</string>
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>
+PLIST
+success "LaunchAgent installed — resume-lab.sh will run automatically on next login"
 
 # ── Done ─────────────────────────────────────
 SETUP_END=$(date +%s)
