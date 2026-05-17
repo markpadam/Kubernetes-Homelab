@@ -15,6 +15,13 @@ spec:
       labels:
         app: cosmosdb
     spec:
+      initContainers:
+        - name: fix-data-permissions
+          image: busybox:1.35
+          command: ["sh", "-c", "chmod 777 /usr/cosmos/data"]
+          volumeMounts:
+            - name: cosmos-data
+              mountPath: /usr/cosmos/data
       containers:
         - name: cosmosdb
           image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview

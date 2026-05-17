@@ -45,6 +45,14 @@ _TUI_ACTIVE=0
 _TUI_FIFO=""
 _TUI_PID=""
 _STEP_ID=0
+_SUDO_KEEPALIVE_PID=""
+_WAS_TUI=0
+
+# Helpers for emitting Lab Ready info lines to the TUI final page
+_info()  { _emit "{\"event\":\"info\",\"msg\":\"$(_json_escape "$*")\",\"style\":\"\"}"; }
+_infoh() { _emit "{\"event\":\"info\",\"msg\":\"$(_json_escape "$*")\",\"style\":\"header\"}"; }
+_infok() { _emit "{\"event\":\"info\",\"msg\":\"$(_json_escape "$*")\",\"style\":\"key\"}"; }
+_infod() { _emit "{\"event\":\"info\",\"msg\":\"$(_json_escape "$*")\",\"style\":\"dim\"}"; }
 
 _json_escape() {
   local s="$*"
@@ -184,7 +192,7 @@ _stop_progress() {
   _PROGRESS_PID=""
 }
 
-trap '_cleanup_tui; _stop_progress' EXIT
+trap '_cleanup_tui; _stop_progress; [[ -n "${_SUDO_KEEPALIVE_PID:-}" ]] && kill "$_SUDO_KEEPALIVE_PID" 2>/dev/null || true' EXIT
 
 # ── Feature selection ─────────────────────────
 step "Component Selection"
@@ -405,6 +413,19 @@ if docker info &>/dev/null 2>&1 && [[ -d "$HOME/.minikube/profiles/$PROFILE" ]];
   fi
 fi
 
+# Sudo credentials — needed for /etc/hosts modifications later.
+# Pre-cache now so the TUI isn't blocked mid-run waiting for a password prompt.
+printf "\n" >&3
+echo -e "  ${BOLD}Sudo access required${RESET} for /etc/hosts modifications (aks-lab.local entries)." >&3
+if ! sudo -v; then
+  echo -e "${RED}${BOLD}[✗]${RESET} sudo access denied — cannot continue." >&3
+  exit 1
+fi
+echo -e "  ${GREEN}${BOLD}[✓]${RESET} Sudo credentials cached" >&3
+# Keep the sudo token alive in the background — setup can take 20+ minutes.
+( while true; do sudo -n true 2>/dev/null; sleep 60; kill -0 "$$" 2>/dev/null || exit 0; done ) &
+_SUDO_KEEPALIVE_PID=$!
+
 printf "\n" >&3
 
 # ── TUI bootstrap ─────────────────────────────────────────────────────────────
@@ -420,6 +441,7 @@ if [[ "$VERBOSE" != "1" && "$CI_MODE" != "1" ]]; then
   # All _emit() calls write to fd 4; the pipe only gets EOF when we exec 4>&-.
   exec 4<> "$_TUI_FIFO"
   _TUI_ACTIVE=1
+  _WAS_TUI=1
 fi
 
 # ── Preflight checks ─────────────────────────
@@ -639,6 +661,7 @@ step "Step 4 — Enabling Persistent Storage"
 minikube addons enable storage-provisioner  -p "$PROFILE"
 minikube addons enable volumesnapshots      -p "$PROFILE"
 minikube addons enable csi-hostpath-driver  -p "$PROFILE"
+minikube addons enable metrics-server       -p "$PROFILE"
 
 log "Setting csi-hostpath-sc as default StorageClass..."
 
@@ -1545,9 +1568,83 @@ else
 fi
 printf "\n" >&3
 
+# ── Lab Ready info page (TUI mode) ───────────────────────────────────────────
+# Emit structured info lines that the TUI renders as an interactive final page.
+# Non-TUI mode (--verbose, CI) skips this and uses the plain-text banner below.
+if [[ "$_TUI_ACTIVE" == "1" ]]; then
+  _has_webapps=false
+  { feature_enabled taskflow || feature_enabled monitoring || feature_enabled argocd \
+    || feature_enabled blob-explorer; } && _has_webapps=true
+
+  if $_has_webapps; then
+    _infoh "Web Apps  (via NGINX Ingress · login with AD credentials)"
+    feature_enabled taskflow      && _infok "  TaskFlow:       http://taskflow.aks-lab.local:9980"
+    feature_enabled monitoring    && _infok "  Grafana:        http://grafana.aks-lab.local:9980"
+    feature_enabled argocd        && _infok "  ArgoCD:         http://argocd.aks-lab.local:9980"
+    feature_enabled blob-explorer && _infok "  Blob Explorer:  http://blob-explorer.aks-lab.local:9980"
+    { feature_enabled dex || feature_enabled samba-ad; } \
+      && _info "  Login with AD:  testuser1@corp.internal / AksLab!User1"
+  fi
+
+  if feature_enabled dex || feature_enabled oauth2-proxy || feature_enabled samba-ad; then
+    _info ""
+    _infoh "Auth Services"
+    feature_enabled dex          && _infok "  Dex (OIDC):     http://dex.aks-lab.local:9980/.well-known/openid-configuration"
+    feature_enabled oauth2-proxy && _infok "  OAuth2 Proxy:   http://oauth2-proxy.aks-lab.local:9980/oauth2/auth"
+    feature_enabled samba-ad     && _info  "  SambaAD VM:     IP: ${SAMBA_IP:-<run: multipass info samba-ad>}"
+  fi
+
+  _has_emulators=false
+  for _e in azure-sql azurite cosmos-db service-bus container-registry vault argo-workflows; do
+    feature_enabled "$_e" && _has_emulators=true && break || true
+  done
+  if $_has_emulators; then
+    _info ""
+    _infoh "Azure Emulators & Services"
+    feature_enabled azure-sql          && _infok "  Azure SQL:       localhost:1433  (sa / AksLab!SqlDev1)"
+    feature_enabled azurite            && _infok "  Azurite:         http://localhost:10000"
+    feature_enabled service-bus        && _infok "  Service Bus:     localhost:5672 (AMQP)"
+    feature_enabled container-registry && _infok "  Registry:        localhost:5000"
+    feature_enabled cosmos-db          && _infok "  Cosmos DB:       http://localhost:8081  ·  Explorer: http://localhost:1234"
+    feature_enabled vault              && _infok "  Vault UI:        http://vault.aks-lab.local:8200/ui  (token: ${VAULT_TOKEN})"
+    feature_enabled argo-workflows     && _infok "  Argo Workflows:  http://argo-workflows.aks-lab.local:2746"
+  fi
+
+  if feature_enabled corp-client; then
+    _info ""
+    _infoh "Corp Client VM  (domain-joined Ubuntu)"
+    _info  "  Shell in:   multipass shell corp-client"
+    _info  "  AD login:   su - testuser1  (or testuser2)"
+  fi
+
+  if feature_enabled toolbox; then
+    _info ""
+    _infoh "Toolbox Pod"
+    _infok "  SSH:        ssh aks-toolbox"
+    _info  "  Or:         ssh -p 2222 root@localhost"
+    _info  "  Re-forward: kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox &"
+  fi
+
+  _info ""
+  _infoh "Flux (GitOps)"
+  _info  "  Watching:    ${GITHUB_REPO} @ ${FLUX_APPS_PATH}"
+  _infok "  Status:      flux get all -n flux-system"
+  _infok "  Force sync:  flux reconcile kustomization flux-apps -n flux-system"
+
+  _info ""
+  _infoh "Useful Commands"
+  _infok "  All pods:  kubectl get pods -A"
+  _infok "  Stop lab:  minikube stop -p ${PROFILE}"
+  _infok "  Destroy:   minikube delete -p ${PROFILE}"
+
+  _info ""
+  _infod "Full setup log: ${LAB_LOG}"
+  _infod "Dashboard:      http://localhost:9997/"
+fi
+
 # Signal TUI that setup is complete, then close the FIFO write-end so the Python
-# reader sees EOF and exits. Wait for the TUI to finish its 3-second completion
-# display before restoring the terminal for the Lab Ready banner below.
+# reader sees EOF and exits. Wait for the TUI to show the Lab Ready page and
+# the user to press Enter before restoring the terminal.
 if [[ "$_TUI_ACTIVE" == "1" ]]; then
   _emit "{\"event\":\"done\",\"pass\":${_CHECKS_PASS},\"fail\":${_CHECKS_FAIL}}"
   exec 4>&-          # close write-end → Python reader gets EOF, exits cleanly
@@ -1563,6 +1660,10 @@ SETUP_END=$(date +%s)
 ELAPSED=$(( SETUP_END - SETUP_START ))
 ELAPSED_MIN=$(( ELAPSED / 60 ))
 ELAPSED_SEC=$(( ELAPSED % 60 ))
+
+# In TUI mode the Lab Ready page was already shown interactively inside the TUI.
+# Only print the plain-text banner in --verbose / CI mode.
+[[ "$_WAS_TUI" == "1" ]] && exit 0
 
 step "Lab Ready"
 

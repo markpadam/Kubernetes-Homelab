@@ -47,8 +47,9 @@ STYLE = {
 class State:
     def __init__(self):
         self.steps: list[dict] = []
-        self.logs: list[tuple] = []   # (ts, level, msg)
+        self.logs: list[tuple] = []         # (ts, level, msg)
         self.health: list[tuple] = []
+        self.ready_lines: list[tuple] = []  # (style, text) for Lab Ready page
         self.start = time.monotonic()
         self.phase = "Starting..."
         self.finished = False
@@ -94,6 +95,11 @@ class State:
                     evt.get("label", ""),
                     evt.get("status", ""),
                     evt.get("detail", ""),
+                ))
+            elif e == "info":
+                self.ready_lines.append((
+                    evt.get("style", ""),
+                    evt.get("msg", ""),
                 ))
             elif e == "done":
                 for s in self.steps:
@@ -226,6 +232,53 @@ class State:
         return layout
 
 
+def show_ready_page(state: State, console: Console) -> None:
+    """Replace the TUI with a full-screen Lab Ready summary; exit on Enter."""
+    elapsed = state.elapsed()
+    f_pass  = state.final_pass
+    f_fail  = state.final_fail
+    total   = f_pass + f_fail
+
+    # ── Health summary bar ───────────────────────────────────────────────
+    if f_fail == 0:
+        health_bar = Text(f"  ✓  {f_pass}/{total} components healthy", style="green bold")
+        bar_border = "green"
+    else:
+        health_bar = Text(
+            f"  ~  {f_pass}/{total} components healthy · {f_fail} need attention",
+            style="yellow bold",
+        )
+        bar_border = "yellow"
+
+    # ── Info panel content ───────────────────────────────────────────────
+    info_text = Text()
+    style_map = {
+        "header": "bold cyan",
+        "key":    "green",
+        "dim":    "dim",
+        "":       "white",
+    }
+    for item_style, line in state.ready_lines:
+        sty = style_map.get(item_style, "white")
+        info_text.append(line + "\n", style=sty)
+
+    console.clear()
+    console.print()
+    console.print(Panel(health_bar, box=box.ROUNDED, border_style=bar_border))
+    console.print(Panel(
+        info_text,
+        title=f"[bold green]  Lab Ready  ✓  — Deployed in {elapsed}[/bold green]",
+        border_style="green",
+        box=box.ROUNDED,
+        padding=(0, 2),
+    ))
+    console.print("\n  [dim]Press Enter to close[/dim]")
+    try:
+        input()
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+
 def reader_thread(fifo_path: str, state: State) -> None:
     try:
         with open(fifo_path, "r") as f:
@@ -269,9 +322,12 @@ def main() -> None:
             body_height = max(5, console.size.height - 9)
             live.update(state.render(log_height=body_height))
             time.sleep(0.25)
-        # Final render — show completion for a moment before exiting
+        # One final render so the completion state is visible for a beat
         live.update(state.render(log_height=max(5, console.size.height - 9)))
-        time.sleep(3)
+        time.sleep(0.5)
+    # Live exits → terminal restored. Show the interactive Lab Ready page.
+    if state.ready_lines:
+        show_ready_page(state, console)
 
 
 if __name__ == "__main__":
