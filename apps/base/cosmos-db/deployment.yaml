@@ -15,6 +15,16 @@ spec:
       labels:
         app: cosmosdb
     spec:
+      # The internal health_check_server checks the gateway via the hostname in
+      # GATEWAY_PUBLIC_ENDPOINT. In minikube (Docker driver) a pod cannot reach
+      # its own ClusterIP (no hairpin NAT), so the check always fails. Mapping
+      # the service hostname to 127.0.0.1 in /etc/hosts makes the health_check_server
+      # connect to localhost where the gateway IS reachable, without altering the
+      # GATEWAY_PUBLIC_ENDPOINT value used in the gateway's own API responses.
+      hostAliases:
+        - ip: "127.0.0.1"
+          hostnames:
+            - "cosmosdb.cosmos-db.svc.cluster.local"
       initContainers:
         - name: fix-data-permissions
           image: busybox:1.35
