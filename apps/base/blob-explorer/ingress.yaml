@@ -17,6 +17,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: blob-explorer-blob-explorer-blob-explorer
+                name: blob-explorer
                 port:
                   number: 80
