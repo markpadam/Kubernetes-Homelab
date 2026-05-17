@@ -1,0 +1,129 @@
+#cloud-config
+# Corp Client VM — Ubuntu 24.04 domain-joined workstation with XFCE4 + VNC
+# Rendered from corp-client.tpl.yaml by Terraform — do not edit directly.
+#
+# SAMBA_IP_PLACEHOLDER is substituted at apply time by the provisioner once
+# the samba-ad VM IP is known. All other variables are rendered by Terraform.
+
+package_update: true
+package_reboot_if_required: false
+
+write_files:
+  - path: /etc/apt/apt.conf.d/99force-ipv4
+    owner: root:root
+    permissions: '0644'
+    content: 'Acquire::ForceIPv4 "true";'
+
+  - path: /etc/systemd/system/vncserver@.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=TigerVNC server for display %i
+      After=syslog.target network.target
+
+      [Service]
+      Type=forking
+      User=ubuntu
+      Group=ubuntu
+      WorkingDirectory=/home/ubuntu
+      ExecStartPre=-/usr/bin/vncserver -kill :%i
+      ExecStart=/usr/bin/vncserver -localhost no -geometry 1280x800 -depth 24 :%i
+      ExecStop=/usr/bin/vncserver -kill :%i
+      Restart=on-failure
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /root/client-setup.sh
+    owner: root:root
+    permissions: '0700'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      SAMBA_IP="SAMBA_IP_PLACEHOLDER"
+      DOMAIN="${ad_domain}"
+
+      echo "[client] Configuring DNS to use SambaAD ($SAMBA_IP)..."
+      # Stop resolved with a timeout so a slow shutdown can't block this script.
+      timeout 15 systemctl stop systemd-resolved 2>/dev/null || true
+      systemctl mask systemd-resolved 2>/dev/null || true
+      rm -f /etc/resolv.conf
+      printf 'nameserver %s\nsearch %s\ndomain %s\n' \
+        "$SAMBA_IP" "$DOMAIN" "$DOMAIN" > /etc/resolv.conf
+      chattr +i /etc/resolv.conf
+
+      echo "[client] Verifying DNS to domain..."
+      for i in $(seq 1 15); do
+        nslookup "$DOMAIN" 2>/dev/null && echo "[client] DNS OK after $i attempts" && break
+        sleep 2
+      done
+
+      echo "[client] Discovering realm..."
+      realm discover "$DOMAIN"
+
+      echo "[client] Joining domain $DOMAIN..."
+      printf '%s\n' '${ad_admin_password}' | realm join "$DOMAIN" -U Administrator --verbose
+
+      echo "[client] Enabling home directory creation on login..."
+      pam-auth-update --enable mkhomedir --force
+
+      echo "[client] Configuring SSSD to allow short usernames..."
+      sed -i 's/^use_fully_qualified_names.*/use_fully_qualified_names = False/' /etc/sssd/sssd.conf || true
+      systemctl restart sssd
+
+      echo "[client] Verifying domain join..."
+      for i in $(seq 1 10); do
+        id testuser1 2>/dev/null && echo "[client] Domain join verified — testuser1 resolves" && break
+        sleep 3
+      done
+
+      echo "[client] Adding cluster service host entries..."
+      GATEWAY_IP=$(ip route | grep default | awk '{print $3}')
+      printf '\n# AKS lab cluster services (via Mac host port-forwards)\n' >> /etc/hosts
+      for svc in taskflow grafana argocd blob-explorer oauth2-proxy dex; do
+        printf '%s  %s.aks-lab.local\n' "$GATEWAY_IP" "$svc" >> /etc/hosts
+      done
+
+      echo "[client] Setting up XFCE4 VNC desktop..."
+      mkdir -p /home/ubuntu/.vnc
+      chmod 700 /home/ubuntu/.vnc
+      chown ubuntu:ubuntu /home/ubuntu/.vnc
+
+      printf '#!/bin/bash\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexec startxfce4\n' \
+        > /home/ubuntu/.vnc/xstartup
+      chmod +x /home/ubuntu/.vnc/xstartup
+      chown ubuntu:ubuntu /home/ubuntu/.vnc/xstartup
+
+      printf '%s\n' '${vnc_password}' \
+        | sudo -u ubuntu vncpasswd -f > /home/ubuntu/.vnc/passwd
+      chmod 600 /home/ubuntu/.vnc/passwd
+      chown ubuntu:ubuntu /home/ubuntu/.vnc/passwd
+
+      systemctl daemon-reload
+      systemctl enable vncserver@1
+      systemctl start vncserver@1
+
+      echo "[client] Client provisioning complete."
+
+packages:
+  - realmd
+  - sssd
+  - sssd-tools
+  - adcli
+  - krb5-user
+  - ldap-utils
+  - curl
+  - wget
+  - dnsutils
+  - net-tools
+  - xfce4
+  - xfce4-goodies
+  - xfce4-terminal
+  - thunar
+  - tigervnc-standalone-server
+  - dbus-x11
+
+runcmd:
+  - [bash, /root/client-setup.sh]

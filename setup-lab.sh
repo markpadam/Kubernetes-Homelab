@@ -1015,13 +1015,13 @@ if feature_enabled corp-client; then
   step "Step 11c — Corp Client VM"
   log "Provisioning domain-joined corp-client VM..."
   _start_progress /tmp/corp-client-terraform-apply.log \
-    "Launching VM:Creating Multipass VM corp-client" \
-    "Installing packages:Installing packages" \
-    "Configuring DNS:Configuring DNS" \
-    "Discovering realm:Discovering realm" \
-    "Joining domain:Joining domain" \
-    "Verifying join:Verifying domain join" \
-    "Setting up desktop:Setting up XFCE4"
+    "Launching VM:Launching corp-client VM" \
+    "Packages installing:Streaming cloud-init log" \
+    "Configuring DNS:\[client\] Configuring DNS" \
+    "Joining domain:\[client\] Joining domain" \
+    "Verifying join:\[client\] Verifying domain join" \
+    "Setting up VNC:\[client\] Setting up XFCE4" \
+    "Done:\[client\] Client provisioning complete"
   _CLIENT_RC=0
   { terraform -chdir=IaC/terraform apply -auto-approve -input=false \
       -target=null_resource.corp_client_vm \
