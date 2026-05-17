@@ -40,6 +40,38 @@ BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
 
+# ── TUI state ─────────────────────────────────
+_TUI_ACTIVE=0
+_TUI_FIFO=""
+_TUI_PID=""
+_STEP_ID=0
+
+_json_escape() {
+  local s="$*"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/}"
+  printf '%s' "$s"
+}
+
+_emit() {
+  [[ "$_TUI_ACTIVE" != "1" ]] && return
+  [[ -p "$_TUI_FIFO" ]] || return
+  printf '%s\n' "$1" > "$_TUI_FIFO" 2>/dev/null || true
+}
+
+_cleanup_tui() {
+  if [[ -n "$_TUI_PID" ]]; then
+    kill "$_TUI_PID" 2>/dev/null || true
+    wait "$_TUI_PID" 2>/dev/null || true
+    _TUI_PID=""
+    _TUI_ACTIVE=0
+  fi
+  [[ -n "$_TUI_FIFO" ]] && rm -f "$_TUI_FIFO" 2>/dev/null || true
+  _TUI_FIFO=""
+}
+
 # ── Parse args ────────────────────────────────
 SETUP_FLAG=""
 VERBOSE=0
@@ -66,11 +98,40 @@ exec 3>&1
 if [[ "$VERBOSE" != "1" ]]; then
   # All command output goes to the log file; user-facing functions write to fd 3
   exec >> "$LAB_LOG" 2>&1
-  log()     { echo -e "${CYAN}${BOLD}[lab]${RESET} $*" >&3; }
-  success() { echo -e "${GREEN}${BOLD}[✓]${RESET} $*" >&3; }
-  warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*" >&3; }
-  step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}" >&3; }
-  error()   {
+  log() {
+    if [[ "$_TUI_ACTIVE" == "1" ]]; then
+      _emit "{\"event\":\"log\",\"msg\":\"$(_json_escape "$*")\"}";
+    else
+      echo -e "${CYAN}${BOLD}[lab]${RESET} $*" >&3
+    fi
+  }
+  success() {
+    if [[ "$_TUI_ACTIVE" == "1" ]]; then
+      _emit "{\"event\":\"success\",\"msg\":\"$(_json_escape "$*")\"}";
+    else
+      echo -e "${GREEN}${BOLD}[✓]${RESET} $*" >&3
+    fi
+  }
+  warn() {
+    if [[ "$_TUI_ACTIVE" == "1" ]]; then
+      _emit "{\"event\":\"warn\",\"msg\":\"$(_json_escape "$*")\"}";
+    else
+      echo -e "${YELLOW}${BOLD}[!]${RESET} $*" >&3
+    fi
+  }
+  step() {
+    if [[ "$_TUI_ACTIVE" == "1" ]]; then
+      _STEP_ID=$(( _STEP_ID + 1 ))
+      _emit "{\"event\":\"step_start\",\"id\":${_STEP_ID},\"label\":\"$(_json_escape "$*")\"}"
+    else
+      echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}" >&3
+    fi
+  }
+  error() {
+    if [[ "$_TUI_ACTIVE" == "1" ]]; then
+      _emit "{\"event\":\"error\",\"msg\":\"$(_json_escape "$*")\"}"
+      _cleanup_tui
+    fi
     echo -e "${RED}${BOLD}[✗]${RESET} $*" >&3
     echo -e "${DIM}    Last 20 lines of log (${LAB_LOG}):${RESET}" >&3
     tail -20 "$LAB_LOG" | sed 's/^/    /' >&3
@@ -94,6 +155,7 @@ fi
 # the display advances to the last label whose pattern appears in the log.
 _PROGRESS_PID=""
 _start_progress() {
+  [[ "$_TUI_ACTIVE" == "1" ]] && return
   [[ "$VERBOSE" == "1" ]] && return
   local log="$1"; shift
   local stage_specs=("$@")
@@ -121,7 +183,7 @@ _stop_progress() {
   _PROGRESS_PID=""
 }
 
-trap '_stop_progress' EXIT
+trap '_cleanup_tui; _stop_progress' EXIT
 
 # ── Feature selection ─────────────────────────
 step "Component Selection"
@@ -246,6 +308,116 @@ case "${_tier:-2}" in
     ;;
 esac
 
+# ── Upfront credential + decision collection ──────────────────────────────────
+# Gather everything that would otherwise interrupt an unattended run.
+# All prompts happen here, before the TUI starts.
+
+# GitHub token (needed for Flux and optionally ArgoCD)
+if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+  GITHUB_TOKEN=$(security find-generic-password -a "$USER" -s "aks-lab-github-token" -w 2>/dev/null || true)
+  GITHUB_TOKEN="${GITHUB_TOKEN//[$'\t\r\n ']}"
+  [[ -n "$GITHUB_TOKEN" ]] && echo -e "  ${DIM}GitHub token loaded from macOS Keychain.${RESET}" >&3
+fi
+if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+  printf "  GitHub personal access token (for Flux + ArgoCD repo access): " >&3
+  read -rs GITHUB_TOKEN <&0
+  printf "\n" >&3
+  if [[ -n "$GITHUB_TOKEN" ]]; then
+    security delete-generic-password -a "$USER" -s "aks-lab-github-token" 2>/dev/null || true
+    if security add-generic-password -a "$USER" -s "aks-lab-github-token" -w "$GITHUB_TOKEN" 2>/dev/null; then
+      echo -e "  ${GREEN}${BOLD}[✓]${RESET} GitHub token saved to macOS Keychain" >&3
+    else
+      echo -e "  ${YELLOW}${BOLD}[!]${RESET} Could not save to Keychain — will prompt again next run" >&3
+    fi
+  fi
+fi
+[[ -n "${GITHUB_TOKEN:-}" ]] || { echo -e "${RED}${BOLD}[✗]${RESET} GITHUB_TOKEN is required for Flux to access the private repo." >&3; exit 1; }
+
+# SSH public key (needed for Toolbox pod if selected)
+SSH_KEY_PATH=""
+if feature_enabled toolbox; then
+  for _key in "$HOME/.ssh/id_ed25519.pub" "$HOME/.ssh/id_rsa.pub" "$HOME/.ssh/id_ecdsa.pub"; do
+    [[ -f "$_key" ]] && { SSH_KEY_PATH="$_key"; break; }
+  done
+  if [[ -z "$SSH_KEY_PATH" ]]; then
+    echo -e "  ${YELLOW}${BOLD}[!]${RESET} No SSH public key found in ~/.ssh/" >&3
+    printf "  Enter path to your public key, or press Enter to generate one: " >&3
+    read -r _custom_key_path <&0
+    if [[ -n "$_custom_key_path" ]]; then
+      [[ -f "$_custom_key_path" ]] || { echo -e "${RED}${BOLD}[✗]${RESET} Key not found at $_custom_key_path" >&3; exit 1; }
+      SSH_KEY_PATH="$_custom_key_path"
+    else
+      echo -e "  Generating new ED25519 key pair at ~/.ssh/id_ed25519..." >&3
+      ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -C "aks-lab-toolbox" >&3 2>&3
+      SSH_KEY_PATH="$HOME/.ssh/id_ed25519.pub"
+    fi
+  fi
+  echo -e "  ${GREEN}${BOLD}[✓]${RESET} SSH key: $SSH_KEY_PATH" >&3
+fi
+
+# Azure DevOps credentials (needed if azdo-agent feature is selected)
+if feature_enabled azdo-agent; then
+  if [[ -f "$ADO_CONFIG_FILE" && "$RECONFIGURE_ADO" -eq 0 ]]; then
+    # shellcheck source=/dev/null
+    source "$ADO_CONFIG_FILE"
+    echo -e "  ${DIM}ADO credentials loaded from $ADO_CONFIG_FILE.${RESET}" >&3
+  else
+    [[ "$RECONFIGURE_ADO" -eq 1 ]] && echo -e "  ${CYAN}${BOLD}[lab]${RESET} Re-configuring ADO credentials..." >&3
+    printf "\n" >&3
+    AZP_URL=""
+    while [[ ! "$AZP_URL" =~ ^https://dev\.azure\.com/ ]]; do
+      printf "  Azure DevOps org URL  (e.g. https://dev.azure.com/myorg): " >&3
+      read -r AZP_URL <&0
+      [[ "$AZP_URL" =~ ^https://dev\.azure\.com/ ]] \
+        || echo -e "  ${YELLOW}${BOLD}[!]${RESET} URL must start with https://dev.azure.com/ — try again" >&3
+    done
+    printf "  Agent pool name       (create it first in ADO → Org Settings → Agent pools): " >&3
+    read -r AZP_POOL <&0
+    AZP_TOKEN=""
+    while [[ -z "$AZP_TOKEN" ]]; do
+      printf "  Personal Access Token (needs Agent Pools: Read & Manage scope): " >&3
+      read -rs AZP_TOKEN <&0
+      printf "\n" >&3
+      [[ -n "$AZP_TOKEN" ]] \
+        || echo -e "  ${YELLOW}${BOLD}[!]${RESET} PAT cannot be empty — try again" >&3
+    done
+    cat > "$ADO_CONFIG_FILE" <<ADOEOF
+AZP_URL="$AZP_URL"
+AZP_POOL="$AZP_POOL"
+AZP_TOKEN="$AZP_TOKEN"
+ADOEOF
+    chmod 600 "$ADO_CONFIG_FILE"
+    echo -e "  ${GREEN}${BOLD}[✓]${RESET} ADO credentials saved to $ADO_CONFIG_FILE" >&3
+  fi
+fi
+
+# Cluster recreation decision — ask now so the run is fully unattended from here on
+_PRE_RECREATE_CLUSTER="n"
+if docker info &>/dev/null 2>&1 && [[ -d "$HOME/.minikube/profiles/$PROFILE" ]]; then
+  if docker inspect "$PROFILE" 2>/dev/null \
+      | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d[0]['State']['Running'] else 1)" \
+      2>/dev/null; then
+    printf "\n" >&3
+    echo -e "  ${YELLOW}${BOLD}[!]${RESET} Cluster '$PROFILE' is already running." >&3
+    printf "         Delete and recreate it? [y/N] " >&3
+    read -r _PRE_RECREATE_CLUSTER <&0
+  fi
+fi
+
+printf "\n" >&3
+
+# ── TUI bootstrap ─────────────────────────────────────────────────────────────
+# Start the Python rich TUI companion now that all input is collected.
+# Not used in --verbose or CI mode (those keep the traditional scrolling output).
+if [[ "$VERBOSE" != "1" && "$CI_MODE" != "1" ]]; then
+  _TUI_FIFO="/tmp/lab_tui_$$"
+  mkfifo "$_TUI_FIFO"
+  python3 "$(dirname "$0")/scripts/tui.py" "$_TUI_FIFO" >/dev/tty 2>/dev/tty &
+  _TUI_PID=$!
+  _TUI_ACTIVE=1
+  sleep 0.3   # give the TUI a moment to open the FIFO for reading
+fi
+
 # ── Preflight checks ─────────────────────────
 step "Preflight Checks"
 
@@ -293,11 +465,7 @@ if [[ $_docker_mem_mib -gt 0 && $_docker_mem_mib -lt $_cluster_needed_mib ]]; th
   warn "Docker Desktop only has $(( _docker_d10 / 10 )).$(( _docker_d10 % 10 )) GB allocated — this tier needs ${_cluster_gib} GB for the cluster (${NODES} nodes × $(( MEMORY / 1024 )) GB each)."
   warn "  Fix:  Docker Desktop → Settings → Resources → Memory → set to at least ${_rec_gib} GB, then Apply & Restart."
   warn "  Or:   re-run and choose the Low tier (2 CPU / 2 GB per node, 6 GB total)."
-  warn "  Risk: continuing with insufficient memory will likely cause K8S_APISERVER_MISSING on minikube start."
-  printf "         Continue anyway? [y/N] " >&3
-  read -r _mem_confirm <&0
-  [[ "$(echo "$_mem_confirm" | tr '[:upper:]' '[:lower:]')" == "y" ]] \
-    || error "Aborted — increase Docker Desktop memory and retry."
+  warn "  Continuing — insufficient memory may cause K8S_APISERVER_MISSING on minikube start."
 fi
 
 [[ -d "$APP_DIR" ]]     || error "App manifests not found at ./$APP_DIR — run from repo root."
@@ -350,9 +518,7 @@ _container_running() {
 if [[ -d "$HOME/.minikube/profiles/$PROFILE" ]]; then
   if _container_running; then
     warn "Profile '$PROFILE' is already running."
-    printf "         Delete and recreate it? [y/N] " >&3
-    read -r confirm <&0
-    if [[ "$(echo "$confirm" | tr '[:upper:]' '[:lower:]')" == "y" ]]; then
+    if [[ "$(echo "$_PRE_RECREATE_CLUSTER" | tr '[:upper:]' '[:lower:]')" == "y" ]]; then
       log "Deleting existing profile..."
       _delete_profile
     else
@@ -633,25 +799,8 @@ success "CoreDNS patched — stub zones active for corp.internal and privatelink
 if feature_enabled toolbox; then
   step "Step 8 — Deploying Toolbox Pod"
 
-  SSH_KEY_PATH=""
-  for key in "$HOME/.ssh/id_ed25519.pub" "$HOME/.ssh/id_rsa.pub" "$HOME/.ssh/id_ecdsa.pub"; do
-    [[ -f "$key" ]] && { SSH_KEY_PATH="$key"; break; }
-  done
-
-  if [[ -z "$SSH_KEY_PATH" ]]; then
-    warn "No SSH public key found in ~/.ssh/"
-    printf "         Enter path to your public key, or press Enter to generate one: " >&3
-    read -r custom_path <&0
-    if [[ -n "$custom_path" ]]; then
-      [[ -f "$custom_path" ]] || error "Key not found at $custom_path"
-      SSH_KEY_PATH="$custom_path"
-    else
-      log "Generating new ED25519 key pair at ~/.ssh/id_ed25519 ..."
-      ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -C "aks-lab-toolbox"
-      SSH_KEY_PATH="$HOME/.ssh/id_ed25519.pub"
-    fi
-  fi
-
+  # SSH_KEY_PATH was collected upfront in the credential collection phase
+  [[ -n "$SSH_KEY_PATH" ]] || error "SSH_KEY_PATH not set — this should have been collected before TUI started."
   PUBLIC_KEY=$(cat "$SSH_KEY_PATH")
   success "Using SSH key: $SSH_KEY_PATH"
 
@@ -704,26 +853,9 @@ else
   log "Skipping Step 8 — Toolbox not selected"
 fi
 
-# ── Resolve GitHub token (Flux always needs it; ArgoCD too if enabled) ──
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  GITHUB_TOKEN=$(security find-generic-password -a "$USER" -s "aks-lab-github-token" -w 2>/dev/null || true)
-  GITHUB_TOKEN="${GITHUB_TOKEN//[$'\t\r\n ']}"  # strip any whitespace
-  [[ -n "$GITHUB_TOKEN" ]] && log "GitHub token loaded from macOS Keychain"
-fi
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  printf "         GitHub token (for Flux + ArgoCD repo access): " >&3
-  read -rs GITHUB_TOKEN <&0
-  echo >&3
-  if [[ -n "$GITHUB_TOKEN" ]]; then
-    security delete-generic-password -a "$USER" -s "aks-lab-github-token" 2>/dev/null || true
-    if security add-generic-password -a "$USER" -s "aks-lab-github-token" -w "$GITHUB_TOKEN" 2>/dev/null; then
-      success "GitHub token saved to macOS Keychain"
-    else
-      warn "Could not save token to Keychain — you will be prompted again next run"
-    fi
-  fi
-fi
-[[ -n "$GITHUB_TOKEN" ]] || error "GITHUB_TOKEN is required for Flux to access the private repo."
+# GITHUB_TOKEN was collected during the upfront credential phase (before TUI started).
+# This guard is a safety net for --verbose / direct invocation paths.
+[[ -n "${GITHUB_TOKEN:-}" ]] || error "GITHUB_TOKEN is required for Flux to access the private repo."
 
 # ── Step 9: ArgoCD ───────────────────────────
 ARGOCD_PASSWORD=""
@@ -1145,38 +1277,14 @@ fi
 if feature_enabled azdo-agent; then
   step "Step 13 — Azure DevOps Self-Hosted Agent"
 
-  # Load saved ADO credentials or prompt on first run
-  if [[ -f "$ADO_CONFIG_FILE" && "$RECONFIGURE_ADO" -eq 0 ]]; then
+  # ADO credentials were collected during the upfront credential phase (before TUI started)
+  # and saved to $ADO_CONFIG_FILE. Source the file to make variables available here.
+  if [[ -f "$ADO_CONFIG_FILE" ]]; then
     # shellcheck source=/dev/null
     source "$ADO_CONFIG_FILE"
-    log "Loaded ADO credentials from $ADO_CONFIG_FILE (use --reconfigure-ado to change)"
+    log "Loaded ADO credentials from $ADO_CONFIG_FILE"
   else
-    [[ "$RECONFIGURE_ADO" -eq 1 ]] && log "Re-configuring ADO credentials..."
-    printf "\n" >&3
-    AZP_URL=""
-    while [[ ! "$AZP_URL" =~ ^https://dev\.azure\.com/ ]]; do
-      printf "  Azure DevOps org URL  (e.g. https://dev.azure.com/markpadam0046): " >&3
-      read -r AZP_URL <&0
-      [[ "$AZP_URL" =~ ^https://dev\.azure\.com/ ]] || warn "URL must start with https://dev.azure.com/ — try again"
-    done
-    printf "  Agent pool name       (create it first in ADO → Org Settings → Agent pools): " >&3
-    read -r AZP_POOL <&0
-    AZP_TOKEN=""
-    while [[ -z "$AZP_TOKEN" ]]; do
-      printf "  Personal Access Token (needs Agent Pools: Read & Manage scope): " >&3
-      read -rs AZP_TOKEN <&0
-      printf "\n" >&3
-      [[ -n "$AZP_TOKEN" ]] || warn "PAT cannot be empty — try again"
-    done
-
-    # Persist for future runs (file is gitignored via ~/.lab-ado, not in repo)
-    cat > "$ADO_CONFIG_FILE" <<ADOEOF
-AZP_URL="$AZP_URL"
-AZP_POOL="$AZP_POOL"
-AZP_TOKEN="$AZP_TOKEN"
-ADOEOF
-    chmod 600 "$ADO_CONFIG_FILE"
-    log "ADO credentials saved to $ADO_CONFIG_FILE"
+    error "ADO credentials not found at $ADO_CONFIG_FILE — this should have been collected before TUI started."
   fi
 
   log "Creating azdo-agent namespace and secret..."
@@ -1323,9 +1431,33 @@ step "Deployment Health Check"
 _CHECKS_PASS=0
 _CHECKS_FAIL=0
 
-_chk_ok()   { printf "  ${GREEN}${BOLD}✓${RESET}  %-24s ${GREEN}%s${RESET}\n"  "$1" "$2" >&3; _CHECKS_PASS=$(( _CHECKS_PASS + 1 )); }
-_chk_warn() { printf "  ${YELLOW}${BOLD}~${RESET}  %-24s ${YELLOW}%s${RESET}\n" "$1" "$2" >&3; _CHECKS_FAIL=$(( _CHECKS_FAIL + 1 )); }
-_chk_fail() { printf "  ${RED}${BOLD}✗${RESET}  %-24s ${RED}%s${RESET}\n"    "$1" "$2" >&3; _CHECKS_FAIL=$(( _CHECKS_FAIL + 1 )); }
+_chk_ok() {
+  _CHECKS_PASS=$(( _CHECKS_PASS + 1 ))
+  if [[ "$_TUI_ACTIVE" == "1" ]]; then
+    _emit "{\"event\":\"health_result\",\"label\":\"$(_json_escape "$1")\",\"status\":\"ok\",\"detail\":\"$(_json_escape "$2")\"}"
+  else
+    printf "  ${GREEN}${BOLD}✓${RESET}  %-24s ${GREEN}%s${RESET}\n" "$1" "$2" >&3
+  fi
+}
+_chk_warn() {
+  _CHECKS_FAIL=$(( _CHECKS_FAIL + 1 ))
+  if [[ "$_TUI_ACTIVE" == "1" ]]; then
+    _emit "{\"event\":\"health_result\",\"label\":\"$(_json_escape "$1")\",\"status\":\"warn\",\"detail\":\"$(_json_escape "$2")\"}"
+  else
+    printf "  ${YELLOW}${BOLD}~${RESET}  %-24s ${YELLOW}%s${RESET}\n" "$1" "$2" >&3
+  fi
+}
+_chk_fail() {
+  _CHECKS_FAIL=$(( _CHECKS_FAIL + 1 ))
+  if [[ "$_TUI_ACTIVE" == "1" ]]; then
+    _emit "{\"event\":\"health_result\",\"label\":\"$(_json_escape "$1")\",\"status\":\"fail\",\"detail\":\"$(_json_escape "$2")\"}"
+  else
+    printf "  ${RED}${BOLD}✗${RESET}  %-24s ${RED}%s${RESET}\n" "$1" "$2" >&3
+  fi
+}
+_chk_section() {
+  [[ "$_TUI_ACTIVE" != "1" ]] && printf "\n  ${BOLD}%s${RESET}\n" "$1" >&3
+}
 
 _check_ns() {
   local label="$1" ns="$2"
@@ -1345,12 +1477,12 @@ _check_ns() {
   fi
 }
 
-printf "\n  ${BOLD}Core${RESET}\n" >&3
+_chk_section "Core"
 _check_ns "ingress-nginx" ingress-nginx
 _check_ns "flux"          flux-system
 _check_ns "dns-lab"       dns-lab
 
-printf "\n  ${BOLD}Infrastructure${RESET}\n" >&3
+_chk_section "Infrastructure"
 if feature_enabled vault; then
   if curl -sf http://127.0.0.1:8200/v1/sys/health 2>/dev/null \
       | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if not d.get('sealed') else 1)" 2>/dev/null; then
@@ -1363,7 +1495,7 @@ feature_enabled monitoring && _check_ns "monitoring" monitoring
 feature_enabled argocd     && _check_ns "argocd"     argocd
 feature_enabled toolbox    && _check_ns "toolbox"    toolbox
 
-printf "\n  ${BOLD}Identity${RESET}\n" >&3
+_chk_section "Identity"
 if feature_enabled samba-ad; then
   _SAMBA_STATE=$(multipass info samba-ad --format json 2>/dev/null \
     | python3 -c "import sys,json; d=json.load(sys.stdin); i=d['info']['samba-ad']; print(i['state']+'|'+i['ipv4'][0])" \
@@ -1387,14 +1519,14 @@ if feature_enabled corp-client; then
   fi
 fi
 
-printf "\n  ${BOLD}Storage${RESET}\n" >&3
+_chk_section "Storage"
 feature_enabled azurite            && _check_ns "azurite"            azure-storage
 feature_enabled azure-sql          && _check_ns "azure-sql"          azure-sql
 feature_enabled cosmos-db          && _check_ns "cosmos-db"          cosmos-db
 feature_enabled service-bus        && _check_ns "service-bus"        service-bus
 feature_enabled container-registry && _check_ns "container-registry" container-registry
 
-printf "\n  ${BOLD}Apps${RESET}\n" >&3
+_chk_section "Apps"
 feature_enabled taskflow       && _check_ns "taskflow"       taskapp
 feature_enabled blob-explorer  && _check_ns "blob-explorer"  blob-explorer
 feature_enabled argo-workflows && _check_ns "argo-workflows" argo
@@ -1408,6 +1540,17 @@ else
   echo -e "  ${YELLOW}${BOLD}${_CHECKS_PASS}/${_CHECKS_TOTAL} components healthy — ${_CHECKS_FAIL} need attention (see above)${RESET}" >&3
 fi
 printf "\n" >&3
+
+# Signal TUI that setup is complete and wait for it to display the final summary
+# before restoring the terminal for the Lab Ready banner below.
+if [[ "$_TUI_ACTIVE" == "1" ]]; then
+  _emit "{\"event\":\"done\",\"pass\":${_CHECKS_PASS},\"fail\":${_CHECKS_FAIL}}"
+  wait "$_TUI_PID" 2>/dev/null || true
+  _TUI_ACTIVE=0
+  _TUI_PID=""
+  rm -f "$_TUI_FIFO"
+  _TUI_FIFO=""
+fi
 
 # ── Done ─────────────────────────────────────
 SETUP_END=$(date +%s)
