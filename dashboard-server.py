@@ -101,6 +101,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._stream(key, ["bash", LAB_FEATURE, action, comp_id])
             return
 
+        # ── Corp Client VNC connect ────────────────────────────────
+        if path == "/api/corp-client/connect":
+            try:
+                info = subprocess.run(
+                    ["multipass", "info", "corp-client", "--format", "json"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                ip = json.loads(info.stdout)["info"]["corp-client"]["ipv4"][0]
+                subprocess.Popen(["open", f"vnc://{ip}:5901"])
+                self._text(200, f"vnc://{ip}:5901")
+            except Exception as e:
+                self._text(500, str(e))
+            return
+
         # ── Dashboard HTML ──────────────────────────────────────────
         if not DASHBOARD.exists():
             self._text(404, "Dashboard not found. Run setup-lab.sh or resume-lab.sh first.")

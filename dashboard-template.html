@@ -166,8 +166,11 @@
     <div class="row"><span class="row-label">VM</span><span class="row-val">corp-client (Multipass)</span></div>
     <div class="row"><span class="row-label">Joined to</span><span class="row-val">corp.internal</span></div>
     <div class="row"><span class="row-label">Auth stack</span><span class="row-val">realmd + SSSD</span></div>
-    <div class="row"><span class="row-label">Shell</span><span class="row-val" style="font-size:11px">multipass shell corp-client</span></div>
-    <div class="row" style="border:none; padding-top:10px; font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.06em; text-transform:uppercase">Corp Client VM</div>
+    <div class="row"><span class="row-label">VNC</span><span class="row-val">:5901 · AksLab1!</span></div>
+    <div class="row" style="border:none; padding-top:10px">
+      <button id="corp-connect-btn" class="run-btn" style="width:100%;font-size:13px" onclick="connectCorpDesktop()">Connect Desktop</button>
+    </div>
+    <div style="padding-top:8px; font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.06em; text-transform:uppercase">Corp Client VM</div>
   </div>
 </div>
 
@@ -425,6 +428,26 @@
   }
 
   loadFeatures();
+
+  function connectCorpDesktop() {
+    var btn = document.getElementById('corp-connect-btn');
+    btn.disabled = true;
+    btn.textContent = 'Connecting...';
+    fetch('/api/corp-client/connect')
+      .then(function(r) {
+        if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
+        return r.text();
+      })
+      .then(function(addr) {
+        btn.textContent = 'Opening ' + addr;
+        setTimeout(function() { btn.textContent = 'Connect Desktop'; btn.disabled = false; }, 3000);
+      })
+      .catch(function(e) {
+        btn.textContent = 'Failed — VM running?';
+        btn.style.color = '#f85149';
+        setTimeout(function() { btn.textContent = 'Connect Desktop'; btn.style.color = ''; btn.disabled = false; }, 3000);
+      });
+  }
 </script>
 </body>
 </html>
