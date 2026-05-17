@@ -127,11 +127,14 @@ Components are individually toggleable at setup time or live from the dashboard.
 brew install minikube kubectl helm fluxcd/tap/flux \
              hashicorp/tap/vault terraform multipass
 
-# Clone and run
-git clone https://github.com/markpadam/Kubernetes-Homelab.git
+# Clone and run (--recurse-submodules also fetches the ADO bicep/pipelines repo)
+git clone --recurse-submodules https://github.com/markpadam/Kubernetes-Homelab.git
 cd Kubernetes-Homelab
 ./setup-lab.sh
 ```
+
+> **Already cloned?** Run `git submodule update --init --recursive` to populate `ado/`.  
+> Cloning the submodule requires your ADO credentials (username + PAT). See the [Azure DevOps YAML Pipelines](#azure-devops-yaml-pipelines) section for PAT setup.
 
 The setup script prompts for a component preset, then builds everything. The **dashboard opens automatically** at `http://localhost:9997` when done.
 
@@ -318,9 +321,44 @@ The agent pod has network access to all in-cluster services — Vault, Azurite, 
 ├── clusters/lab/         # Flux entry point (GitRepository + Kustomization)
 ├── helm/                 # Helm charts
 │
-└── IaC/
-    ├── terraform/        # Vault + SambaAD + Corp Client VMs
-    └── dns/              # DNS management scripts
+├── IaC/
+│   ├── terraform/        # Vault + SambaAD + Corp Client VMs
+│   └── dns/              # DNS management scripts
+│
+└── ado/                  # Git submodule → Azure DevOps (Bicep IaC + YAML pipelines)
+```
+
+---
+
+## Repository Layout
+
+This project spans two repos linked by a git submodule.
+
+| Repo | Host | Contains | Why here |
+|------|------|----------|----------|
+| `Kubernetes-Homelab` (this repo) | GitHub | K8s manifests, Flux config, Helm charts, lab scripts, app source | Flux requires a public git source for reconciliation |
+| `ado/` (submodule) | Azure DevOps | Bicep templates, YAML pipeline definitions | ADO pipeline triggers, service connections, and RBAC are native to ADO |
+
+**Flux** watches this GitHub repo and reconciles `apps/base/` and `infrastructure/base/` automatically. **ADO pipelines** in `ado/` deploy real Azure infrastructure via Bicep and can target the lab cluster via the self-hosted agent.
+
+### Working with the submodule
+
+```bash
+# Pull latest changes from both repos
+git pull --recurse-submodules
+
+# Update the submodule to the latest ADO commit and record it here
+git submodule update --remote ado
+git add ado && git commit -m "chore: bump ado submodule"
+
+# Make changes inside the ADO repo
+cd ado
+git checkout main
+# edit bicep / pipeline files, then commit and push to ADO
+git add . && git commit -m "feat: ..." && git push
+cd ..
+# record the new submodule pointer in the GitHub repo
+git add ado && git commit -m "chore: bump ado submodule"
 ```
 
 ---
