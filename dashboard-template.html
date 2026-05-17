@@ -46,8 +46,12 @@
     .run-btn-red { background: #f8514922; border: 2px solid #f8514988; color: #f85149; border-radius: 6px; padding: 8px 20px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s; box-shadow: 0 0 8px #f8514933; }
     .run-btn-red:hover { background: #f8514933; border-color: #f85149; box-shadow: 0 0 14px #f8514966; }
     .run-btn-red:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
-    .lab-controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
-    .lab-controls-divider { width: 1px; height: 32px; background: var(--border); flex-shrink: 0; }
+    .run-btn-orange { background: #d2964222; border: 1px solid #d2964288; color: #d29642; border-radius: 6px; padding: 7px 14px; font-size: 13px; cursor: pointer; transition: background .15s, border-color .15s; }
+    .run-btn-orange:hover { background: #d2964244; border-color: #d29642; }
+    .run-btn-orange:disabled { opacity: .5; cursor: not-allowed; }
+    .lab-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+    .lab-controls-row { margin-bottom: 10px; }
+    .lab-controls-divider { width: 1px; height: 28px; background: var(--border); flex-shrink: 0; }
     #terminal { background: #010409; border: 1px solid var(--border); border-radius: 8px; padding: 16px; min-height: 180px; max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; color: #c9d1d9; margin-top: 10px; }
     .term-idle { color: var(--muted); font-style: italic; }
     .term-done { color: var(--green); }
@@ -241,15 +245,21 @@
 </div>
 
 <div class="section-title">Lab Scripts</div>
-<div class="lab-controls">
-  <button class="run-btn-green" onclick="runScript('resume')">▶ Resume Lab</button>
-  <button class="run-btn-red" onclick="runScript('pause')">■ Pause Lab</button>
+<div class="lab-controls lab-controls-row">
+  <button class="run-btn-green" onclick="runScript('resume')">▶ Resume</button>
+  <button class="run-btn-red"   onclick="runScript('pause')">■ Pause</button>
+  <div class="lab-controls-divider"></div>
+  <button class="run-btn"        onclick="runScript('refresh')">↺ Refresh</button>
+  <button class="run-btn-orange" onclick="runScript('refresh-images')">↺ Refresh + Images</button>
+  <button class="run-btn"        onclick="runScript('refresh-restart')">↺ Refresh + Restart</button>
   <div class="lab-controls-divider"></div>
   <button class="run-btn" onclick="runScript('dns')">Apply DNS</button>
   <button class="run-btn" onclick="runScript('flux-sync')">Flux Sync</button>
   <button class="run-btn" onclick="runScript('pods')">Pod Status</button>
   <button class="run-btn" onclick="runScript('nodes')">Node Status</button>
   <button class="run-btn" onclick="runScript('hpa')">HPA Status</button>
+  <div class="lab-controls-divider"></div>
+  <button class="run-btn-red" style="font-size:12px;padding:6px 12px" onclick="confirmTeardown()">✕ Teardown</button>
 </div>
 <div id="terminal"><span class="term-idle">Select a script above to run it...</span></div>
 
@@ -265,6 +275,18 @@
     <div class="modal-btns">
       <button class="modal-cancel" onclick="closeModal()">Cancel</button>
       <button class="modal-confirm" id="modal-confirm">Disable</button>
+    </div>
+  </div>
+</div>
+
+<!-- Teardown confirmation modal -->
+<div class="modal-overlay" id="teardown-modal">
+  <div class="modal">
+    <h3 style="color:#f85149">Teardown entire lab?</h3>
+    <p>This will <strong style="color:#f85149">delete the cluster, all namespaces, and all data</strong>. Multipass VMs will also be removed. This cannot be undone — you will need to run <code>setup-lab.sh</code> to rebuild.</p>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeTeardownModal()">Cancel</button>
+      <button class="modal-confirm" onclick="closeTeardownModal(); runScript('teardown')">Teardown</button>
     </div>
   </div>
 </div>
@@ -428,6 +450,13 @@
   }
 
   loadFeatures();
+
+  function confirmTeardown() {
+    document.getElementById('teardown-modal').classList.add('open');
+  }
+  function closeTeardownModal() {
+    document.getElementById('teardown-modal').classList.remove('open');
+  }
 
   function connectCorpDesktop() {
     var btn = document.getElementById('corp-connect-btn');

@@ -21,13 +21,17 @@ ANSI      = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 _PROFILE = os.environ.get("PROFILE", "aks-lab")
 
 COMMANDS = {
-    "resume":    ["bash", str(REPO_ROOT / "resume-lab.sh")],
-    "dns":       ["bash", str(REPO_ROOT / "IaC/dns/apply-dns-config.sh")],
-    "flux-sync": ["flux", "reconcile", "kustomization", "flux-apps", "-n", "flux-system", "--with-source"],
-    "pods":      ["kubectl", "get", "pods", "-A", "-o", "wide"],
-    "nodes":     ["kubectl", "get", "nodes", "-o", "wide"],
-    "hpa":       ["kubectl", "get", "hpa", "-A"],
-    "pause":     ["minikube", "stop", "-p", _PROFILE],
+    "resume":          ["bash", str(REPO_ROOT / "resume-lab.sh")],
+    "pause":           ["minikube", "stop", "-p", _PROFILE],
+    "refresh":         ["bash", str(REPO_ROOT / "refresh-lab.sh")],
+    "refresh-images":  ["bash", str(REPO_ROOT / "refresh-lab.sh"), "--images"],
+    "refresh-restart": ["bash", str(REPO_ROOT / "refresh-lab.sh"), "--restart"],
+    "teardown":        ["bash", str(REPO_ROOT / "teardown-lab.sh")],
+    "dns":             ["bash", str(REPO_ROOT / "IaC/dns/apply-dns-config.sh")],
+    "flux-sync":       ["flux", "reconcile", "kustomization", "flux-apps", "-n", "flux-system", "--with-source"],
+    "pods":            ["kubectl", "get", "pods", "-A", "-o", "wide"],
+    "nodes":           ["kubectl", "get", "nodes", "-o", "wide"],
+    "hpa":             ["kubectl", "get", "hpa", "-A"],
 }
 
 _running: dict = {}
