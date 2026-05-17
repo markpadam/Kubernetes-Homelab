@@ -15,6 +15,46 @@ write_files:
     permissions: '0644'
     content: 'Acquire::ForceIPv4 "true";'
 
+  # socat-based IPv4→IPv6 DNS proxy: Samba binds dns[master] to [::]:53 with
+  # IPV6_V6ONLY=1 (IPv6-only), so IPv4 DNS queries are refused.  These two
+  # services forward UDP/TCP IPv4:53 → ::1:53, making the domain reachable
+  # from IPv4-only clients such as the corp-client VM.
+  - path: /etc/systemd/system/samba-dns-proxy-udp.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Samba DNS IPv4 UDP proxy
+      After=samba-ad-dc.service
+      Requires=samba-ad-dc.service
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/bin/socat UDP4-LISTEN:53,reuseaddr,fork UDP6:[::1]:53
+      Restart=on-failure
+      RestartSec=3
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/samba-dns-proxy-tcp.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Samba DNS IPv4 TCP proxy
+      After=samba-ad-dc.service
+      Requires=samba-ad-dc.service
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/bin/socat TCP4-LISTEN:53,reuseaddr,fork TCP6:[::1]:53
+      Restart=on-failure
+      RestartSec=3
+
+      [Install]
+      WantedBy=multi-user.target
+
   # All Samba AD provisioning steps in a single script called from runcmd.
   - path: /root/samba-provision.sh
     owner: root:root
@@ -69,6 +109,10 @@ write_files:
       samba-tool group add lab-users 2>/dev/null || true
       samba-tool group addmembers lab-users testuser1,testuser2 2>/dev/null || true
 
+      echo "[samba] Starting DNS IPv4 proxy (socat)..."
+      systemctl daemon-reload
+      systemctl enable --now samba-dns-proxy-udp samba-dns-proxy-tcp
+
       echo "[samba] Provisioning complete."
 
 packages:
@@ -79,6 +123,7 @@ packages:
   - dnsutils
   - ldap-utils
   - acl
+  - socat
 
 runcmd:
   - [bash, /root/samba-provision.sh]
