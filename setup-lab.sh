@@ -57,16 +57,17 @@ _json_escape() {
 
 _emit() {
   [[ "$_TUI_ACTIVE" != "1" ]] && return
-  [[ -p "$_TUI_FIFO" ]] || return
-  printf '%s\n' "$1" > "$_TUI_FIFO" 2>/dev/null || true
+  printf '%s\n' "$1" >&4 2>/dev/null || _TUI_ACTIVE=0
 }
 
 _cleanup_tui() {
+  # Close the persistent FIFO write-end first so the Python reader sees EOF
+  [[ "$_TUI_ACTIVE" == "1" ]] && exec 4>&- 2>/dev/null || true
+  _TUI_ACTIVE=0
   if [[ -n "$_TUI_PID" ]]; then
     kill "$_TUI_PID" 2>/dev/null || true
     wait "$_TUI_PID" 2>/dev/null || true
     _TUI_PID=""
-    _TUI_ACTIVE=0
   fi
   [[ -n "$_TUI_FIFO" ]] && rm -f "$_TUI_FIFO" 2>/dev/null || true
   _TUI_FIFO=""
@@ -414,8 +415,11 @@ if [[ "$VERBOSE" != "1" && "$CI_MODE" != "1" ]]; then
   mkfifo "$_TUI_FIFO"
   python3 "$(dirname "$0")/scripts/tui.py" "$_TUI_FIFO" >/dev/tty 2>/dev/tty &
   _TUI_PID=$!
+  # Open the write end of the FIFO on fd 4 and keep it open for the whole run.
+  # Using <> (O_RDWR) avoids blocking if the Python reader thread isn't ready yet.
+  # All _emit() calls write to fd 4; the pipe only gets EOF when we exec 4>&-.
+  exec 4<> "$_TUI_FIFO"
   _TUI_ACTIVE=1
-  sleep 0.3   # give the TUI a moment to open the FIFO for reading
 fi
 
 # ── Preflight checks ─────────────────────────
@@ -1541,12 +1545,14 @@ else
 fi
 printf "\n" >&3
 
-# Signal TUI that setup is complete and wait for it to display the final summary
-# before restoring the terminal for the Lab Ready banner below.
+# Signal TUI that setup is complete, then close the FIFO write-end so the Python
+# reader sees EOF and exits. Wait for the TUI to finish its 3-second completion
+# display before restoring the terminal for the Lab Ready banner below.
 if [[ "$_TUI_ACTIVE" == "1" ]]; then
   _emit "{\"event\":\"done\",\"pass\":${_CHECKS_PASS},\"fail\":${_CHECKS_FAIL}}"
-  wait "$_TUI_PID" 2>/dev/null || true
+  exec 4>&-          # close write-end → Python reader gets EOF, exits cleanly
   _TUI_ACTIVE=0
+  wait "$_TUI_PID" 2>/dev/null || true
   _TUI_PID=""
   rm -f "$_TUI_FIFO"
   _TUI_FIFO=""
