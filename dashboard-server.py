@@ -29,6 +29,7 @@ COMMANDS = {
     "teardown":        ["bash", str(REPO_ROOT / "teardown-lab.sh")],
     "dns":             ["bash", str(REPO_ROOT / "IaC/dns/apply-dns-config.sh")],
     "flux-sync":       ["flux", "reconcile", "kustomization", "flux-apps", "-n", "flux-system", "--with-source"],
+    "ado-sync":        ["bash", "-c", "git submodule update --remote ado && git add ado && git diff --cached --quiet ado && echo 'Already up to date.' || git commit -m 'chore: bump ado submodule'"],
     "pods":            ["kubectl", "get", "pods", "-A", "-o", "wide"],
     "nodes":           ["kubectl", "get", "nodes", "-o", "wide"],
     "hpa":             ["kubectl", "get", "hpa", "-A"],
