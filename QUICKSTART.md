@@ -35,6 +35,7 @@ Prompts for component selection, then provisions the full cluster. Takes **10–
 | `--all` | Every component including SambaAD, Dex, OAuth2 |
 | `--minimal` | Core cluster only |
 | `--verbose` | Stream all output to terminal instead of log file |
+| `--reconfigure-ado` | Re-prompt for Azure DevOps credentials even if already saved |
 
 Dashboard opens automatically at **http://localhost:9997**
 
@@ -127,10 +128,18 @@ Runs a self-hosted Azure Pipelines agent in the cluster so you can execute real 
 ./lab-feature.sh enable azdo-agent
 ```
 
-You will be prompted for:
+On the **first run** you will be prompted for:
 - **Org URL** — e.g. `https://dev.azure.com/yourorg`
 - **Pool name** — the pool you created above
 - **PAT** — your personal access token (input is hidden)
+
+Credentials are saved to `~/.lab-ado` (mode `600`, never committed). Subsequent runs load them automatically without prompting.
+
+To update credentials (e.g. rotate a PAT):
+
+```bash
+./setup-lab.sh --reconfigure-ado
+```
 
 The agent pod registers with ADO automatically on start and appears in the pool within ~30 seconds.
 
@@ -152,16 +161,13 @@ kubectl get pods -n azdo-agent               # pod should be Running
 kubectl logs -n azdo-agent -l app=azdo-agent # registration output
 ```
 
-To rotate the PAT:
+To rotate the PAT or change any credential:
 
 ```bash
-kubectl create secret generic azdo-agent-secret \
-  --from-literal=azp-url="https://dev.azure.com/yourorg" \
-  --from-literal=azp-token="NEW_PAT" \
-  --from-literal=azp-pool="your-pool-name" \
-  --namespace azdo-agent --dry-run=client -o yaml | kubectl apply -f -
-kubectl rollout restart deployment/azdo-agent -n azdo-agent
+./setup-lab.sh --reconfigure-ado
 ```
+
+This re-prompts for all three values, updates `~/.lab-ado`, and re-applies the Kubernetes secret.
 
 ---
 

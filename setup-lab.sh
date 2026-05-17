@@ -3,13 +3,14 @@ set -euo pipefail
 
 # ─────────────────────────────────────────────
 #  AKS Lab — Minikube Setup Script
-#  Usage: ./setup-lab.sh [--all|--minimal|--standard] [--verbose]
-#         --all       Install every component
-#         --minimal   Core cluster only (no optional features)
-#         --standard  Default components
-#         (no flag)   Prompts: Standard / All / Minimal / Custom
-#         --verbose   Stream all command output to the terminal
-#                     Default: quiet — all output logged to /tmp/lab-setup-<date>.log
+#  Usage: ./setup-lab.sh [--all|--minimal|--standard] [--verbose] [--reconfigure-ado]
+#         --all              Install every component
+#         --minimal          Core cluster only (no optional features)
+#         --standard         Default components
+#         (no flag)          Prompts: Standard / All / Minimal / Custom
+#         --verbose          Stream all command output to the terminal
+#                            Default: quiet — all output logged to /tmp/lab-setup-<date>.log
+#         --reconfigure-ado  Re-prompt for Azure DevOps credentials even if ~/.lab-ado exists
 # ─────────────────────────────────────────────
 
 SETUP_START=$(date +%s)
@@ -43,15 +44,19 @@ RESET='\033[0m'
 SETUP_FLAG=""
 VERBOSE=0
 CI_MODE=0
+RECONFIGURE_ADO=0
 for _arg in "$@"; do
   case "$_arg" in
     --verbose|-v)               VERBOSE=1 ;;
     --all|--minimal|--standard) SETUP_FLAG="$_arg" ;;
     --ci)                       CI_MODE=1 ;;
+    --reconfigure-ado)          RECONFIGURE_ADO=1 ;;
     "")                         ;;
-    *) echo -e "${RED}${BOLD}[✗]${RESET} Unknown flag: $_arg  (use --all, --minimal, --standard, --ci, --verbose)"; exit 1 ;;
+    *) echo -e "${RED}${BOLD}[✗]${RESET} Unknown flag: $_arg  (use --all, --minimal, --standard, --ci, --verbose, --reconfigure-ado)"; exit 1 ;;
   esac
 done
+
+ADO_CONFIG_FILE="${HOME}/.lab-ado"
 
 # ── Logging setup ─────────────────────────────
 LAB_LOG="/tmp/lab-setup-$(date +%Y%m%d-%H%M%S).log"
@@ -1122,15 +1127,31 @@ fi
 if feature_enabled azdo-agent; then
   step "Step 13 — Azure DevOps Self-Hosted Agent"
 
-  # Prompt for ADO credentials (stored as a K8s secret, never committed to git)
-  printf "\n" >&3
-  printf "  Azure DevOps org URL  (e.g. https://dev.azure.com/markpadam0046): " >&3
-  read -r AZP_URL <&0
-  printf "  Agent pool name       (create it first in ADO → Org Settings → Agent pools): " >&3
-  read -r AZP_POOL <&0
-  printf "  Personal Access Token (needs Agent Pools: Read & Manage scope): " >&3
-  read -rs AZP_TOKEN <&0
-  printf "\n" >&3
+  # Load saved ADO credentials or prompt on first run
+  if [[ -f "$ADO_CONFIG_FILE" && "$RECONFIGURE_ADO" -eq 0 ]]; then
+    # shellcheck source=/dev/null
+    source "$ADO_CONFIG_FILE"
+    log "Loaded ADO credentials from $ADO_CONFIG_FILE (use --reconfigure-ado to change)"
+  else
+    [[ "$RECONFIGURE_ADO" -eq 1 ]] && log "Re-configuring ADO credentials..."
+    printf "\n" >&3
+    printf "  Azure DevOps org URL  (e.g. https://dev.azure.com/markpadam0046): " >&3
+    read -r AZP_URL <&0
+    printf "  Agent pool name       (create it first in ADO → Org Settings → Agent pools): " >&3
+    read -r AZP_POOL <&0
+    printf "  Personal Access Token (needs Agent Pools: Read & Manage scope): " >&3
+    read -rs AZP_TOKEN <&0
+    printf "\n" >&3
+
+    # Persist for future runs (file is gitignored via ~/.lab-ado, not in repo)
+    cat > "$ADO_CONFIG_FILE" <<ADOEOF
+AZP_URL="$AZP_URL"
+AZP_POOL="$AZP_POOL"
+AZP_TOKEN="$AZP_TOKEN"
+ADOEOF
+    chmod 600 "$ADO_CONFIG_FILE"
+    log "ADO credentials saved to $ADO_CONFIG_FILE"
+  fi
 
   log "Creating azdo-agent namespace and secret..."
   kubectl create namespace azdo-agent --dry-run=client -o yaml | kubectl apply --validate=false -f -

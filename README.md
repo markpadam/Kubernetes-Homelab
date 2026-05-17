@@ -269,7 +269,14 @@ The `azdo-agent` component runs a self-hosted Azure Pipelines agent as a pod in 
 
 ```bash
 ./lab-feature.sh enable azdo-agent
-# setup-lab.sh will prompt for org URL, pool name, and PAT
+```
+
+On the **first run** `setup-lab.sh` will prompt for org URL, pool name, and PAT. Credentials are saved to `~/.lab-ado` (mode `600`, never committed) and reused on every subsequent run.
+
+To update credentials:
+
+```bash
+./setup-lab.sh --reconfigure-ado
 ```
 
 The agent registers automatically when the pod starts and appears in your ADO pool within ~30 seconds.

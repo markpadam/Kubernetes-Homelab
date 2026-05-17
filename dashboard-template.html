@@ -22,7 +22,9 @@
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-decoration: none; color: var(--text); display: block; transition: border-color .15s, transform .15s; }
     .card:hover { border-color: var(--blue); transform: translateY(-2px); }
     .card-name { font-weight: 600; font-size: 15px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
-    .card-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background .3s, box-shadow .3s; }
+    .card-dot[data-status="healthy"]  { background: var(--green); box-shadow: 0 0 5px var(--green); }
+    .card-dot[data-status="degraded"] { background: #d29642; box-shadow: 0 0 5px #d29642; }
     .card-url { font-size: 12px; color: var(--muted); font-family: monospace; margin-bottom: 12px; }
     .card-open { font-size: 12px; color: var(--blue); }
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -92,27 +94,27 @@
 <div class="section-title">Services</div>
 <div class="services">
   <a class="card" href="http://taskflow.aks-lab.local:9980" target="_blank">
-    <div class="card-name"><span class="card-dot"></span>TaskFlow</div>
+    <div class="card-name"><span class="card-dot" data-ns="taskapp"></span>TaskFlow</div>
     <div class="card-url">taskflow.aks-lab.local:9980</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
   <a class="card" href="http://grafana.aks-lab.local:9980" target="_blank">
-    <div class="card-name"><span class="card-dot"></span>Grafana</div>
+    <div class="card-name"><span class="card-dot" data-ns="monitoring"></span>Grafana</div>
     <div class="card-url">grafana.aks-lab.local:9980</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
   <a class="card" href="http://argocd.aks-lab.local:9980" target="_blank">
-    <div class="card-name"><span class="card-dot"></span>ArgoCD</div>
+    <div class="card-name"><span class="card-dot" data-ns="argocd"></span>ArgoCD</div>
     <div class="card-url">argocd.aks-lab.local:9980</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
   <a class="card" href="http://blob-explorer.aks-lab.local:9980" target="_blank">
-    <div class="card-name"><span class="card-dot"></span>Blob Explorer</div>
+    <div class="card-name"><span class="card-dot" data-ns="blob-explorer"></span>Blob Explorer</div>
     <div class="card-url">blob-explorer.aks-lab.local:9980</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
   <div class="card">
-    <div class="card-name"><span class="card-dot"></span>Azure SQL</div>
+    <div class="card-name"><span class="card-dot" data-ns="azure-sql"></span>Azure SQL</div>
     <div class="card-url">localhost:1433</div>
     <div class="card-open" style="color:var(--muted)">TCP &#x2014; use a SQL client</div>
   </div>
@@ -122,22 +124,22 @@
     <div class="card-open">Open &#x2197;</div>
   </a>
   <a class="card" href="http://localhost:2746" target="_blank">
-    <div class="card-name"><span class="card-dot"></span>Argo Workflows</div>
+    <div class="card-name"><span class="card-dot" data-ns="argo"></span>Argo Workflows</div>
     <div class="card-url">localhost:2746</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
   <div class="card">
-    <div class="card-name"><span class="card-dot"></span>Service Bus</div>
+    <div class="card-name"><span class="card-dot" data-ns="service-bus"></span>Service Bus</div>
     <div class="card-url">localhost:5672</div>
     <div class="card-open" style="color:var(--muted)">AMQP &#x2014; use Azure SDK</div>
   </div>
   <div class="card">
-    <div class="card-name"><span class="card-dot"></span>Container Registry</div>
+    <div class="card-name"><span class="card-dot" data-ns="container-registry"></span>Container Registry</div>
     <div class="card-url">localhost:5000</div>
     <div class="card-open" style="color:var(--muted)">HTTP API &#x2014; use Docker CLI</div>
   </div>
   <a class="card" href="http://localhost:1234" target="_blank">
-    <div class="card-name"><span class="card-dot"></span>Cosmos DB</div>
+    <div class="card-name"><span class="card-dot" data-ns="cosmos-db"></span>Cosmos DB</div>
     <div class="card-url">localhost:1234 (Explorer)</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
@@ -450,7 +452,22 @@
     es.onerror = function() { es.close(); loadFeatures(); };
   }
 
+  function loadPodStatus() {
+    fetch('/api/pod-status')
+      .then(function(r) { return r.json(); })
+      .then(function(nsMap) {
+        document.querySelectorAll('.card-dot[data-ns]').forEach(function(dot) {
+          var ns = dot.getAttribute('data-ns');
+          var status = nsMap[ns];
+          dot.setAttribute('data-status', status || 'absent');
+        });
+      })
+      .catch(function() {});
+  }
+
   loadFeatures();
+  loadPodStatus();
+  setInterval(loadPodStatus, 30000);
 
   function confirmTeardown() {
     document.getElementById('teardown-modal').classList.add('open');

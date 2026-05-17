@@ -59,6 +59,41 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
 
+        # ── Pod status by namespace (JSON) ──────────────────────────
+        if path == "/api/pod-status":
+            try:
+                result = subprocess.run(
+                    ["kubectl", "get", "pods", "-A", "-o", "json"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                pods = json.loads(result.stdout).get("items", [])
+                ns_status: dict = {}
+                for pod in pods:
+                    ns = pod["metadata"]["namespace"]
+                    phase = pod.get("status", {}).get("phase", "Unknown")
+                    container_statuses = pod.get("status", {}).get("containerStatuses", [])
+                    crash = any(
+                        cs.get("state", {}).get("waiting", {}).get("reason") in
+                        ("CrashLoopBackOff", "Error", "OOMKilled", "ImagePullBackOff", "ErrImagePull")
+                        for cs in container_statuses
+                    )
+                    ready = all(cs.get("ready", False) for cs in container_statuses) if container_statuses else (phase == "Succeeded")
+                    if ns not in ns_status:
+                        ns_status[ns] = "healthy"
+                    if crash or phase == "Failed" or (not ready and phase not in ("Succeeded", "Pending")):
+                        ns_status[ns] = "degraded"
+                data = json.dumps(ns_status).encode()
+                self.send_response(200)
+            except Exception:
+                data = b"{}"
+                self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         # ── Feature list (JSON) ─────────────────────────────────────
         if path == "/api/features":
             rc, out = _run_feature_cmd(["list-json"])
