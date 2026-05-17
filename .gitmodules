@@ -1,0 +1,3 @@
+[submodule "ado"]
+	path = ado
+	url = https://markpadam0046@dev.azure.com/markpadam0046/Kubernetes-Homelab/_git/monorepo
