@@ -17,6 +17,7 @@ spec:
   install:
     createNamespace: false
   values:
+    fullnameOverride: blob-explorer
     image:
       repository: aks-lab/blob-explorer
       tag: latest

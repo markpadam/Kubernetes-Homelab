@@ -694,6 +694,8 @@ if feature_enabled monitoring; then
       --timeout=5m
   fi
 
+  log "Applying Grafana ingress..."
+  kubectl apply -k infrastructure/base/monitoring/ || warn "Grafana ingress apply failed"
   success "Monitoring stack installed"
 else
   log "Skipping Step 5 — Monitoring not selected"
@@ -936,6 +938,8 @@ if feature_enabled argocd; then
     | kubectl label --local -f - 'argocd.argoproj.io/secret-type=repository' -o yaml \
     | kubectl apply -f -
 
+  log "Applying ArgoCD ingress..."
+  kubectl apply -k infrastructure/base/argocd/ || warn "ArgoCD ingress apply failed"
   success "ArgoCD ready — https://localhost:8080  (admin / $ARGOCD_PASSWORD)"
 else
   log "Skipping Step 9 — ArgoCD not selected"
