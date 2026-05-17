@@ -1097,6 +1097,42 @@ else
   log "Skipping Step 12 — Argo Workflows not selected"
 fi
 
+# ── Step 13: Azure DevOps Agent ───────────────
+if feature_enabled azdo-agent; then
+  step "Step 13 — Azure DevOps Self-Hosted Agent"
+
+  # Prompt for ADO credentials (stored as a K8s secret, never committed to git)
+  printf "\n" >&3
+  printf "  Azure DevOps org URL  (e.g. https://dev.azure.com/markpadam0046): " >&3
+  read -r AZP_URL <&0
+  printf "  Agent pool name       (create it first in ADO → Org Settings → Agent pools): " >&3
+  read -r AZP_POOL <&0
+  printf "  Personal Access Token (needs Agent Pools: Read & Manage scope): " >&3
+  read -rs AZP_TOKEN <&0
+  printf "\n" >&3
+
+  log "Creating azdo-agent namespace and secret..."
+  kubectl create namespace azdo-agent --dry-run=client -o yaml | kubectl apply --validate=false -f -
+  kubectl create secret generic azdo-agent-secret \
+    --from-literal=azp-url="$AZP_URL" \
+    --from-literal=azp-token="$AZP_TOKEN" \
+    --from-literal=azp-pool="$AZP_POOL" \
+    --namespace azdo-agent \
+    --dry-run=client -o yaml | kubectl apply --validate=false -f -
+
+  log "Building azdo-agent image (arm64-compatible)..."
+  docker build -t azdo-agent:local apps/base/azdo-agent/ >/dev/null
+  minikube -p "$PROFILE" image load azdo-agent:local
+
+  log "Applying agent manifests..."
+  kubectl apply --validate=false -k apps/base/azdo-agent/
+  kubectl rollout status deployment/azdo-agent -n azdo-agent --timeout=180s
+
+  success "Azure DevOps agent running — it will appear in ADO under pool: $AZP_POOL"
+else
+  log "Skipping Step 13 — Azure DevOps Agent not selected"
+fi
+
 # ── Port-Forwards ────────────────────────────
 step "Starting Port-Forwards"
 
@@ -1115,7 +1151,7 @@ _start_portforward() {
 }
 
 # Web apps route through NGINX Ingress on port 9980.
-_start_portforward "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx" /tmp/ingress-portforward.log
+_start_portforward "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-portforward.log
 feature_enabled toolbox       && _start_portforward "Toolbox SSH"       2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"                       /tmp/toolbox-portforward.log
 feature_enabled argo-workflows && _start_portforward "Argo Workflows"   2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                        /tmp/argo-workflows-portforward.log
 feature_enabled azure-sql     && _start_portforward "Azure SQL"         1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"                          /tmp/azure-sql-portforward.log

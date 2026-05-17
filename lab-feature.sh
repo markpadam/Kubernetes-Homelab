@@ -457,6 +457,41 @@ _disable_argo_workflows() {
   success "Argo Workflows disabled"
 }
 
+_enable_azdo_agent() {
+  if ! kubectl cluster-info &>/dev/null; then
+    error "Cannot reach the Kubernetes API server. Run ./resume-lab.sh first."
+  fi
+  # The agent pod reads credentials from a K8s secret that must exist before
+  # the Deployment is applied — prompt and create it here.
+  echo ""
+  printf "  Azure DevOps org URL  (e.g. https://dev.azure.com/yourorg): "
+  read -r AZP_URL
+  printf "  Agent pool name       (must exist in ADO → Org Settings → Agent pools): "
+  read -r AZP_POOL
+  printf "  Personal Access Token (Agent Pools: Read & Manage scope): "
+  read -rs AZP_TOKEN
+  printf "\n"
+
+  kubectl create namespace azdo-agent --dry-run=client -o yaml | kubectl apply --validate=false -f -
+  kubectl create secret generic azdo-agent-secret \
+    --from-literal=azp-url="$AZP_URL" \
+    --from-literal=azp-token="$AZP_TOKEN" \
+    --from-literal=azp-pool="$AZP_POOL" \
+    --namespace azdo-agent \
+    --dry-run=client -o yaml | kubectl apply --validate=false -f -
+
+  kubectl apply --validate=false -k "$SCRIPT_DIR/apps/base/azdo-agent/"
+  kubectl rollout status deployment/azdo-agent -n azdo-agent --timeout=120s
+  success "Azure DevOps agent running — check ADO pool: $AZP_POOL"
+}
+
+_disable_azdo_agent() {
+  kubectl delete deployment azdo-agent -n azdo-agent 2>/dev/null || true
+  kubectl delete secret azdo-agent-secret -n azdo-agent 2>/dev/null || true
+  _kubectl_delete_ns azdo-agent
+  success "Azure DevOps agent disabled"
+}
+
 # ── Main enable/disable dispatchers ──────────────────────────────
 do_enable() {
   local id="$1"
@@ -474,6 +509,7 @@ do_enable() {
     oauth2-proxy)   _enable_oauth2_proxy ;;
     corp-client)    _enable_corp_client ;;
     argo-workflows) _enable_argo_workflows ;;
+    azdo-agent)     _enable_azdo_agent ;;
     *)
       _kubectl_apply "$id"
       _start_comp_portforwards "$id"
@@ -509,6 +545,7 @@ do_disable() {
     oauth2-proxy)   _disable_oauth2_proxy ;;
     corp-client)    _disable_corp_client ;;
     argo-workflows) _disable_argo_workflows ;;
+    azdo-agent)     _disable_azdo_agent ;;
     *)
       _stop_comp_portforwards "$id"
       local ns; ns=$(comp_field "$id" ns)

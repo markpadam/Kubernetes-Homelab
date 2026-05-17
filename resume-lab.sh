@@ -208,7 +208,7 @@ _start_portforward() {
 }
 
 log "Clearing stale port-forwards and starting fresh..."
-_start_portforward "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx" /tmp/ingress-portforward.log
+_start_portforward "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-portforward.log
 feature_enabled toolbox            && _start_portforward "Toolbox SSH"       2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"                        /tmp/toolbox-portforward.log
 feature_enabled argo-workflows     && _start_portforward "Argo Workflows"    2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                         /tmp/argo-workflows-portforward.log
 feature_enabled azure-sql          && _start_portforward "Azure SQL"          1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"                          /tmp/azure-sql-portforward.log

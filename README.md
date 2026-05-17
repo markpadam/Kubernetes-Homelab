@@ -104,6 +104,7 @@ Components are individually toggleable at setup time or live from the dashboard.
 | TaskFlow | Three-tier demo app — Nginx → Node.js → PostgreSQL with HPA | ✅ |
 | Blob Explorer | ASP.NET Core app using Azure.Storage.Blobs SDK against Azurite | ✅ |
 | Argo Workflows | Kubernetes-native workflow engine | ☐ |
+| Azure DevOps Agent | Self-hosted Pipelines agent — run real ADO YAML pipelines in the cluster | ☐ |
 
 ### Identity Stack *(optional — requires Multipass)*
 
@@ -244,6 +245,52 @@ vim infrastructure/base/dns/dns-config.yaml
 | GitOps (persistent) | Flux |
 | GitOps (ephemeral/visual) | ArgoCD |
 | managed-csi StorageClass | CSI hostpath driver |
+| Azure DevOps self-hosted agent on AKS | Azure Pipelines agent pod in Minikube |
+
+---
+
+## Azure DevOps YAML Pipelines
+
+The `azdo-agent` component runs a self-hosted Azure Pipelines agent as a pod in the cluster — the same pattern used in production on AKS. This lets you write and run real ADO YAML pipelines against the lab's Kubernetes, Vault, and Azure emulator services.
+
+### Prerequisites
+
+1. Free Azure DevOps org at [dev.azure.com](https://dev.azure.com) (sign in with any Microsoft account — no payment needed)
+2. Create an agent pool: **Organisation Settings → Agent pools → Add pool → Self-hosted**
+3. Create a PAT: **User Settings → Personal Access Tokens → New token** — scope: **Agent Pools (Read & Manage)**
+
+### Enable the agent
+
+```bash
+./lab-feature.sh enable azdo-agent
+# setup-lab.sh will prompt for org URL, pool name, and PAT
+```
+
+The agent registers automatically when the pod starts and appears in your ADO pool within ~30 seconds.
+
+### Use in a pipeline
+
+```yaml
+# azure-pipelines.yml
+trigger:
+  - main
+
+pool:
+  name: Kubernetes-Homelab   # your agent pool name
+
+steps:
+  - script: kubectl get pods -A
+    displayName: List cluster pods
+
+  - script: |
+      vault kv get kv/azure-services/placeholder
+    displayName: Read a Vault secret
+    env:
+      VAULT_ADDR: http://vault.aks-lab.local:8200
+      VAULT_TOKEN: root
+```
+
+The agent pod has network access to all in-cluster services — Vault, Azurite, Azure SQL, Service Bus, etc. — so pipelines can deploy to and test against the full lab stack.
 
 ---
 

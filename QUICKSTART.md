@@ -94,6 +94,63 @@ Components can also be toggled from the **Lab Management** section of the dashbo
 | `oauth2-proxy` | OAuth2 SSO gateway |
 | `corp-client` | Domain-joined Ubuntu VM |
 | `argo-workflows` | Argo Workflows |
+| `azdo-agent` | Azure DevOps self-hosted Pipelines agent |
+
+---
+
+## Azure DevOps Agent
+
+Runs a self-hosted Azure Pipelines agent in the cluster so you can execute real ADO YAML pipelines against the lab.
+
+### One-time ADO setup (free)
+
+1. Sign in at [dev.azure.com](https://dev.azure.com) with any Microsoft account
+2. Create an agent pool: **Organisation Settings → Agent pools → Add pool → Self-hosted**
+3. Create a PAT: **User Settings → Personal Access Tokens → New token**
+   - Scope: **Agent Pools (Read & Manage)**
+   - Copy the token — you won't see it again
+
+### Enable the agent
+
+```bash
+./lab-feature.sh enable azdo-agent
+```
+
+You will be prompted for:
+- **Org URL** — e.g. `https://dev.azure.com/yourorg`
+- **Pool name** — the pool you created above
+- **PAT** — your personal access token (input is hidden)
+
+The agent pod registers with ADO automatically on start and appears in the pool within ~30 seconds.
+
+### Target the agent in a pipeline
+
+```yaml
+# azure-pipelines.yml
+pool:
+  name: your-pool-name   # must match what you entered at setup
+
+steps:
+  - script: kubectl get pods -A
+```
+
+### Check agent status
+
+```bash
+kubectl get pods -n azdo-agent               # pod should be Running
+kubectl logs -n azdo-agent -l app=azdo-agent # registration output
+```
+
+To rotate the PAT:
+
+```bash
+kubectl create secret generic azdo-agent-secret \
+  --from-literal=azp-url="https://dev.azure.com/yourorg" \
+  --from-literal=azp-token="NEW_PAT" \
+  --from-literal=azp-pool="your-pool-name" \
+  --namespace azdo-agent --dry-run=client -o yaml | kubectl apply -f -
+kubectl rollout restart deployment/azdo-agent -n azdo-agent
+```
 
 ---
 

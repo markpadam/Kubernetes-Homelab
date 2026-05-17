@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: azdo-agent
+  namespace: azdo-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: azdo-agent
+  template:
+    metadata:
+      labels:
+        app: azdo-agent
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: agent
+          image: azdo-agent:local
+          imagePullPolicy: Never
+          env:
+            - name: AZP_URL
+              valueFrom:
+                secretKeyRef:
+                  name: azdo-agent-secret
+                  key: azp-url
+            - name: AZP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: azdo-agent-secret
+                  key: azp-token
+            - name: AZP_POOL
+              valueFrom:
+                secretKeyRef:
+                  name: azdo-agent-secret
+                  key: azp-pool
+            - name: AZP_AGENT_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: AZP_WORK
+              value: /azp/work
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: work
+              mountPath: /azp/work
+      volumes:
+        - name: work
+          emptyDir: {}

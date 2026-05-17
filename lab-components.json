@@ -224,6 +224,19 @@
         {"local": 2746, "svc": "argo-server", "ns": "argo", "remote": 2746}
       ],
       "desc": "Kubernetes-native workflow engine"
+    },
+    {
+      "id": "azdo-agent",
+      "name": "Azure DevOps Agent",
+      "group": "apps",
+      "default": false,
+      "type": "special",
+      "ns": "azdo-agent",
+      "flux_dir": "apps/base/azdo-agent",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [],
+      "desc": "Self-hosted Azure Pipelines agent — runs YAML pipeline jobs in the cluster"
     }
   ]
 }
