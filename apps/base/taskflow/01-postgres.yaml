@@ -14,24 +14,13 @@ stringData:
   POSTGRES_USER: taskuser
   POSTGRES_PASSWORD: taskpassword123
 ---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: postgres-pvc
-  namespace: taskapp
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
----
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: postgres
   namespace: taskapp
 spec:
+  serviceName: postgres
   replicas: 1
   selector:
     matchLabels:
@@ -62,14 +51,19 @@ spec:
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "taskuser", "-d", "taskdb"]
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
-      volumes:
-        - name: postgres-storage
-          persistentVolumeClaim:
-            claimName: postgres-pvc
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-storage
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
 ---
 apiVersion: v1
 kind: Service
@@ -77,6 +71,7 @@ metadata:
   name: postgres
   namespace: taskapp
 spec:
+  clusterIP: None
   selector:
     app: postgres
   ports:
