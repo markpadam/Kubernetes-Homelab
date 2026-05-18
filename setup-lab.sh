@@ -709,7 +709,9 @@ if feature_enabled taskflow; then
   kubectl apply -k "$APP_DIR/"
 
   log "Waiting for pods to be ready (up to 3 minutes)..."
-  for deploy in postgres backend frontend; do
+  log "  Waiting for postgres..."
+  kubectl rollout status statefulset/postgres --namespace=taskapp --timeout=180s
+  for deploy in backend frontend; do
     log "  Waiting for $deploy..."
     kubectl wait deployment "$deploy" \
       --for=condition=available \
