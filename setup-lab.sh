@@ -1774,24 +1774,9 @@ if [[ "$_TUI_ACTIVE" == "1" ]]; then
   _infod "Dashboard:      http://localhost:9997/"
 fi
 
-# Signal TUI that setup is complete, then close the FIFO write-end so the Python
-# reader sees EOF and exits. Wait for the TUI to show the Lab Ready page and
-# the user to press Enter before restoring the terminal.
-if [[ "$_TUI_ACTIVE" == "1" ]]; then
-  if (( _STEP_ID > 0 )); then
-    _emit "{\"event\":\"step_done\",\"id\":${_STEP_ID},\"elapsed\":\"$(_fmt_elapsed)\"}"
-  fi
-  _emit "{\"event\":\"done\",\"pass\":${_CHECKS_PASS},\"fail\":${_CHECKS_FAIL}}"
-  exec 4>&-          # close write-end → Python reader gets EOF, exits cleanly
-  _TUI_ACTIVE=0
-  wait "$_TUI_PID" 2>/dev/null || true
-  _TUI_PID=""
-  rm -f "$_TUI_FIFO"
-  _TUI_FIFO=""
-fi
-
 # ── macOS LaunchAgent (auto-resume on login) ──
-# Installed after TUI exits so a failure here can't prevent the ready page.
+# Install before the TUI shuts down so all bash work is done before Python
+# takes sole ownership of the terminal for the Lab Ready page.
 _LAUNCHAGENT_LABEL="local.aks-lab-resume"
 _LAUNCHAGENT_PATH="$HOME/Library/LaunchAgents/${_LAUNCHAGENT_LABEL}.plist"
 _SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -1828,6 +1813,22 @@ SETUP_END=$(date +%s)
 ELAPSED=$(( SETUP_END - SETUP_START ))
 ELAPSED_MIN=$(( ELAPSED / 60 ))
 ELAPSED_SEC=$(( ELAPSED % 60 ))
+
+# Signal TUI that setup is complete, then close the FIFO write-end so the Python
+# reader sees EOF and exits. Python then shows the interactive Lab Ready page and
+# waits for Enter — we block here until the user dismisses it.
+if [[ "$_TUI_ACTIVE" == "1" ]]; then
+  if (( _STEP_ID > 0 )); then
+    _emit "{\"event\":\"step_done\",\"id\":${_STEP_ID},\"elapsed\":\"$(_fmt_elapsed)\"}"
+  fi
+  _emit "{\"event\":\"done\",\"pass\":${_CHECKS_PASS},\"fail\":${_CHECKS_FAIL}}"
+  exec 4>&-          # close write-end → Python reader gets EOF, exits cleanly
+  _TUI_ACTIVE=0
+  wait "$_TUI_PID" 2>/dev/null || true
+  _TUI_PID=""
+  rm -f "$_TUI_FIFO"
+  _TUI_FIFO=""
+fi
 
 # In TUI mode the Lab Ready page was already shown interactively inside the TUI.
 # Only print the plain-text banner in --verbose / CI mode.

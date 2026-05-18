@@ -48,6 +48,7 @@ Everything runs inside a **3-node Minikube cluster** (Docker driver) with real G
  │ │  │  Infrastructure                                               │   │ │
  │ │  │  NGINX Ingress :9980  ·  CoreDNS + stub zones  ·  bind9     │   │ │
  │ │  │  Flux (GitOps)  ·  ArgoCD  ·  Prometheus + Grafana          │   │ │
+ │ │  │  Kubernetes Dashboard  ·  HashiCorp Vault                   │   │ │
  │ │  └─────────────────────────────────────────────────────────────┘   │ │
  │ │                                                                      │ │
  │ │  ┌──────────────────────┐   ┌──────────────────────────────────┐   │ │
@@ -84,6 +85,7 @@ Components are individually toggleable at setup time or live from the dashboard.
 | Flux (GitOps) | Azure GitOps (Flux extension) | ✅ |
 | ArgoCD | Azure DevOps / Argo | ✅ |
 | Prometheus + Grafana | Azure Monitor + Managed Grafana | ✅ |
+| Kubernetes Dashboard | AKS resource view | ✅ |
 | HashiCorp Vault (KV v2 + K8s auth) | Azure Key Vault + Workload Identity | ✅ |
 | Toolbox SSH Pod | Cloud Shell / jump box | ✅ |
 
@@ -168,8 +170,8 @@ A browser dashboard is auto-generated at **`http://localhost:9997`** on every se
 ├────────────────────────────────────────────────────────────┤
 │  SERVICES                                                   │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
-│  │TaskFlow  │ │ Grafana  │ │ ArgoCD   │ │  Vault   │      │
-│  │:9980     │ │:9980     │ │:9980     │ │:8200/ui  │      │
+│  │TaskFlow  │ │ Grafana  │ │ ArgoCD   │ │Dashboard │      │
+│  │:9980     │ │:9980     │ │:9980     │ │:9980     │      │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
 ├────────────────────────────────────────────────────────────┤
 │  LAB SCRIPTS          TERMINAL OUTPUT                       │
@@ -235,6 +237,7 @@ vim infrastructure/base/dns/dns-config.yaml
 | Azure | Lab |
 |-------|-----|
 | AKS | Minikube 3-node (Docker driver) |
+| AKS resource view (portal) | Kubernetes Dashboard v7 |
 | Azure Key Vault | HashiCorp Vault — KV v2 + Kubernetes auth |
 | AKS Workload Identity | Vault Kubernetes auth backend |
 | Azure Monitor + Managed Grafana | Prometheus + Grafana (kube-prometheus-stack) |

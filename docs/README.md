@@ -18,6 +18,7 @@ Each service running in the cluster has its own doc below.
 |-----|-----------|---------|
 | [dns.md](services/dns.md) | `dns-lab` | Bind9 + CoreDNS — simulates ADDS split-brain DNS |
 | [vault.md](services/vault.md) | Mac host | HashiCorp Vault dev server — simulates Azure Key Vault |
+| [kubernetes-dashboard.md](services/kubernetes-dashboard.md) | `kubernetes-dashboard` | Official Kubernetes web UI — cluster explorer, workloads, logs |
 | [toolbox.md](tools/toolbox.md) | `toolbox` | Ubuntu SSH pod for in-cluster debugging |
 
 ## Shared Services (Azure emulators)

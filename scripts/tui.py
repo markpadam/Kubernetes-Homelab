@@ -279,9 +279,13 @@ def show_ready_page(state: State, console: Console) -> None:
         padding=(0, 2),
     ))
     console.print("\n  [dim]Press Enter to close[/dim]")
+    # The TUI runs as a bash background job whose stdin is /dev/null in
+    # non-interactive shells.  Read from /dev/tty directly so "Press Enter"
+    # actually waits rather than returning EOF immediately.
     try:
-        input()
-    except (EOFError, KeyboardInterrupt):
+        with open("/dev/tty") as _tty:
+            _tty.readline()
+    except (OSError, EOFError, KeyboardInterrupt):
         pass
 
 
