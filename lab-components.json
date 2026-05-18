@@ -54,6 +54,19 @@
       "desc": "Official Kubernetes web UI — cluster explorer, workloads, logs"
     },
     {
+      "id": "rancher",
+      "name": "Rancher",
+      "group": "infrastructure",
+      "default": false,
+      "type": "special",
+      "ns": "cattle-system",
+      "flux_dir": "",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [],
+      "desc": "Rancher multi-cluster management platform — cluster UI, app catalog, RBAC"
+    },
+    {
       "id": "toolbox",
       "name": "Toolbox SSH Pod",
       "group": "infrastructure",

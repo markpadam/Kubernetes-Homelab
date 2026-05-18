@@ -279,6 +279,10 @@ def show_ready_page(state: State, console: Console) -> None:
         padding=(0, 2),
     ))
     console.print("\n  [dim]Press Enter to close[/dim]")
+    try:
+        console.file.flush()
+    except OSError:
+        pass
     # The TUI is a bash background job — background processes cannot reliably
     # read from the terminal (the foreground bash process owns terminal input).
     # We render the page here and exit; bash then reads the Enter keystroke.
@@ -330,8 +334,25 @@ def main() -> None:
         # One final render so the completion state is visible for a beat
         live.update(state.render(log_height=max(5, console.size.height - 9)))
         time.sleep(0.5)
-    # Live exits → terminal restored. Always show the interactive Lab Ready page.
-    show_ready_page(state, console)
+    # Live exits → terminal restored.
+    # Open a fresh /dev/tty handle + new Console for the Lab Ready page so
+    # there is zero shared state with the Live display's console object
+    # (which may have stale cursor position / alternate-screen tracking).
+    _tty_fh = None
+    _ready_console = console  # fallback if /dev/tty can't be opened
+    try:
+        _tty_fh = open("/dev/tty", "w")
+        _ready_console = Console(file=_tty_fh, force_terminal=True)
+    except OSError:
+        pass
+    show_ready_page(state, _ready_console)
+    if _tty_fh:
+        try:
+            _tty_fh.flush()
+        except OSError:
+            pass
+        time.sleep(0.15)  # give the terminal a moment to render before Python exits
+        _tty_fh.close()
 
 
 if __name__ == "__main__":

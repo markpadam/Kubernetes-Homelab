@@ -160,6 +160,12 @@ if [[ "$VERBOSE" != "1" ]]; then
     if [[ "$_TUI_ACTIVE" == "1" ]]; then
       _emit "{\"event\":\"error\",\"msg\":\"$(_json_escape "$*")\"}"
       _cleanup_tui
+      # fd 3 is /dev/null in TUI mode — write errors directly to the terminal.
+      echo -e "${RED}${BOLD}[✗]${RESET} $*" >/dev/tty
+      echo -e "${DIM}    Last 20 lines of log (${LAB_LOG}):${RESET}" >/dev/tty
+      tail -20 "$LAB_LOG" | sed 's/^/    /' >/dev/tty
+      echo -e "${DIM}    Full log: tail -f ${LAB_LOG}${RESET}" >/dev/tty
+      exit 1
     fi
     echo -e "${RED}${BOLD}[✗]${RESET} $*" >&3
     echo -e "${DIM}    Last 20 lines of log (${LAB_LOG}):${RESET}" >&3
@@ -470,6 +476,13 @@ if [[ "$VERBOSE" != "1" && "$CI_MODE" != "1" ]]; then
   exec 4<> "$_TUI_FIFO"
   _TUI_ACTIVE=1
   _WAS_TUI=1
+  # Disconnect stdin from the terminal so subprocesses (minikube, docker) don't
+  # detect an interactive tty and write progress bars directly to /dev/tty,
+  # which would corrupt the Rich TUI display.
+  exec 0</dev/null
+  # Silence fd 3 so any stray bash-level writes don't leak to the terminal while
+  # the TUI owns it.  error() is updated below to use /dev/tty directly instead.
+  exec 3>/dev/null
 fi
 
 # ── Preflight checks ─────────────────────────
@@ -762,6 +775,65 @@ if feature_enabled kubernetes-dashboard; then
   fi
 else
   log "Skipping Step 5b — Kubernetes Dashboard not selected"
+fi
+
+# ── Step 5c: Rancher ──────────────────────────
+RANCHER_BOOTSTRAP_PASSWORD="AksLabRancher1"
+if feature_enabled rancher; then
+  step "Step 5c — Rancher"
+
+  helm repo add rancher-stable https://releases.rancher.com/server-charts/stable &>/dev/null
+  helm repo update &>/dev/null
+
+  if helm status rancher -n cattle-system &>/dev/null; then
+    warn "Helm release 'rancher' already exists — skipping install."
+  else
+    log "Installing Rancher via Helm (this may take several minutes)..."
+    helm install rancher rancher-stable/rancher \
+      --namespace cattle-system \
+      --create-namespace \
+      --set hostname=rancher.aks-lab.local \
+      --set bootstrapPassword="${RANCHER_BOOTSTRAP_PASSWORD}" \
+      --set replicas=1 \
+      --set ingress.enabled=false \
+      --set resources.requests.memory=256Mi \
+      --set resources.requests.cpu=250m \
+      --set resources.limits.memory=1Gi \
+      --set auditLog.level=0 \
+      --wait \
+      --timeout=10m
+  fi
+
+  log "Applying Rancher ingress..."
+  kubectl apply -k infrastructure/base/rancher/ \
+    || warn "Rancher ingress apply failed"
+
+  log "Waiting for Rancher to be ready (may take several minutes)..."
+  kubectl wait deployment rancher \
+    --for=condition=available \
+    --namespace=cattle-system \
+    --timeout=300s || warn "Rancher not yet ready — it may still be initialising"
+
+  # Fleet (GitOps engine) and the cluster provisioning CAPI controller are spun
+  # up automatically by Rancher but are redundant in this single-cluster lab —
+  # Flux already covers GitOps. Scale them to 0 to reclaim ~350–450 MB RAM.
+  log "Scaling down redundant Rancher controllers (Fleet, provisioning-capi)..."
+  for _ns_dep in \
+    "cattle-fleet-system/fleet-controller" \
+    "cattle-fleet-local-system/fleet-agent" \
+    "cattle-provisioning-capi-system/capi-controller-manager"; do
+    _ns="${_ns_dep%%/*}"
+    _dep="${_ns_dep##*/}"
+    if kubectl get deployment "$_dep" -n "$_ns" &>/dev/null; then
+      kubectl scale deployment "$_dep" -n "$_ns" --replicas=0 &>/dev/null \
+        && log "  Scaled down $_dep in $_ns" \
+        || warn "  Could not scale $_dep in $_ns — it may not have started yet"
+    fi
+  done
+
+  success "Rancher ready — http://rancher.aks-lab.local:9980  (bootstrap: ${RANCHER_BOOTSTRAP_PASSWORD})"
+else
+  log "Skipping Step 5c — Rancher not selected"
 fi
 
 # ── Step 6: Deploy TaskFlow App ──────────────
@@ -1544,6 +1616,7 @@ feature_enabled kubernetes-dashboard && _add_hosts_entry "dashboard.aks-lab.loca
 feature_enabled argocd          && _add_hosts_entry "argocd.aks-lab.local"
 feature_enabled blob-explorer   && _add_hosts_entry "blob-explorer.aks-lab.local"
 feature_enabled vault           && _add_hosts_entry "vault.aks-lab.local"
+feature_enabled rancher         && _add_hosts_entry "rancher.aks-lab.local"
 feature_enabled argo-workflows  && _add_hosts_entry "argo-workflows.aks-lab.local"
 feature_enabled dex             && _add_hosts_entry "dex.aks-lab.local"
 feature_enabled oauth2-proxy    && _add_hosts_entry "oauth2-proxy.aks-lab.local"
@@ -1552,7 +1625,7 @@ feature_enabled oauth2-proxy    && _add_hosts_entry "oauth2-proxy.aks-lab.local"
 step "Generating Dashboard"
 
 GRAFANA_PASSWORD="${GRAFANA_PASSWORD:-}"
-export PROFILE GRAFANA_PASSWORD ARGOCD_PASSWORD VAULT_TOKEN \
+export PROFILE GRAFANA_PASSWORD ARGOCD_PASSWORD RANCHER_BOOTSTRAP_PASSWORD VAULT_TOKEN \
        ARGO_WORKFLOWS_TOKEN BIND9_IP GITHUB_REPO GITHUB_BRANCH \
        FLUX_APPS_PATH VAULT_KV_PATH VAULT_ADDR VAULT_AUTH_PATH SAMBA_IP
 python3 -c "
@@ -1645,6 +1718,7 @@ if feature_enabled vault; then
 fi
 feature_enabled monitoring           && _check_ns "monitoring"  monitoring
 feature_enabled kubernetes-dashboard && _check_ns "k8s-dashboard" kubernetes-dashboard
+feature_enabled rancher              && _check_ns "rancher"       cattle-system
 feature_enabled argocd               && _check_ns "argocd"       argocd
 feature_enabled toolbox              && _check_ns "toolbox"      toolbox
 
@@ -1700,13 +1774,15 @@ printf "\n" >&3
 if [[ "$_TUI_ACTIVE" == "1" ]]; then
   _has_webapps=false
   { feature_enabled taskflow || feature_enabled monitoring || feature_enabled argocd \
-    || feature_enabled blob-explorer || feature_enabled kubernetes-dashboard; } && _has_webapps=true
+    || feature_enabled blob-explorer || feature_enabled kubernetes-dashboard \
+    || feature_enabled rancher; } && _has_webapps=true
 
   if $_has_webapps; then
     _infoh "Web Apps  (via NGINX Ingress · login with AD credentials)"
     feature_enabled taskflow             && _infok "  TaskFlow:       http://taskflow.aks-lab.local:9980"
     feature_enabled monitoring           && _infok "  Grafana:        http://grafana.aks-lab.local:9980"
     feature_enabled argocd               && _infok "  ArgoCD:         http://argocd.aks-lab.local:9980"
+    feature_enabled rancher              && _infok "  Rancher:        http://rancher.aks-lab.local:9980  (bootstrap: ${RANCHER_BOOTSTRAP_PASSWORD})"
     feature_enabled blob-explorer        && _infok "  Blob Explorer:  http://blob-explorer.aks-lab.local:9980"
     if feature_enabled kubernetes-dashboard; then
       _DASH_TOKEN_FULL=$(kubectl get secret admin-user-token -n kubernetes-dashboard \
@@ -1866,6 +1942,7 @@ ${BOLD}  Web Apps (via NGINX Ingress + OAuth2 SSO — login with AD credentials)
   TaskFlow:      ${GREEN}http://taskflow.aks-lab.local:9980${RESET}
   Grafana:       ${GREEN}http://grafana.aks-lab.local:9980${RESET}
   ArgoCD:        ${GREEN}http://argocd.aks-lab.local:9980${RESET}
+  Rancher:       ${GREEN}http://rancher.aks-lab.local:9980${RESET}          bootstrap: ${RANCHER_BOOTSTRAP_PASSWORD}
   Blob Explorer: ${GREEN}http://blob-explorer.aks-lab.local:9980${RESET}
   K8s Dashboard: ${GREEN}http://dashboard.aks-lab.local:9980${RESET}
   Login with AD: testuser1@corp.internal / AksLab!User1
