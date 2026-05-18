@@ -729,6 +729,41 @@ else
   log "Skipping Step 5 — Monitoring not selected"
 fi
 
+# ── Step 5b: Kubernetes Dashboard ────────────
+if feature_enabled kubernetes-dashboard; then
+  step "Step 5b — Kubernetes Dashboard"
+
+  helm repo add kubernetes-dashboard https://raw.githubusercontent.com/kubernetes/dashboard/gh-pages/ &>/dev/null
+  helm repo update &>/dev/null
+
+  if helm status kubernetes-dashboard -n kubernetes-dashboard &>/dev/null; then
+    warn "Helm release 'kubernetes-dashboard' already exists — skipping install."
+  else
+    log "Installing Kubernetes Dashboard via Helm..."
+    helm install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard \
+      --namespace kubernetes-dashboard \
+      --create-namespace \
+      --wait \
+      --timeout=3m
+  fi
+
+  log "Applying dashboard RBAC and ingress..."
+  kubectl apply -k infrastructure/base/kubernetes-dashboard/ \
+    || warn "Dashboard RBAC/ingress apply failed"
+
+  _DASH_TOKEN=$(kubectl get secret admin-user-token \
+    -n kubernetes-dashboard \
+    -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || echo "")
+  if [[ -n "$_DASH_TOKEN" ]]; then
+    success "Kubernetes Dashboard ready — http://dashboard.aks-lab.local:9980"
+    log "  Admin token: ${_DASH_TOKEN:0:40}... (full token in lab dashboard)"
+  else
+    warn "Dashboard installed but could not read admin token yet"
+  fi
+else
+  log "Skipping Step 5b — Kubernetes Dashboard not selected"
+fi
+
 # ── Step 6: Deploy TaskFlow App ──────────────
 if feature_enabled taskflow; then
   step "Step 6 — Deploying TaskFlow Demo App"
@@ -1221,7 +1256,7 @@ except Exception:
 " "$_verb" "$SAMBA_IP" "$@" 2>/dev/null
     }
     _samba_dns zonecreate aks-lab.local 2>/dev/null || true
-    for _host in dex oauth2-proxy taskflow grafana argocd blob-explorer vault argo-workflows; do
+    for _host in dex oauth2-proxy taskflow grafana argocd blob-explorer vault argo-workflows dashboard; do
       _samba_dns add aks-lab.local "$_host" A "$_MAC_MP_IP" 2>/dev/null || true
     done
     success "aks-lab.local DNS registered — Multipass VMs can reach lab apps"
@@ -1307,7 +1342,7 @@ if feature_enabled corp-client; then
     log "Configuring corp-client hosts file and Firefox DNS..."
     multipass exec corp-client -- bash -c "
       sudo sed -i '/aks-lab.local/d' /etc/hosts
-      echo '$_MAC_MP_IP taskflow.aks-lab.local grafana.aks-lab.local argocd.aks-lab.local blob-explorer.aks-lab.local dex.aks-lab.local oauth2-proxy.aks-lab.local vault.aks-lab.local argo-workflows.aks-lab.local' | sudo tee -a /etc/hosts > /dev/null
+      echo '$_MAC_MP_IP taskflow.aks-lab.local grafana.aks-lab.local argocd.aks-lab.local blob-explorer.aks-lab.local dex.aks-lab.local oauth2-proxy.aks-lab.local vault.aks-lab.local argo-workflows.aks-lab.local dashboard.aks-lab.local' | sudo tee -a /etc/hosts > /dev/null
       PROF=\$(find /home -name 'prefs.js' 2>/dev/null | head -1)
       if [[ -n \"\$PROF\" ]]; then
         sed -i '/network.trr.mode/d' \"\$PROF\"
@@ -1503,8 +1538,9 @@ _add_hosts_entry() {
 }
 
 log "Adding aks-lab.local entries to /etc/hosts (sudo required)..."
-feature_enabled taskflow        && _add_hosts_entry "taskflow.aks-lab.local"
-feature_enabled monitoring      && _add_hosts_entry "grafana.aks-lab.local"
+feature_enabled taskflow             && _add_hosts_entry "taskflow.aks-lab.local"
+feature_enabled monitoring           && _add_hosts_entry "grafana.aks-lab.local"
+feature_enabled kubernetes-dashboard && _add_hosts_entry "dashboard.aks-lab.local"
 feature_enabled argocd          && _add_hosts_entry "argocd.aks-lab.local"
 feature_enabled blob-explorer   && _add_hosts_entry "blob-explorer.aks-lab.local"
 feature_enabled vault           && _add_hosts_entry "vault.aks-lab.local"
@@ -1607,9 +1643,10 @@ if feature_enabled vault; then
     _chk_fail "vault" "not reachable at http://127.0.0.1:8200"
   fi
 fi
-feature_enabled monitoring && _check_ns "monitoring" monitoring
-feature_enabled argocd     && _check_ns "argocd"     argocd
-feature_enabled toolbox    && _check_ns "toolbox"    toolbox
+feature_enabled monitoring           && _check_ns "monitoring"  monitoring
+feature_enabled kubernetes-dashboard && _check_ns "k8s-dashboard" kubernetes-dashboard
+feature_enabled argocd               && _check_ns "argocd"       argocd
+feature_enabled toolbox              && _check_ns "toolbox"      toolbox
 
 _chk_section "Identity"
 if feature_enabled samba-ad; then
@@ -1663,14 +1700,20 @@ printf "\n" >&3
 if [[ "$_TUI_ACTIVE" == "1" ]]; then
   _has_webapps=false
   { feature_enabled taskflow || feature_enabled monitoring || feature_enabled argocd \
-    || feature_enabled blob-explorer; } && _has_webapps=true
+    || feature_enabled blob-explorer || feature_enabled kubernetes-dashboard; } && _has_webapps=true
 
   if $_has_webapps; then
     _infoh "Web Apps  (via NGINX Ingress · login with AD credentials)"
-    feature_enabled taskflow      && _infok "  TaskFlow:       http://taskflow.aks-lab.local:9980"
-    feature_enabled monitoring    && _infok "  Grafana:        http://grafana.aks-lab.local:9980"
-    feature_enabled argocd        && _infok "  ArgoCD:         http://argocd.aks-lab.local:9980"
-    feature_enabled blob-explorer && _infok "  Blob Explorer:  http://blob-explorer.aks-lab.local:9980"
+    feature_enabled taskflow             && _infok "  TaskFlow:       http://taskflow.aks-lab.local:9980"
+    feature_enabled monitoring           && _infok "  Grafana:        http://grafana.aks-lab.local:9980"
+    feature_enabled argocd               && _infok "  ArgoCD:         http://argocd.aks-lab.local:9980"
+    feature_enabled blob-explorer        && _infok "  Blob Explorer:  http://blob-explorer.aks-lab.local:9980"
+    if feature_enabled kubernetes-dashboard; then
+      _DASH_TOKEN_FULL=$(kubectl get secret admin-user-token -n kubernetes-dashboard \
+        -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || echo "")
+      _infok "  K8s Dashboard:  http://dashboard.aks-lab.local:9980"
+      [[ -n "$_DASH_TOKEN_FULL" ]] && _infod "    Token: ${_DASH_TOKEN_FULL}"
+    fi
     { feature_enabled dex || feature_enabled samba-ad; } \
       && _info "  Login with AD:  testuser1@corp.internal / AksLab!User1"
   fi
@@ -1815,6 +1858,7 @@ ${BOLD}  Web Apps (via NGINX Ingress + OAuth2 SSO — login with AD credentials)
   Grafana:       ${GREEN}http://grafana.aks-lab.local:9980${RESET}
   ArgoCD:        ${GREEN}http://argocd.aks-lab.local:9980${RESET}
   Blob Explorer: ${GREEN}http://blob-explorer.aks-lab.local:9980${RESET}
+  K8s Dashboard: ${GREEN}http://dashboard.aks-lab.local:9980${RESET}
   Login with AD: testuser1@corp.internal / AksLab!User1
 
 ${BOLD}  Auth Services${RESET}

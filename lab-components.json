@@ -41,6 +41,19 @@
       "desc": "GitOps CD platform — visual deployments from Git"
     },
     {
+      "id": "kubernetes-dashboard",
+      "name": "Kubernetes Dashboard",
+      "group": "infrastructure",
+      "default": true,
+      "type": "special",
+      "ns": "kubernetes-dashboard",
+      "flux_dir": "",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [],
+      "desc": "Official Kubernetes web UI — cluster explorer, workloads, logs"
+    },
+    {
       "id": "toolbox",
       "name": "Toolbox SSH Pod",
       "group": "infrastructure",
