@@ -48,6 +48,9 @@ spec:
             # Session cookie — not secure (no TLS in lab)
             - --cookie-secure=false
             - --cookie-name=_oauth2_proxy_lab
+            # Scope the cookie to the whole .aks-lab.local domain so all app
+            # subdomains (taskflow, grafana, argocd, blob-explorer) receive it.
+            - --cookie-domain=.aks-lab.local
 
             # Skip the Dex "pick a provider" screen (only one connector)
             - --skip-provider-button=true
