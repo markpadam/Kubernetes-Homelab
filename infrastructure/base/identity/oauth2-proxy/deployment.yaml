@@ -52,6 +52,11 @@ spec:
             # Skip the Dex "pick a provider" screen (only one connector)
             - --skip-provider-button=true
 
+            # Allow post-login redirects to any *.aks-lab.local subdomain.
+            # Required because each app is on its own subdomain and the callback
+            # fires on oauth2-proxy.aks-lab.local, not the originating app host.
+            - --whitelist-domain=.aks-lab.local
+
             # Pass user identity to the backend via headers
             - --set-xauthrequest=true
             - --pass-access-token=true
