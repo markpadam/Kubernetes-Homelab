@@ -1815,10 +1815,10 @@ ELAPSED_MIN=$(( ELAPSED / 60 ))
 ELAPSED_SEC=$(( ELAPSED % 60 ))
 
 # Signal TUI that setup is complete, then close the FIFO write-end so the Python
-# reader sees EOF and exits. Python then shows the interactive Lab Ready page and
-# waits for Enter — we block here until the user dismisses it.
-# Gate on _WAS_TUI (not _TUI_ACTIVE) so the FIFO is always closed and we always
-# wait for the TUI, even if _TUI_ACTIVE was cleared by a failed emit mid-run.
+# reader sees EOF and exits. Python renders the Lab Ready page and exits cleanly;
+# bash then handles the Enter-wait (foreground process owns terminal input reliably).
+# Gate on _WAS_TUI (not _TUI_ACTIVE) so the FIFO is always closed even if
+# _TUI_ACTIVE was cleared by a failed emit mid-run.
 if [[ "$_WAS_TUI" == "1" ]]; then
   if (( _STEP_ID > 0 )); then
     printf '%s\n' "{\"event\":\"step_done\",\"id\":${_STEP_ID},\"elapsed\":\"$(_fmt_elapsed)\"}" >&4 2>/dev/null || true
@@ -1826,10 +1826,16 @@ if [[ "$_WAS_TUI" == "1" ]]; then
   printf '%s\n' "{\"event\":\"done\",\"pass\":${_CHECKS_PASS},\"fail\":${_CHECKS_FAIL}}" >&4 2>/dev/null || true
   exec 4>&-          # close write-end → Python reader gets EOF, exits cleanly
   _TUI_ACTIVE=0
-  wait "$_TUI_PID" 2>/dev/null || true
+  wait "$_TUI_PID" 2>/dev/null || true   # blocks until Python renders Lab Ready page and exits
   _TUI_PID=""
   rm -f "$_TUI_FIFO"
   _TUI_FIFO=""
+  # Python rendered the Lab Ready page and exited. Bash (foreground process)
+  # is the reliable owner of terminal input, so we do the Enter-wait here.
+  # Drain any stray keystrokes buffered during the long setup run, then block.
+  stty sane 2>/dev/null || true
+  while IFS= read -r -t 0.05 _dummy_flush </dev/tty 2>/dev/null; do :; done || true
+  read -r _dummy_flush </dev/tty 2>/dev/null || true
 fi
 
 # In TUI mode the Lab Ready page was already shown interactively inside the TUI.

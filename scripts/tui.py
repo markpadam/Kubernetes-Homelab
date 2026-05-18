@@ -239,7 +239,7 @@ class State:
 
 
 def show_ready_page(state: State, console: Console) -> None:
-    """Replace the TUI with a full-screen Lab Ready summary; exit on Enter."""
+    """Replace the TUI with a full-screen Lab Ready summary and return."""
     elapsed = state.elapsed()
     f_pass  = state.final_pass
     f_fail  = state.final_fail
@@ -279,21 +279,9 @@ def show_ready_page(state: State, console: Console) -> None:
         padding=(0, 2),
     ))
     console.print("\n  [dim]Press Enter to close[/dim]")
-    # The TUI runs as a bash background job whose stdin is /dev/null in
-    # non-interactive shells.  Read from /dev/tty directly so "Press Enter"
-    # actually waits rather than returning EOF immediately.
-    # Flush buffered terminal input first so a stray Enter pressed during
-    # setup does not immediately dismiss the page.
-    try:
-        import termios
-        with open("/dev/tty") as _tty:
-            try:
-                termios.tcflush(_tty.fileno(), termios.TCIFLUSH)
-            except Exception:
-                pass
-            _tty.readline()
-    except (OSError, EOFError, KeyboardInterrupt):
-        pass
+    # The TUI is a bash background job — background processes cannot reliably
+    # read from the terminal (the foreground bash process owns terminal input).
+    # We render the page here and exit; bash then reads the Enter keystroke.
 
 
 def reader_thread(fifo_path: str, state: State) -> None:
