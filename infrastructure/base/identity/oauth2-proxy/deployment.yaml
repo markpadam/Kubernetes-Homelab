@@ -56,9 +56,10 @@ spec:
             - --skip-provider-button=true
 
             # Allow post-login redirects to any *.aks-lab.local subdomain.
-            # Required because each app is on its own subdomain and the callback
-            # fires on oauth2-proxy.aks-lab.local, not the originating app host.
+            # Both forms required: the bare domain for standard port 80, and the
+            # :9980 variant for the NodePort tunnel used by external VMs.
             - --whitelist-domain=.aks-lab.local
+            - --whitelist-domain=.aks-lab.local:9980
 
             # Pass user identity to the backend via headers
             - --set-xauthrequest=true
