@@ -63,7 +63,9 @@ spec:
             exec:
               command: ["pg_isready", "-U", "taskuser", "-d", "taskdb"]
             initialDelaySeconds: 10
-            periodSeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
       volumes:
         - name: postgres-storage
           persistentVolumeClaim:
