@@ -1167,6 +1167,24 @@ except Exception:
   kubectl rollout status deployment coredns -n kube-system --timeout=60s
   success "CoreDNS updated — corp.internal now resolves via SambaAD"
 
+  # Register *.aks-lab.local A records in SambaAD DNS so Multipass VMs
+  # (corp-client etc.) resolve lab app hostnames to the Mac host IP.
+  _MAC_MP_IP=$(ifconfig 2>/dev/null | awk '/inet 192\.168\.252\./{print $2}' | head -1)
+  if [[ -n "$_MAC_MP_IP" ]]; then
+    log "Registering aks-lab.local DNS in SambaAD ($SAMBA_IP → $_MAC_MP_IP)..."
+    _samba_dns() {
+      multipass exec samba-ad -- sudo samba-tool dns "$@" \
+        127.0.0.1 -U Administrator --password="AksLab!AdDev1" 2>/dev/null
+    }
+    _samba_dns zonecreate aks-lab.local 2>/dev/null || true
+    for _host in dex oauth2-proxy taskflow grafana argocd blob-explorer vault argo-workflows; do
+      _samba_dns add aks-lab.local "$_host" A "$_MAC_MP_IP" 2>/dev/null || true
+    done
+    success "aks-lab.local DNS registered — Multipass VMs can reach lab apps"
+  else
+    warn "Multipass bridge IP not detected — skipping aks-lab.local SambaAD DNS registration"
+  fi
+
   if feature_enabled dex; then
     DEX_CLIENT_SECRET="dex-lab-client-secret-aks"
     export DEX_CLIENT_SECRET AD_ADMIN_PASSWORD="AksLab!AdDev1"
