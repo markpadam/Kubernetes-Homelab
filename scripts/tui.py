@@ -72,6 +72,7 @@ class State:
                     "id": evt.get("id", 0),
                     "label": evt.get("label", ""),
                     "status": "running",
+                    "elapsed": "",
                 })
                 self.phase = evt.get("label", "")
             elif e == "step_done":
@@ -79,12 +80,14 @@ class State:
                 for s in self.steps:
                     if s["id"] == sid and s["status"] == "running":
                         s["status"] = "done"
+                        s["elapsed"] = evt.get("elapsed", "")
             elif e in ("step_warn", "step_fail"):
                 sid = evt.get("id", -1)
                 status = "warn" if e == "step_warn" else "fail"
                 for s in self.steps:
                     if s["id"] == sid:
                         s["status"] = status
+                        s["elapsed"] = evt.get("elapsed", "")
             elif e in ("log", "success", "warn", "error"):
                 ts = datetime.now().strftime("%H:%M:%S")
                 self.logs.append((ts, e, evt.get("msg", "")))
@@ -140,7 +143,10 @@ class State:
                 else "default"
             )
             steps_text.append(f"  {icon}  ", style=icon_style)
-            steps_text.append(s["label"] + "\n", style=label_style)
+            steps_text.append(s["label"], style=label_style)
+            if s.get("elapsed") and status in ("done", "warn", "fail"):
+                steps_text.append(f"  ({s['elapsed']})", style="dim")
+            steps_text.append("\n")
 
         # ── Log panel ─────────────────────────────────────────────────────
         log_text = Text()

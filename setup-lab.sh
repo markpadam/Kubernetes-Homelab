@@ -45,6 +45,7 @@ _TUI_ACTIVE=0
 _TUI_FIFO=""
 _TUI_PID=""
 _STEP_ID=0
+_STEP_START_SECONDS=$SECONDS
 _SUDO_KEEPALIVE_PID=""
 _WAS_TUI=0
 
@@ -66,6 +67,15 @@ _json_escape() {
 _emit() {
   [[ "$_TUI_ACTIVE" != "1" ]] && return
   printf '%s\n' "$1" >&4 2>/dev/null || _TUI_ACTIVE=0
+}
+
+_fmt_elapsed() {
+  local _s=$(( SECONDS - _STEP_START_SECONDS ))
+  if (( _s >= 60 )); then
+    printf '%dm %ds' "$(( _s / 60 ))" "$(( _s % 60 ))"
+  else
+    printf '%ds' "$_s"
+  fi
 }
 
 _cleanup_tui() {
@@ -129,10 +139,20 @@ if [[ "$VERBOSE" != "1" ]]; then
     fi
   }
   step() {
+    local _e; _e="$(_fmt_elapsed)"
     if [[ "$_TUI_ACTIVE" == "1" ]]; then
+      if (( _STEP_ID > 0 )); then
+        _emit "{\"event\":\"step_done\",\"id\":${_STEP_ID},\"elapsed\":\"${_e}\"}"
+      fi
       _STEP_ID=$(( _STEP_ID + 1 ))
+      _STEP_START_SECONDS=$SECONDS
       _emit "{\"event\":\"step_start\",\"id\":${_STEP_ID},\"label\":\"$(_json_escape "$*")\"}"
     else
+      if (( _STEP_ID > 0 )); then
+        echo -e "${DIM}    (${_e})${RESET}" >&3
+      fi
+      _STEP_ID=$(( _STEP_ID + 1 ))
+      _STEP_START_SECONDS=$SECONDS
       echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}" >&3
     fi
   }
@@ -154,7 +174,15 @@ else
   success() { echo -e "${GREEN}${BOLD}[✓]${RESET} $*"; }
   warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*"; }
   error()   { echo -e "${RED}${BOLD}[✗]${RESET} $*"; exit 1; }
-  step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
+  step()    {
+    local _e; _e="$(_fmt_elapsed)"
+    if (( _STEP_ID > 0 )); then
+      echo -e "${DIM}    (${_e})${RESET}"
+    fi
+    _STEP_ID=$(( _STEP_ID + 1 ))
+    _STEP_START_SECONDS=$SECONDS
+    echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+  }
 fi
 
 # ── Progress indicator ─────────────────────────
@@ -1693,6 +1721,9 @@ fi
 # reader sees EOF and exits. Wait for the TUI to show the Lab Ready page and
 # the user to press Enter before restoring the terminal.
 if [[ "$_TUI_ACTIVE" == "1" ]]; then
+  if (( _STEP_ID > 0 )); then
+    _emit "{\"event\":\"step_done\",\"id\":${_STEP_ID},\"elapsed\":\"$(_fmt_elapsed)\"}"
+  fi
   _emit "{\"event\":\"done\",\"pass\":${_CHECKS_PASS},\"fail\":${_CHECKS_FAIL}}"
   exec 4>&-          # close write-end → Python reader gets EOF, exits cleanly
   _TUI_ACTIVE=0
