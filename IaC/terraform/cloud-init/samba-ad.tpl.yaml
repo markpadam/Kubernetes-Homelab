@@ -83,6 +83,10 @@ write_files:
       grep -q 'dns forwarder' /etc/samba/smb.conf \
         || sed -i '/\[global\]/a \tdns forwarder = 8.8.8.8' /etc/samba/smb.conf
 
+      echo "[samba] Allowing plain LDAP binds (no TLS required)..."
+      grep -q 'ldap server require strong auth' /etc/samba/smb.conf \
+        || sed -i 's/^\[global\]$/[global]\n\tldap server require strong auth = no/' /etc/samba/smb.conf
+
       echo "[samba] Configuring Kerberos..."
       cp /var/lib/samba/private/krb5.conf /etc/krb5.conf
 
