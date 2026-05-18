@@ -1817,11 +1817,13 @@ ELAPSED_SEC=$(( ELAPSED % 60 ))
 # Signal TUI that setup is complete, then close the FIFO write-end so the Python
 # reader sees EOF and exits. Python then shows the interactive Lab Ready page and
 # waits for Enter — we block here until the user dismisses it.
-if [[ "$_TUI_ACTIVE" == "1" ]]; then
+# Gate on _WAS_TUI (not _TUI_ACTIVE) so the FIFO is always closed and we always
+# wait for the TUI, even if _TUI_ACTIVE was cleared by a failed emit mid-run.
+if [[ "$_WAS_TUI" == "1" ]]; then
   if (( _STEP_ID > 0 )); then
-    _emit "{\"event\":\"step_done\",\"id\":${_STEP_ID},\"elapsed\":\"$(_fmt_elapsed)\"}"
+    printf '%s\n' "{\"event\":\"step_done\",\"id\":${_STEP_ID},\"elapsed\":\"$(_fmt_elapsed)\"}" >&4 2>/dev/null || true
   fi
-  _emit "{\"event\":\"done\",\"pass\":${_CHECKS_PASS},\"fail\":${_CHECKS_FAIL}}"
+  printf '%s\n' "{\"event\":\"done\",\"pass\":${_CHECKS_PASS},\"fail\":${_CHECKS_FAIL}}" >&4 2>/dev/null || true
   exec 4>&-          # close write-end → Python reader gets EOF, exits cleanly
   _TUI_ACTIVE=0
   wait "$_TUI_PID" 2>/dev/null || true

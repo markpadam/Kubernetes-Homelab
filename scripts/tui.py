@@ -282,8 +282,15 @@ def show_ready_page(state: State, console: Console) -> None:
     # The TUI runs as a bash background job whose stdin is /dev/null in
     # non-interactive shells.  Read from /dev/tty directly so "Press Enter"
     # actually waits rather than returning EOF immediately.
+    # Flush buffered terminal input first so a stray Enter pressed during
+    # setup does not immediately dismiss the page.
     try:
+        import termios
         with open("/dev/tty") as _tty:
+            try:
+                termios.tcflush(_tty.fileno(), termios.TCIFLUSH)
+            except Exception:
+                pass
             _tty.readline()
     except (OSError, EOFError, KeyboardInterrupt):
         pass
@@ -335,9 +342,8 @@ def main() -> None:
         # One final render so the completion state is visible for a beat
         live.update(state.render(log_height=max(5, console.size.height - 9)))
         time.sleep(0.5)
-    # Live exits → terminal restored. Show the interactive Lab Ready page.
-    if state.ready_lines:
-        show_ready_page(state, console)
+    # Live exits → terminal restored. Always show the interactive Lab Ready page.
+    show_ready_page(state, console)
 
 
 if __name__ == "__main__":
