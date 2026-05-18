@@ -1256,6 +1256,22 @@ if feature_enabled corp-client; then
       2>&1 | tee /tmp/corp-client-terraform-apply.log; } || _CLIENT_RC=$?
   _stop_progress
   [[ $_CLIENT_RC -eq 0 ]] || error "Corp Client VM provisioning failed — check /tmp/corp-client-terraform-apply.log"
+
+  # Patch corp-client so lab hostnames resolve regardless of DNS caching or
+  # Firefox DoH. Uses /etc/hosts (wins over DNS) + disables Firefox TRR.
+  if [[ -n "$_MAC_MP_IP" ]]; then
+    log "Configuring corp-client hosts file and Firefox DNS..."
+    multipass exec corp-client -- bash -c "
+      sudo sed -i '/aks-lab.local/d' /etc/hosts
+      echo '$_MAC_MP_IP taskflow.aks-lab.local grafana.aks-lab.local argocd.aks-lab.local blob-explorer.aks-lab.local dex.aks-lab.local oauth2-proxy.aks-lab.local vault.aks-lab.local argo-workflows.aks-lab.local' | sudo tee -a /etc/hosts > /dev/null
+      PROF=\$(find /home -name 'prefs.js' 2>/dev/null | head -1)
+      if [[ -n \"\$PROF\" ]]; then
+        sed -i '/network.trr.mode/d' \"\$PROF\"
+        echo 'user_pref(\"network.trr.mode\", 5);' >> \"\$PROF\"
+      fi
+    " 2>/dev/null || warn "Could not patch corp-client hosts/Firefox — run manually if needed"
+  fi
+
   success "Corp Client VM ready — multipass shell corp-client"
 else
   log "Skipping Step 11c — Corp Client VM not selected"
