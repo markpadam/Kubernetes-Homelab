@@ -1203,8 +1203,12 @@ except Exception:
   if [[ -n "$_MAC_MP_IP" ]]; then
     log "Registering aks-lab.local DNS in SambaAD ($SAMBA_IP → $_MAC_MP_IP)..."
     _samba_dns() {
-      multipass exec samba-ad -- sudo samba-tool dns "$@" \
-        127.0.0.1 -U Administrator --password="AksLab!AdDev1" 2>/dev/null
+      # samba-tool dns <verb> <server> <args...>
+      # Server must come immediately after the verb. Target the VM's LAN IP —
+      # Samba RPC does not respond on 127.0.0.1 and hangs indefinitely.
+      local _verb="$1"; shift
+      multipass exec samba-ad -- sudo timeout 15 samba-tool dns "$_verb" "$SAMBA_IP" "$@" \
+        -U Administrator --password="AksLab!AdDev1" 2>/dev/null
     }
     _samba_dns zonecreate aks-lab.local 2>/dev/null || true
     for _host in dex oauth2-proxy taskflow grafana argocd blob-explorer vault argo-workflows; do
