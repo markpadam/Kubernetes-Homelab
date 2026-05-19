@@ -40,7 +40,6 @@ def strip_ansi(s: str) -> str:
     return _ANSI_RE.sub('', s)
 
 ACTIVITY_RATIO = 3  # Activity : Verbose = 3:2 (≈ 60% : 40%)
-COMPLETE_HOLD_SECS  = 4   # how long to hold the completion screen before exiting
 
 ICON = {
     "pending": "○",
@@ -61,10 +60,9 @@ STYLE = {
 class State:
     def __init__(self):
         self.steps: list[dict] = []
-        self.logs: list[tuple] = []         # (ts, level, msg)
+        self.logs: list[tuple] = []
         self.health: list[tuple] = []
         self.verbose_lines: list[str] = []
-        self.ready_lines: list[tuple] = []  # unused — kept for compat
         self.start = time.monotonic()
         self.phase = "Starting..."
         self.finished = False
@@ -84,9 +82,9 @@ class State:
                     if s["status"] == "running":
                         s["status"] = "done"
                 self.steps.append({
-                    "id": evt.get("id", 0),
-                    "label": evt.get("label", ""),
-                    "status": "running",
+                    "id":      evt.get("id", 0),
+                    "label":   evt.get("label", ""),
+                    "status":  "running",
                     "elapsed": "",
                 })
                 self.phase = evt.get("label", "")
@@ -114,11 +112,6 @@ class State:
                     evt.get("status", ""),
                     evt.get("detail", ""),
                 ))
-            elif e == "info":
-                self.ready_lines.append((
-                    evt.get("style", ""),
-                    evt.get("msg", ""),
-                ))
             elif e == "done":
                 for s in self.steps:
                     if s["status"] == "running":
@@ -141,6 +134,42 @@ class State:
         s = secs % 60
         return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
 
+    def render_completion(self) -> Panel:
+        """Full-screen completion panel shown for a few seconds at the end."""
+        with self._lock:
+            f_pass = self.final_pass
+            f_fail = self.final_fail
+            health = list(self.health)
+        elapsed = self.elapsed()
+        total   = f_pass + f_fail
+
+        colour  = "green" if f_fail == 0 else "yellow"
+        icon    = "✓" if f_fail == 0 else "~"
+        title   = "[bold green]  Setup Complete  [/bold green]" if f_fail == 0 else "[bold yellow]  Setup Complete — Warnings  [/bold yellow]"
+
+        if total > 0:
+            summary = f"{f_pass}/{total} components healthy"
+            if f_fail:
+                summary += f"  ·  {f_fail} need attention"
+        else:
+            summary = "Setup complete"
+
+        text = Text()
+        text.append(f"\n  {icon}  {summary}", style=f"bold {colour}")
+        text.append(f"  —  {elapsed}\n\n", style="dim")
+
+        hstyle = {"ok": "green bold", "warn": "yellow bold", "fail": "red bold"}
+        hicon  = {"ok": "✓", "warn": "~", "fail": "✗"}
+        for label, status, detail in health:
+            ic = hicon.get(status, "?")
+            hs = hstyle.get(status, "white")
+            text.append(f"  {ic}  {label:<24}", style=hs)
+            text.append(f" {detail}\n", style="dim")
+
+        text.append(f"\n  Dashboard → http://localhost:9997/\n", style="dim cyan")
+
+        return Panel(text, title=title, box=box.DOUBLE, border_style=colour, padding=(1, 2))
+
     def render(self, activity_lines: int = 20, verbose_lines: int = 15) -> Layout:
         with self._lock:
             steps    = list(self.steps)
@@ -157,44 +186,25 @@ class State:
         steps_text = Text()
         for s in steps:
             status = s["status"]
-            icon = ICON[status]
-            icon_style = STYLE[status]
-            label_style = (
-                "bold" if status == "running"
-                else "dim" if status == "pending"
-                else "default"
+            steps_text.append(f"  {ICON[status]}  ", style=STYLE[status])
+            steps_text.append(
+                s["label"],
+                style="bold" if status == "running" else "dim" if status == "pending" else "default",
             )
-            steps_text.append(f"  {icon}  ", style=icon_style)
-            steps_text.append(s["label"], style=label_style)
             if s.get("elapsed") and status in ("done", "warn", "fail"):
                 steps_text.append(f"  ({s['elapsed']})", style="dim")
             steps_text.append("\n")
 
         # ── Activity panel ────────────────────────────────────────────────
         activity_text = Text()
-        level_style = {
-            "log":     "white",
-            "success": "green",
-            "warn":    "yellow",
-            "error":   "red bold",
-        }
-        level_prefix = {
-            "log":     "    ",
-            "success": " ✓  ",
-            "warn":    "[!] ",
-            "error":   "[✗] ",
-        }
+        level_style  = {"log": "white", "success": "green", "warn": "yellow", "error": "red bold"}
+        level_prefix = {"log": "    ",  "success": " ✓  ",  "warn": "[!] ",   "error": "[✗] "}
         for ts, level, msg in logs:
-            pfx = level_prefix.get(level, "    ")
-            sty = level_style.get(level, "white")
-            activity_text.append(f"[{ts}] {pfx}", style="dim")
-            activity_text.append(f"{msg}\n", style=sty)
+            activity_text.append(f"[{ts}] {level_prefix.get(level,'    ')}", style="dim")
+            activity_text.append(f"{msg}\n", style=level_style.get(level, "white"))
 
         if health:
-            activity_text.append(
-                "\n  ─── Health Check ──────────────────────────\n",
-                style="bold dim",
-            )
+            activity_text.append("\n  ─── Health Check ──────────────────────────\n", style="bold dim")
             hstyle = {"ok": "green bold", "warn": "yellow bold", "fail": "red bold"}
             hicon  = {"ok": "✓", "warn": "~", "fail": "✗"}
             for label, status, detail in health:
@@ -212,142 +222,36 @@ class State:
         # ── Status bar ───────────────────────────────────────────────────
         if finished:
             if f_fail == 0:
-                bar = Text(
-                    f"  ✓  Complete · {elapsed} · {f_pass} components healthy",
-                    style="green bold",
-                )
+                bar = Text(f"  ✓  Complete · {elapsed} · {f_pass} components healthy", style="green bold")
             else:
                 total = f_pass + f_fail
                 bar = Text(
-                    f"  ~  Complete · {elapsed} · {f_pass}/{total} healthy,"
-                    f" {f_fail} need attention",
+                    f"  ~  Complete · {elapsed} · {f_pass}/{total} healthy, {f_fail} need attention",
                     style="yellow bold",
                 )
         else:
             bar = Text(f"  ►  {phase}  ·  Elapsed: {elapsed}", style="cyan")
 
-        # ── Assemble layout ──────────────────────────────────────────────
+        # ── Layout ───────────────────────────────────────────────────────
         layout = Layout()
         layout.split_column(
             Layout(name="header", size=3),
             Layout(name="body"),
             Layout(name="footer", size=3),
         )
-        layout["header"].update(Panel(
-            Text("  AKS Homelab Setup", style="bold cyan"),
-            box=box.ROUNDED,
-            border_style="blue",
-        ))
+        layout["header"].update(Panel(Text("  AKS Homelab Setup", style="bold cyan"), box=box.ROUNDED, border_style="blue"))
         layout["body"].split_row(
-            Layout(name="left", ratio=1, minimum_size=30),
+            Layout(name="left",  ratio=1, minimum_size=30),
             Layout(name="right", ratio=2),
         )
-        layout["left"].update(Panel(
-            steps_text,
-            title="[bold]Steps[/bold]",
-            box=box.ROUNDED,
-            border_style="blue",
-            padding=(0, 1),
-        ))
+        layout["left"].update(Panel(steps_text, title="[bold]Steps[/bold]", box=box.ROUNDED, border_style="blue", padding=(0, 1)))
         layout["right"].split_column(
             Layout(name="activity", ratio=ACTIVITY_RATIO),
-            Layout(name="verbose", ratio=2),
+            Layout(name="verbose",  ratio=2),
         )
-        layout["activity"].update(Panel(
-            activity_text,
-            title="[bold]Activity[/bold]",
-            box=box.ROUNDED,
-            border_style="blue",
-            padding=(0, 1),
-        ))
-        layout["verbose"].update(Panel(
-            verbose_text,
-            title="[bold]Verbose Output[/bold]",
-            box=box.ROUNDED,
-            border_style="dim blue",
-            padding=(0, 1),
-        ))
+        layout["activity"].update(Panel(activity_text, title="[bold]Activity[/bold]",       box=box.ROUNDED, border_style="blue",     padding=(0, 1)))
+        layout["verbose"].update( Panel(verbose_text,  title="[bold]Verbose Output[/bold]", box=box.ROUNDED, border_style="dim blue", padding=(0, 1)))
         layout["footer"].update(Panel(bar, box=box.ROUNDED, border_style="blue"))
-        return layout
-
-    def render_complete(self) -> Layout:
-        """Prominent completion screen — replaces the normal layout when done."""
-        f_pass  = self.final_pass
-        f_fail  = self.final_fail
-        total   = f_pass + f_fail
-        elapsed = self.elapsed()
-
-        # ── Steps summary (left column) ───────────────────────────────────
-        steps_text = Text()
-        with self._lock:
-            steps = list(self.steps)
-        for s in steps:
-            status = s["status"]
-            steps_text.append(f"  {ICON[status]}  ", style=STYLE[status])
-            steps_text.append(s["label"])
-            if s.get("elapsed"):
-                steps_text.append(f"  ({s['elapsed']})", style="dim")
-            steps_text.append("\n")
-
-        # ── Health summary (right column) ─────────────────────────────────
-        with self._lock:
-            health = list(self.health)
-
-        health_text = Text()
-        if health:
-            hstyle = {"ok": "green bold", "warn": "yellow bold", "fail": "red bold"}
-            hicon  = {"ok": "✓", "warn": "~", "fail": "✗"}
-            for label, status, detail in health:
-                ic = hicon.get(status, "?")
-                hs = hstyle.get(status, "white")
-                health_text.append(f"  {ic}  ", style=hs)
-                health_text.append(f"{label:<24}", style=hs)
-                health_text.append(f" {detail}\n", style=hs)
-        else:
-            health_text.append("  No health data\n", style="dim")
-
-        # ── Footer bar ────────────────────────────────────────────────────
-        if f_fail == 0:
-            colour  = "green"
-            summary = f"  ✓  Setup complete — {f_pass}/{total} components healthy — {elapsed}"
-        else:
-            colour  = "yellow"
-            summary = f"  ~  Setup complete — {f_pass}/{total} healthy · {f_fail} need attention — {elapsed}"
-
-        layout = Layout()
-        layout.split_column(
-            Layout(name="header", size=3),
-            Layout(name="body"),
-            Layout(name="footer", size=3),
-        )
-        layout["header"].update(Panel(
-            Text("  AKS Homelab Setup", style="bold cyan"),
-            box=box.ROUNDED,
-            border_style="blue",
-        ))
-        layout["body"].split_row(
-            Layout(name="steps", ratio=1, minimum_size=30),
-            Layout(name="health", ratio=2),
-        )
-        layout["steps"].update(Panel(
-            steps_text,
-            title="[bold]Steps[/bold]",
-            box=box.ROUNDED,
-            border_style=colour,
-            padding=(0, 1),
-        ))
-        layout["health"].update(Panel(
-            health_text,
-            title="[bold]Health[/bold]",
-            box=box.ROUNDED,
-            border_style=colour,
-            padding=(0, 1),
-        ))
-        layout["footer"].update(Panel(
-            Text(summary, style=f"bold {colour}"),
-            box=box.ROUNDED,
-            border_style=colour,
-        ))
         return layout
 
 
@@ -365,7 +269,6 @@ def reader_thread(fifo_path: str, state: State) -> None:
 
 
 def verbose_reader_thread(log_path: str, state: State) -> None:
-    """Tail the raw setup log and feed stripped lines into the verbose panel."""
     try:
         with open(log_path, "r", errors="replace") as f:
             while True:
@@ -399,32 +302,36 @@ def main() -> None:
     state = State()
     console = Console()
 
-    t = threading.Thread(target=reader_thread, args=(FIFO_PATH, state), daemon=True)
-    t.start()
-
+    threading.Thread(target=reader_thread,         args=(FIFO_PATH, state),    daemon=True).start()
     if VERBOSE_LOG:
-        vt = threading.Thread(
-            target=verbose_reader_thread, args=(VERBOSE_LOG, state), daemon=True
-        )
-        vt.start()
+        threading.Thread(target=verbose_reader_thread, args=(VERBOSE_LOG, state), daemon=True).start()
 
-    with Live(
-        state.render(),
-        console=console,
-        refresh_per_second=4,
-        screen=False,
-    ) as live:
-        while not state.finished:
-            body_h    = max(10, console.size.height - 6)
-            total_r   = ACTIVITY_RATIO + 2
-            act_lines = max(5, body_h * ACTIVITY_RATIO // total_r - 2)
-            vrb_lines = max(3, body_h * 2 // total_r - 2)
-            live.update(state.render(activity_lines=act_lines, verbose_lines=vrb_lines))
-            time.sleep(0.25)
+    act_lines = 20
+    vrb_lines = 15
+    try:
+        with Live(state.render(), console=console, refresh_per_second=4, screen=False) as live:
+            while not state.finished:
+                body_h    = max(10, console.size.height - 6)
+                total_r   = ACTIVITY_RATIO + 2
+                act_lines = max(5,  body_h * ACTIVITY_RATIO // total_r - 2)
+                vrb_lines = max(3,  body_h * 2             // total_r - 2)
+                live.update(state.render(activity_lines=act_lines, verbose_lines=vrb_lines))
+                time.sleep(0.25)
+            # state.finished is True — exit Live immediately. setup-lab.sh's
+            # _at_exit trap clears the screen and prints the authoritative
+            # completion banner with the full per-component breakdown.
+    except Exception:
+        pass  # never let a Rich crash hide the bash-side banner that follows
 
-        # Switch to the completion screen and hold it so the user can read it
-        live.update(state.render_complete())
-        time.sleep(COMPLETE_HOLD_SECS)
+    # Aggressively reset terminal state on exit so the bash banner that
+    # follows is guaranteed visible. We bypass sys.stdout (which Rich may
+    # have left in a quirky state) and write straight to /dev/tty.
+    try:
+        with open("/dev/tty", "w") as _tty:
+            _tty.write("\033[?1049l\033[?25h\033[0m\r\n")
+            _tty.flush()
+    except OSError:
+        pass
 
 
 if __name__ == "__main__":

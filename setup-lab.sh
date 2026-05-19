@@ -48,6 +48,7 @@ _STEP_ID=0
 _STEP_START_SECONDS=$SECONDS
 _SUDO_KEEPALIVE_PID=""
 _WAS_TUI=0
+_HEALTH_ROWS=()
 
 # Helpers for emitting Lab Ready info lines to the TUI final page
 _info()  { _emit "{\"event\":\"info\",\"msg\":\"$(_json_escape "$*")\",\"style\":\"\"}"; }
@@ -111,8 +112,12 @@ ADO_CONFIG_FILE="${HOME}/.lab-ado"
 
 # ── Logging setup ─────────────────────────────
 LAB_LOG="/tmp/lab-setup-$(date +%Y%m%d-%H%M%S).log"
-# Save the real terminal on fd 3 before any redirect
+# Save the real terminal on fd 3 before any redirect.
+# Also duplicate it to fd 5 — fd 5 is NEVER reassigned for the rest of the
+# script, so it remains a guaranteed writable handle to the user's terminal
+# even when fd 3 is silenced to /dev/null in TUI mode.
 exec 3>&1
+exec 5>&1
 
 if [[ "$VERBOSE" != "1" ]]; then
   # All command output goes to the log file; user-facing functions write to fd 3
@@ -226,7 +231,101 @@ _stop_progress() {
   _PROGRESS_PID=""
 }
 
-trap '_cleanup_tui; _stop_progress; [[ -n "${_SUDO_KEEPALIVE_PID:-}" ]] && kill "$_SUDO_KEEPALIVE_PID" 2>/dev/null || true' EXIT
+_BANNER_PRINTED=0
+_FAILED_LINE=""
+_FAILED_CMD=""
+_capture_err() {
+  _FAILED_LINE="$1"
+  _FAILED_CMD="$2"
+  echo "[$(date +%T)] ERR trap: line ${_FAILED_LINE}: ${_FAILED_CMD}" >> "${LAB_LOG:-/tmp/setup-err.log}" 2>/dev/null || true
+}
+trap '_capture_err "$LINENO" "$BASH_COMMAND"' ERR
+
+_at_exit() {
+  local _ec=$?
+
+  _cleanup_tui
+  _stop_progress
+  [[ -n "${_SUDO_KEEPALIVE_PID:-}" ]] && kill "$_SUDO_KEEPALIVE_PID" 2>/dev/null || true
+
+  # Banner fires here too, so it prints even when `set -e` kills the script
+  # before reaching the normal completion block. Guard against double-print.
+  if [[ "$_BANNER_PRINTED" == "1" ]]; then
+    return
+  fi
+  _BANNER_PRINTED=1
+
+  # Reset terminal AND clear the visible screen — the trap can fire while the
+  # TUI is mid-render, which leaves the cursor in arbitrary positions. Without
+  # the clear, the banner overwrites only parts of the half-drawn TUI layout
+  # and the result is illegible. iTerm preserves scrollback across `\033[2J`,
+  # so the full setup output is still reachable by scrolling up.
+  {
+    printf '\033[?1049l'   # exit alternate screen (no-op if not active)
+    printf '\033[?25h'     # show cursor
+    printf '\033[0m'       # reset SGR
+    printf '\033[2J'       # clear visible screen
+    printf '\033[H'        # cursor to row 1 col 1
+  } >&5 2>/dev/null || true
+  stty sane < /dev/tty 2>/dev/null || true
+
+  local pass=${_CHECKS_PASS:-0}
+  local fail=${_CHECKS_FAIL:-0}
+  local total=${_CHECKS_TOTAL:-$((pass + fail))}
+  local log=${LAB_LOG:-/tmp/setup-lab-unknown.log}
+  local emin=${ELAPSED_MIN:-} esec=${ELAPSED_SEC:-}
+  if [[ -z "$emin" && -n "${SETUP_START:-}" ]]; then
+    local _s=$(( $(date +%s) - SETUP_START ))
+    emin=$(( _s / 60 )); esec=$(( _s % 60 ))
+  fi
+  emin=${emin:-0}; esec=${esec:-0}
+
+  echo "[$(date +%T)] _at_exit fired (ec=$_ec pass=$pass fail=$fail total=$total)" >> "$log" 2>/dev/null || true
+
+  {
+    echo ""
+    echo -e "  ${BOLD}════════════════════════════════════════════════════════════════════${RESET}"
+    if [[ "$_ec" -eq 0 && "$fail" -eq 0 ]]; then
+      echo -e "    ${GREEN}${BOLD}✓ Setup complete${RESET} — ${GREEN}${pass}/${total} components healthy${RESET} — ${emin}m ${esec}s"
+    elif [[ "$_ec" -eq 0 ]]; then
+      echo -e "    ${YELLOW}${BOLD}~ Setup complete${RESET} — ${YELLOW}${pass}/${total} healthy · ${fail} need attention${RESET} — ${emin}m ${esec}s"
+    else
+      echo -e "    ${RED}${BOLD}✗ Setup failed${RESET} — exit code ${_ec} — ${emin}m ${esec}s"
+      if [[ -n "$_FAILED_LINE" ]]; then
+        echo -e "    ${RED}Failed at line ${_FAILED_LINE}:${RESET} ${_FAILED_CMD}"
+      fi
+    fi
+
+    # Per-component health breakdown (only if we collected any)
+    if [[ ${#_HEALTH_ROWS[@]} -gt 0 ]]; then
+      echo ""
+      local row status label detail
+      for row in "${_HEALTH_ROWS[@]}"; do
+        status="${row%%|*}"
+        if [[ "$status" == "section" ]]; then
+          label="${row#section|}"
+          echo -e "    ${BOLD}${label}${RESET}"
+        else
+          local rest="${row#*|}"
+          label="${rest%%|*}"
+          detail="${rest#*|}"
+          case "$status" in
+            ok)   echo -e "      ${GREEN}✓${RESET}  $(printf '%-22s' "$label")${DIM}${detail}${RESET}" ;;
+            warn) echo -e "      ${YELLOW}~${RESET}  $(printf '%-22s' "$label")${YELLOW}${detail}${RESET}" ;;
+            fail) echo -e "      ${RED}✗${RESET}  $(printf '%-22s' "$label")${RED}${detail}${RESET}" ;;
+          esac
+        fi
+      done
+      echo ""
+    fi
+
+    echo -e "    Dashboard: ${GREEN}http://localhost:9997/${RESET}"
+    echo -e "    Log:       ${log}"
+    echo -e "  ${BOLD}════════════════════════════════════════════════════════════════════${RESET}"
+    echo ""
+  } >&5 2>/dev/null || true
+}
+trap _at_exit EXIT
 
 # ── Feature selection ─────────────────────────
 step "Component Selection"
@@ -308,6 +407,29 @@ except Exception:
 " 2>/dev/null)
 
 feature_enabled() { [[ " $ENABLED_FEATURES " =~ (^|[[:space:]])"$1"([[:space:]]|$) ]]; }
+
+# kubectl apply with retry for transient errors (ingress-nginx webhook flaps,
+# CRD-not-established races, etc.). Use this for any resource whose creation
+# touches the validating webhook — primarily Ingress objects.
+_kubectl_apply_retry() {
+  local attempts=0 max=8 err=/tmp/lab-kubectl-apply-err.log
+  while (( attempts < max )); do
+    if kubectl apply "$@" 2>"$err"; then
+      cat "$err" >&2 2>/dev/null || true
+      return 0
+    fi
+    if grep -qE "failed calling webhook|connection refused|no endpoints available|i/o timeout|context deadline exceeded" "$err"; then
+      attempts=$(( attempts + 1 ))
+      log "kubectl apply hit transient error — retry ${attempts}/${max} in 4s..."
+      sleep 4
+    else
+      cat "$err" >&2
+      return 1
+    fi
+  done
+  cat "$err" >&2
+  return 1
+}
 
 success "Features loaded: ${ENABLED_FEATURES:-none}"
 
@@ -703,18 +825,32 @@ kubectl wait --namespace ingress-nginx \
   --timeout=300s || warn "Ingress pod not Ready within 5 min — continuing to verify via webhook endpoint"
 
 log "Waiting for ingress admission webhook to be ready..."
-for _i in $(seq 1 90); do
+_INGRESS_READY=0
+for _i in $(seq 1 150); do
   if kubectl get endpoints ingress-nginx-controller-admission -n ingress-nginx \
       -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null | grep -q .; then
+    _INGRESS_READY=1
     break
-  fi
-  if [[ $_i -eq 90 ]]; then
-    error "Ingress admission webhook never became ready — check ingress-nginx pod logs"
   fi
   sleep 2
 done
 
-success "Ingress controller ready"
+if [[ "$_INGRESS_READY" == "1" ]]; then
+  success "Ingress controller ready"
+else
+  warn "Ingress admission webhook never became ready in 5 min — dependent components may fail. Diagnostics dumped to log."
+  {
+    echo ""
+    echo "──── ingress-nginx diagnostic dump ────"
+    echo "── pods ──"
+    kubectl get pods -n ingress-nginx -o wide 2>&1 || true
+    echo "── events ──"
+    kubectl get events -n ingress-nginx --sort-by=.lastTimestamp 2>&1 | tail -30 || true
+    echo "── controller logs (last 50) ──"
+    kubectl logs -n ingress-nginx -l app.kubernetes.io/component=controller --tail=50 2>&1 || true
+    echo "──────────────────────────────────────"
+  } >> "$LAB_LOG"
+fi
 
 # ── Step 4: Persistent Storage ───────────────
 step "Step 4 — Enabling Persistent Storage"
@@ -1396,7 +1532,8 @@ Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substit
     # Apply non-templated resources individually so the rendered config.yaml is not overwritten
     kubectl apply -f infrastructure/base/identity/dex/deployment.yaml
     kubectl apply -f infrastructure/base/identity/dex/service.yaml
-    kubectl apply -f infrastructure/base/identity/dex/ingress.yaml
+    _kubectl_apply_retry -f infrastructure/base/identity/dex/ingress.yaml \
+      || warn "Dex ingress apply failed after retries — run: kubectl apply -f infrastructure/base/identity/dex/ingress.yaml"
     _DEX_RC=0
     kubectl wait deployment dex --for=condition=available --namespace=dex --timeout=120s || _DEX_RC=$?
     [[ $_DEX_RC -eq 0 ]] \
@@ -1420,7 +1557,8 @@ Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).saf
     # Apply non-templated resources individually so the rendered secret.yaml is not overwritten
     kubectl apply -f infrastructure/base/identity/oauth2-proxy/deployment.yaml
     kubectl apply -f infrastructure/base/identity/oauth2-proxy/service.yaml
-    kubectl apply -f infrastructure/base/identity/oauth2-proxy/ingress.yaml
+    _kubectl_apply_retry -f infrastructure/base/identity/oauth2-proxy/ingress.yaml \
+      || warn "OAuth2 Proxy ingress apply failed after retries — run: kubectl apply -f infrastructure/base/identity/oauth2-proxy/ingress.yaml"
     _OAUTH_RC=0
     kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s || _OAUTH_RC=$?
     [[ $_OAUTH_RC -eq 0 ]] \
@@ -1704,8 +1842,11 @@ step "Deployment Health Check"
 _CHECKS_PASS=0
 _CHECKS_FAIL=0
 
+_HEALTH_ROWS=()   # entries: "STATUS|LABEL|DETAIL" or "SECTION|name"
+
 _chk_ok() {
   _CHECKS_PASS=$(( _CHECKS_PASS + 1 ))
+  _HEALTH_ROWS+=("ok|$1|$2")
   if [[ "$_TUI_ACTIVE" == "1" ]]; then
     _emit "{\"event\":\"health_result\",\"label\":\"$(_json_escape "$1")\",\"status\":\"ok\",\"detail\":\"$(_json_escape "$2")\"}"
   else
@@ -1714,6 +1855,7 @@ _chk_ok() {
 }
 _chk_warn() {
   _CHECKS_FAIL=$(( _CHECKS_FAIL + 1 ))
+  _HEALTH_ROWS+=("warn|$1|$2")
   if [[ "$_TUI_ACTIVE" == "1" ]]; then
     _emit "{\"event\":\"health_result\",\"label\":\"$(_json_escape "$1")\",\"status\":\"warn\",\"detail\":\"$(_json_escape "$2")\"}"
   else
@@ -1722,6 +1864,7 @@ _chk_warn() {
 }
 _chk_fail() {
   _CHECKS_FAIL=$(( _CHECKS_FAIL + 1 ))
+  _HEALTH_ROWS+=("fail|$1|$2")
   if [[ "$_TUI_ACTIVE" == "1" ]]; then
     _emit "{\"event\":\"health_result\",\"label\":\"$(_json_escape "$1")\",\"status\":\"fail\",\"detail\":\"$(_json_escape "$2")\"}"
   else
@@ -1729,7 +1872,11 @@ _chk_fail() {
   fi
 }
 _chk_section() {
-  [[ "$_TUI_ACTIVE" != "1" ]] && printf "\n  ${BOLD}%s${RESET}\n" "$1" >&3
+  _HEALTH_ROWS+=("section|$1")
+  if [[ "$_TUI_ACTIVE" != "1" ]]; then
+    printf "\n  ${BOLD}%s${RESET}\n" "$1" >&3
+  fi
+  return 0
 }
 
 _check_ns() {
@@ -1871,17 +2018,21 @@ if [[ "$_WAS_TUI" == "1" ]]; then
   _TUI_PID=""
   rm -f "$_TUI_FIFO"
   _TUI_FIFO=""
-  sleep 0.3   # let terminal settle after TUI exits
+
+  # Reset terminal state on the immutable terminal handle (fd 5). Long setups
+  # can leave the terminal in alternate-screen mode, with cursor hidden, or
+  # in raw mode — any of which makes subsequent writes invisible.
+  {
+    printf '\033[?1049l'   # exit alternate screen buffer
+    printf '\033[?25h'     # show cursor
+    printf '\033[0m'       # reset SGR (colours/attributes)
+    printf '\r\n'
+  } >&5 2>/dev/null || true
+  stty sane < /dev/tty 2>/dev/null || true
+
+  sleep 0.3
 fi
 
-# In TUI mode the completion screen is shown inside the TUI above.
-# Only print a plain-text banner in --verbose / CI mode.
-if [[ "$_WAS_TUI" != "1" ]]; then
-  if [[ $_CHECKS_FAIL -eq 0 ]]; then
-    echo -e "\n  ${GREEN}${BOLD}✓ Setup complete — ${_CHECKS_PASS}/${_CHECKS_TOTAL} components healthy — ${ELAPSED_MIN}m ${ELAPSED_SEC}s${RESET}"
-  else
-    echo -e "\n  ${YELLOW}${BOLD}~ Setup complete — ${_CHECKS_PASS}/${_CHECKS_TOTAL} healthy · ${_CHECKS_FAIL} need attention — ${ELAPSED_MIN}m ${ELAPSED_SEC}s${RESET}"
-  fi
-  echo -e "  Dashboard: ${GREEN}http://localhost:9997/${RESET}  |  Log: ${LAB_LOG}"
-  echo ""
-fi
+# Banner is printed by the _at_exit trap — runs whether the script exits
+# here normally or `set -e` kills it earlier. Nothing more to do here.
+echo "[$(date +%T)] reached end of script normally" >> "$LAB_LOG"
