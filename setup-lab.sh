@@ -855,10 +855,34 @@ fi
 # ── Step 4: Persistent Storage ───────────────
 step "Step 4 — Enabling Persistent Storage"
 
-minikube addons enable storage-provisioner  -p "$PROFILE"
-minikube addons enable volumesnapshots      -p "$PROFILE"
-minikube addons enable csi-hostpath-driver  -p "$PROFILE"
-minikube addons enable metrics-server       -p "$PROFILE"
+# minikube addons apply manifests via the in-node kubectl; if the apiserver is
+# flickering (common on resource-constrained Docker Desktop), the apply gets
+# `connection refused`. Retry each addon a few times and warn — not error — so
+# one flap doesn't kill the whole run.
+_minikube_addon_retry() {
+  local addon="$1" attempt=0 max=5 err=/tmp/lab-minikube-addon-err.log
+  while (( attempt < max )); do
+    if minikube addons enable "$addon" -p "$PROFILE" 2>"$err"; then
+      cat "$err" >&2 2>/dev/null || true
+      return 0
+    fi
+    if grep -qE "connection refused|TLS handshake|i/o timeout|context deadline" "$err"; then
+      attempt=$(( attempt + 1 ))
+      log "addon '${addon}' hit transient apiserver error — retry ${attempt}/${max} in 6s..."
+      sleep 6
+    else
+      cat "$err" >&2
+      return 1
+    fi
+  done
+  cat "$err" >&2
+  return 1
+}
+
+_minikube_addon_retry storage-provisioner || warn "storage-provisioner addon failed — PVCs may not bind. Run: minikube addons enable storage-provisioner -p $PROFILE"
+_minikube_addon_retry volumesnapshots     || warn "volumesnapshots addon failed — volume snapshots unavailable. Run: minikube addons enable volumesnapshots -p $PROFILE"
+_minikube_addon_retry csi-hostpath-driver || warn "csi-hostpath-driver addon failed — default StorageClass may not be set. Run: minikube addons enable csi-hostpath-driver -p $PROFILE"
+_minikube_addon_retry metrics-server      || warn "metrics-server addon failed — 'kubectl top' and HPA won't work. Run: minikube addons enable metrics-server -p $PROFILE"
 
 log "Setting csi-hostpath-sc as default StorageClass..."
 
