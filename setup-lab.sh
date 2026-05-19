@@ -476,10 +476,6 @@ if [[ "$VERBOSE" != "1" && "$CI_MODE" != "1" ]]; then
   exec 4<> "$_TUI_FIFO"
   _TUI_ACTIVE=1
   _WAS_TUI=1
-  # Disconnect stdin from the terminal so subprocesses (minikube, docker) don't
-  # detect an interactive tty and write progress bars directly to /dev/tty,
-  # which would corrupt the Rich TUI display.
-  exec 0</dev/null
   # Silence fd 3 so any stray bash-level writes don't leak to the terminal while
   # the TUI owns it.  error() is updated below to use /dev/tty directly instead.
   exec 3>/dev/null
@@ -650,21 +646,21 @@ IMAGES_TO_DIST=()
 
 if feature_enabled taskflow; then
   log "Building backend image..."
-  minikube image build -t aks-lab/backend:latest src/taskflow/backend/ -p "$PROFILE"
+  minikube image build -t aks-lab/backend:latest src/taskflow/backend/ -p "$PROFILE" </dev/null
   success "Backend image built"
   IMAGES_TO_BUILD+=(aks-lab/backend:latest)
 fi
 
 if feature_enabled toolbox; then
   log "Building toolbox image (packages install at build time — takes a few minutes)..."
-  minikube image build -t aks-lab/toolbox:latest src/toolbox/ -p "$PROFILE"
+  minikube image build -t aks-lab/toolbox:latest src/toolbox/ -p "$PROFILE" </dev/null
   success "Toolbox image built"
   IMAGES_TO_BUILD+=(aks-lab/toolbox:latest)
 fi
 
 if feature_enabled blob-explorer; then
   log "Building blob-explorer image..."
-  minikube image build -t aks-lab/blob-explorer:latest src/blob-explorer/ -p "$PROFILE"
+  minikube image build -t aks-lab/blob-explorer:latest src/blob-explorer/ -p "$PROFILE" </dev/null
   success "Blob-explorer image built"
   IMAGES_TO_BUILD+=(aks-lab/blob-explorer:latest)
 fi
