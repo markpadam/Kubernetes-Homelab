@@ -468,7 +468,7 @@ printf "\n" >&3
 if [[ "$VERBOSE" != "1" && "$CI_MODE" != "1" ]]; then
   _TUI_FIFO="/tmp/lab_tui_$$"
   mkfifo "$_TUI_FIFO"
-  python3 "$(dirname "$0")/scripts/tui.py" "$_TUI_FIFO" >/dev/tty 2>/dev/tty &
+  python3 "$(dirname "$0")/scripts/tui.py" "$_TUI_FIFO" "$LAB_LOG" >/dev/tty 2>/dev/tty &
   _TUI_PID=$!
   # Open the write end of the FIFO on fd 4 and keep it open for the whole run.
   # Using <> (O_RDWR) avoids blocking if the Python reader thread isn't ready yet.
@@ -641,42 +641,54 @@ fi
 # ── Step 2: Build Lab Images ─────────────────
 step "Step 2 — Building Lab Images"
 
-IMAGES_TO_BUILD=()
-IMAGES_TO_DIST=()
+IMAGE_CACHE_DIR="${HOME}/.lab-cache/images"
+mkdir -p "$IMAGE_CACHE_DIR"
+IMAGES_TO_DISTRIBUTE=()
 
-if feature_enabled taskflow; then
-  log "Building backend image..."
-  minikube image build -t aks-lab/backend:latest src/taskflow/backend/ -p "$PROFILE" </dev/null
-  success "Backend image built"
-  IMAGES_TO_BUILD+=(aks-lab/backend:latest)
-fi
+# Ensures a lab image is present on all cluster nodes.
+# Priority: cluster already has it → skip; local cache tar exists → load;
+# neither → build from source. Newly built images are added to
+# IMAGES_TO_DISTRIBUTE so the distribution+cache-save step runs once at the end.
+_lab_image() {
+  local name="$1" src="$2"
+  local full="aks-lab/${name}:latest"
+  local cache="${IMAGE_CACHE_DIR}/${name}.tar"
 
-if feature_enabled toolbox; then
-  log "Building toolbox image (packages install at build time — takes a few minutes)..."
-  minikube image build -t aks-lab/toolbox:latest src/toolbox/ -p "$PROFILE" </dev/null
-  success "Toolbox image built"
-  IMAGES_TO_BUILD+=(aks-lab/toolbox:latest)
-fi
+  if minikube image ls -p "$PROFILE" 2>/dev/null | grep -q "aks-lab/${name}"; then
+    log "${name} already on cluster — skipping"
+    return
+  fi
 
-if feature_enabled blob-explorer; then
-  log "Building blob-explorer image..."
-  minikube image build -t aks-lab/blob-explorer:latest src/blob-explorer/ -p "$PROFILE" </dev/null
-  success "Blob-explorer image built"
-  IMAGES_TO_BUILD+=(aks-lab/blob-explorer:latest)
-fi
+  if [[ -f "$cache" ]]; then
+    log "Loading ${name} from cache (~/.lab-cache/images/${name}.tar)..."
+    minikube image load "$cache" -p "$PROFILE"
+    success "${name} loaded from cache"
+  else
+    log "Building ${name}..."
+    minikube image build -t "${full}" "${src}" -p "$PROFILE" </dev/null
+    success "${name} built"
+    IMAGES_TO_DISTRIBUTE+=("${full}")
+  fi
+}
 
-if [[ "${#IMAGES_TO_BUILD[@]}" -gt 0 ]]; then
-  log "Distributing images to worker nodes..."
-  for IMAGE in "${IMAGES_TO_BUILD[@]}"; do
-    TARFILE=$(mktemp /tmp/minikube-image-XXXXXX.tar)
+feature_enabled taskflow      && _lab_image backend      src/taskflow/backend/
+feature_enabled toolbox       && _lab_image toolbox       src/toolbox/
+feature_enabled blob-explorer && _lab_image blob-explorer src/blob-explorer/
+
+if [[ "${#IMAGES_TO_DISTRIBUTE[@]}" -gt 0 ]]; then
+  log "Distributing newly built images to worker nodes and saving to cache..."
+  for IMAGE in "${IMAGES_TO_DISTRIBUTE[@]}"; do
+    NAME="${IMAGE##*/}"; NAME="${NAME%%:*}"
+    TARFILE=$(mktemp /tmp/minikube-image.XXXXXX)
     minikube ssh -p "$PROFILE" -- "docker save ${IMAGE} -o /tmp/_img.tar"
     minikube cp -p "$PROFILE" "${PROFILE}:/tmp/_img.tar" "$TARFILE"
+    cp "$TARFILE" "${IMAGE_CACHE_DIR}/${NAME}.tar"
     minikube image load "$TARFILE" -p "$PROFILE"
     rm -f "$TARFILE"
+    success "${NAME} distributed and cached"
   done
-  success "Images distributed to all nodes"
 else
-  log "No images to build for selected components"
+  log "No images to build — all present on cluster or loaded from cache"
 fi
 
 # ── Step 3: Ingress ──────────────────────────
@@ -684,11 +696,23 @@ step "Step 3 — Enabling Ingress"
 
 minikube addons enable ingress -p "$PROFILE"
 
-log "Waiting for ingress controller to be ready..."
+log "Waiting for ingress controller pod to be ready..."
 kubectl wait --namespace ingress-nginx \
   --for=condition=ready pod \
   --selector=app.kubernetes.io/component=controller \
-  --timeout=120s
+  --timeout=300s || warn "Ingress pod not Ready within 5 min — continuing to verify via webhook endpoint"
+
+log "Waiting for ingress admission webhook to be ready..."
+for _i in $(seq 1 90); do
+  if kubectl get endpoints ingress-nginx-controller-admission -n ingress-nginx \
+      -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null | grep -q .; then
+    break
+  fi
+  if [[ $_i -eq 90 ]]; then
+    error "Ingress admission webhook never became ready — check ingress-nginx pod logs"
+  fi
+  sleep 2
+done
 
 success "Ingress controller ready"
 
@@ -760,12 +784,12 @@ if feature_enabled kubernetes-dashboard; then
   kubectl apply -k infrastructure/base/kubernetes-dashboard/ \
     || warn "Dashboard RBAC/ingress apply failed"
 
-  _DASH_TOKEN=$(kubectl get secret admin-user-token \
+  K8S_DASHBOARD_TOKEN=$(kubectl get secret admin-user-token \
     -n kubernetes-dashboard \
     -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || echo "")
-  if [[ -n "$_DASH_TOKEN" ]]; then
+  if [[ -n "$K8S_DASHBOARD_TOKEN" ]]; then
     success "Kubernetes Dashboard ready — http://dashboard.aks-lab.local:9980"
-    log "  Admin token: ${_DASH_TOKEN:0:40}... (full token in lab dashboard)"
+    log "  Admin token: ${K8S_DASHBOARD_TOKEN:0:40}... (full token in lab dashboard)"
   else
     warn "Dashboard installed but could not read admin token yet"
   fi
@@ -778,8 +802,24 @@ RANCHER_BOOTSTRAP_PASSWORD="AksLabRancher1"
 if feature_enabled rancher; then
   step "Step 5c — Rancher"
 
+  # cert-manager is required by the Rancher chart for its internal Issuer/Certificate resources.
+  helm repo add jetstack https://charts.jetstack.io &>/dev/null
   helm repo add rancher-stable https://releases.rancher.com/server-charts/stable &>/dev/null
-  helm repo update &>/dev/null
+  log "Updating Helm repos for cert-manager and Rancher..."
+  helm repo update jetstack rancher-stable \
+    || warn "Helm repo update failed — will use cached chart index"
+
+  if helm status cert-manager -n cert-manager &>/dev/null; then
+    warn "cert-manager already installed — skipping."
+  else
+    log "Installing cert-manager (Rancher prerequisite)..."
+    helm install cert-manager jetstack/cert-manager \
+      --namespace cert-manager \
+      --create-namespace \
+      --set crds.enabled=true \
+      --wait \
+      --timeout=3m
+  fi
 
   if helm status rancher -n cattle-system &>/dev/null; then
     warn "Helm release 'rancher' already exists — skipping install."
@@ -794,7 +834,7 @@ if feature_enabled rancher; then
       --set ingress.enabled=false \
       --set resources.requests.memory=256Mi \
       --set resources.requests.cpu=250m \
-      --set resources.limits.memory=1Gi \
+      --set resources.limits.memory=2Gi \
       --set auditLog.level=0 \
       --wait \
       --timeout=10m
@@ -841,13 +881,15 @@ if feature_enabled taskflow; then
 
   log "Waiting for pods to be ready (up to 3 minutes)..."
   log "  Waiting for postgres..."
-  kubectl rollout status statefulset/postgres --namespace=taskapp --timeout=180s
+  kubectl rollout status statefulset/postgres --namespace=taskapp --timeout=180s \
+    || warn "postgres not ready within 3 min — may still be initialising"
   for deploy in backend frontend; do
     log "  Waiting for $deploy..."
     kubectl wait deployment "$deploy" \
       --for=condition=available \
       --namespace=taskapp \
-      --timeout=180s
+      --timeout=180s \
+      || warn "$deploy not ready within 3 min — may still be initialising"
   done
 
   success "TaskFlow deployed"
@@ -865,7 +907,8 @@ log "Waiting for bind9 to be ready..."
 kubectl wait deployment bind9 \
   --for=condition=available \
   --namespace=dns-lab \
-  --timeout=120s
+  --timeout=180s \
+  || warn "bind9 not ready within 3 min — DNS lab may not function correctly"
 
 success "bind9 running"
 
@@ -953,7 +996,8 @@ privatelink.azurecr.io:53 {
 
 log "Restarting CoreDNS..."
 kubectl rollout restart deployment coredns -n kube-system
-kubectl rollout status deployment coredns -n kube-system --timeout=60s
+kubectl rollout status deployment coredns -n kube-system --timeout=120s \
+  || warn "CoreDNS rollout timed out — DNS may take a moment to stabilise"
 
 success "CoreDNS patched — stub zones active for corp.internal and privatelink.*"
 
@@ -966,7 +1010,7 @@ if feature_enabled toolbox; then
   PUBLIC_KEY=$(cat "$SSH_KEY_PATH")
   success "Using SSH key: $SSH_KEY_PATH"
 
-  TEMP_MANIFEST=$(mktemp /tmp/toolbox-XXXXXX.yaml)
+  TEMP_MANIFEST=$(mktemp /tmp/toolbox.XXXXXX)
   sed "s|REPLACE_WITH_YOUR_PUBLIC_KEY|${PUBLIC_KEY}|g" \
     "$TOOLBOX_DIR/toolbox.yaml" > "$TEMP_MANIFEST"
   kubectl apply -f "$TEMP_MANIFEST"
@@ -974,7 +1018,8 @@ if feature_enabled toolbox; then
 
   log "Waiting for toolbox pod to be ready (2-3 min first run)..."
   kubectl wait deployment toolbox \
-    --for=condition=available --namespace=toolbox --timeout=300s
+    --for=condition=available --namespace=toolbox --timeout=300s \
+    || warn "Toolbox pod not ready within 5 min — SSH may not be available yet"
 
   success "Toolbox pod running"
 
@@ -1039,7 +1084,8 @@ if feature_enabled argocd; then
   kubectl wait deployment argocd-server \
     --for=condition=available \
     --namespace=argocd \
-    --timeout=300s
+    --timeout=300s \
+    || warn "ArgoCD server not ready within 5 min — may still be initialising"
 
   ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
     -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<password-already-changed>")
@@ -1135,7 +1181,8 @@ log "Waiting for Flux GitRepository to be ready..."
 kubectl wait gitrepository/homelab \
   --for=condition=ready \
   --namespace=flux-system \
-  --timeout=120s
+  --timeout=180s \
+  || warn "Flux GitRepository not ready — check GitHub connectivity and flux-system logs"
 
 success "Flux installed — watching ${GITHUB_REPO} @ ${FLUX_APPS_PATH}"
 
@@ -1297,7 +1344,8 @@ except Exception:
         --dry-run=client -o yaml \
     | kubectl apply -f -
   kubectl rollout restart deployment coredns -n kube-system
-  kubectl rollout status deployment coredns -n kube-system --timeout=60s
+  kubectl rollout status deployment coredns -n kube-system --timeout=120s \
+    || warn "CoreDNS rollout timed out — DNS resolution may take a moment"
   success "CoreDNS updated — corp.internal now resolves via SambaAD"
 
   # Register *.aks-lab.local A records in SambaAD DNS so Multipass VMs
@@ -1448,13 +1496,15 @@ if feature_enabled argo-workflows; then
   kubectl wait deployment workflow-controller \
     --for=condition=available \
     --namespace="$ARGO_NS" \
-    --timeout=180s
+    --timeout=180s \
+    || warn "workflow-controller not ready within 3 min — may still be initialising"
 
   log "Waiting for argo-server to be ready..."
   kubectl wait deployment argo-server \
     --for=condition=available \
     --namespace="$ARGO_NS" \
-    --timeout=180s
+    --timeout=180s \
+    || warn "argo-server not ready within 3 min — may still be initialising"
 
   # Disable TLS and enable server auth mode (no SSO needed for the lab)
   if ! kubectl get deployment argo-server -n "$ARGO_NS" \
@@ -1474,7 +1524,8 @@ if feature_enabled argo-workflows; then
     kubectl wait deployment argo-server \
       --for=condition=available \
       --namespace="$ARGO_NS" \
-      --timeout=300s
+      --timeout=300s \
+      || warn "argo-server (patched) not ready within 5 min — may still be restarting"
   fi
 
   ARGO_WORKFLOWS_TOKEN=$(kubectl -n "$ARGO_NS" exec deploy/argo-server -- argo auth token 2>/dev/null \
@@ -1621,8 +1672,9 @@ feature_enabled oauth2-proxy    && _add_hosts_entry "oauth2-proxy.aks-lab.local"
 step "Generating Dashboard"
 
 GRAFANA_PASSWORD="${GRAFANA_PASSWORD:-}"
+K8S_DASHBOARD_TOKEN="${K8S_DASHBOARD_TOKEN:-}"
 export PROFILE GRAFANA_PASSWORD ARGOCD_PASSWORD RANCHER_BOOTSTRAP_PASSWORD VAULT_TOKEN \
-       ARGO_WORKFLOWS_TOKEN BIND9_IP GITHUB_REPO GITHUB_BRANCH \
+       ARGO_WORKFLOWS_TOKEN K8S_DASHBOARD_TOKEN BIND9_IP GITHUB_REPO GITHUB_BRANCH \
        FLUX_APPS_PATH VAULT_KV_PATH VAULT_ADDR VAULT_AUTH_PATH SAMBA_IP
 python3 -c "
 import os, string
@@ -1764,88 +1816,6 @@ else
 fi
 printf "\n" >&3
 
-# ── Lab Ready info page (TUI mode) ───────────────────────────────────────────
-# Emit structured info lines that the TUI renders as an interactive final page.
-# Non-TUI mode (--verbose, CI) skips this and uses the plain-text banner below.
-if [[ "$_TUI_ACTIVE" == "1" ]]; then
-  _has_webapps=false
-  { feature_enabled taskflow || feature_enabled monitoring || feature_enabled argocd \
-    || feature_enabled blob-explorer || feature_enabled kubernetes-dashboard \
-    || feature_enabled rancher; } && _has_webapps=true
-
-  if $_has_webapps; then
-    _infoh "Web Apps  (via NGINX Ingress · login with AD credentials)"
-    feature_enabled taskflow             && _infok "  TaskFlow:       http://taskflow.aks-lab.local:9980"
-    feature_enabled monitoring           && _infok "  Grafana:        http://grafana.aks-lab.local:9980"
-    feature_enabled argocd               && _infok "  ArgoCD:         http://argocd.aks-lab.local:9980"
-    feature_enabled rancher              && _infok "  Rancher:        http://rancher.aks-lab.local:9980  (bootstrap: ${RANCHER_BOOTSTRAP_PASSWORD})"
-    feature_enabled blob-explorer        && _infok "  Blob Explorer:  http://blob-explorer.aks-lab.local:9980"
-    if feature_enabled kubernetes-dashboard; then
-      _DASH_TOKEN_FULL=$(kubectl get secret admin-user-token -n kubernetes-dashboard \
-        -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || echo "")
-      _infok "  K8s Dashboard:  http://dashboard.aks-lab.local:9980"
-      [[ -n "$_DASH_TOKEN_FULL" ]] && _infod "    Token: ${_DASH_TOKEN_FULL}"
-    fi
-    { feature_enabled dex || feature_enabled samba-ad; } \
-      && _info "  Login with AD:  testuser1@corp.internal / AksLab!User1"
-  fi
-
-  if feature_enabled dex || feature_enabled oauth2-proxy || feature_enabled samba-ad; then
-    _info ""
-    _infoh "Auth Services"
-    feature_enabled dex          && _infok "  Dex (OIDC):     http://dex.aks-lab.local:9980/.well-known/openid-configuration"
-    feature_enabled oauth2-proxy && _infok "  OAuth2 Proxy:   http://oauth2-proxy.aks-lab.local:9980/oauth2/auth"
-    feature_enabled samba-ad     && _info  "  SambaAD VM:     IP: ${SAMBA_IP:-<run: multipass info samba-ad>}"
-  fi
-
-  _has_emulators=false
-  for _e in azure-sql azurite cosmos-db service-bus container-registry vault argo-workflows; do
-    feature_enabled "$_e" && _has_emulators=true && break || true
-  done
-  if $_has_emulators; then
-    _info ""
-    _infoh "Azure Emulators & Services"
-    feature_enabled azure-sql          && _infok "  Azure SQL:       localhost:1433  (sa / AksLab!SqlDev1)"
-    feature_enabled azurite            && _infok "  Azurite:         http://localhost:10000"
-    feature_enabled service-bus        && _infok "  Service Bus:     localhost:5672 (AMQP)"
-    feature_enabled container-registry && _infok "  Registry:        localhost:5000"
-    feature_enabled cosmos-db          && _infok "  Cosmos DB:       http://localhost:8081  ·  Explorer: http://localhost:1234"
-    feature_enabled vault              && _infok "  Vault UI:        http://vault.aks-lab.local:8200/ui  (token: ${VAULT_TOKEN})"
-    feature_enabled argo-workflows     && _infok "  Argo Workflows:  http://argo-workflows.aks-lab.local:2746"
-  fi
-
-  if feature_enabled corp-client; then
-    _info ""
-    _infoh "Corp Client VM  (domain-joined Ubuntu)"
-    _info  "  Shell in:   multipass shell corp-client"
-    _info  "  AD login:   su - testuser1  (or testuser2)"
-  fi
-
-  if feature_enabled toolbox; then
-    _info ""
-    _infoh "Toolbox Pod"
-    _infok "  SSH:        ssh aks-toolbox"
-    _info  "  Or:         ssh -p 2222 root@localhost"
-    _info  "  Re-forward: kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox &"
-  fi
-
-  _info ""
-  _infoh "Flux (GitOps)"
-  _info  "  Watching:    ${GITHUB_REPO} @ ${FLUX_APPS_PATH}"
-  _infok "  Status:      flux get all -n flux-system"
-  _infok "  Force sync:  flux reconcile kustomization flux-apps -n flux-system"
-
-  _info ""
-  _infoh "Useful Commands"
-  _infok "  All pods:  kubectl get pods -A"
-  _infok "  Stop lab:  minikube stop -p ${PROFILE}"
-  _infok "  Destroy:   minikube delete -p ${PROFILE}"
-
-  _info ""
-  _infod "Full setup log: ${LAB_LOG}"
-  _infod "Dashboard:      http://localhost:9997/"
-fi
-
 # ── macOS LaunchAgent (auto-resume on login) ──
 # Install before the TUI shuts down so all bash work is done before Python
 # takes sole ownership of the terminal for the Lab Ready page.
@@ -1887,9 +1857,8 @@ ELAPSED_MIN=$(( ELAPSED / 60 ))
 ELAPSED_SEC=$(( ELAPSED % 60 ))
 
 # Signal TUI that setup is complete, then close the FIFO write-end so the Python
-# reader sees EOF and exits. Python renders the Lab Ready page and exits cleanly;
-# bash then handles the Enter-wait (foreground process owns terminal input reliably).
-# Gate on _WAS_TUI (not _TUI_ACTIVE) so the FIFO is always closed even if
+# reader sees EOF and exits cleanly. Gate on _WAS_TUI (not _TUI_ACTIVE) so the
+# FIFO is always closed even if
 # _TUI_ACTIVE was cleared by a failed emit mid-run.
 if [[ "$_WAS_TUI" == "1" ]]; then
   if (( _STEP_ID > 0 )); then
@@ -1898,102 +1867,21 @@ if [[ "$_WAS_TUI" == "1" ]]; then
   printf '%s\n' "{\"event\":\"done\",\"pass\":${_CHECKS_PASS},\"fail\":${_CHECKS_FAIL}}" >&4 2>/dev/null || true
   exec 4>&-          # close write-end → Python reader gets EOF, exits cleanly
   _TUI_ACTIVE=0
-  wait "$_TUI_PID" 2>/dev/null || true   # blocks until Python renders Lab Ready page and exits
+  wait "$_TUI_PID" 2>/dev/null || true
   _TUI_PID=""
   rm -f "$_TUI_FIFO"
   _TUI_FIFO=""
-  # Python rendered the Lab Ready page and exited. Bash (foreground process)
-  # is the reliable owner of terminal input, so we do the Enter-wait here.
-  # Drain any stray keystrokes buffered during the long setup run, then block.
-  stty sane 2>/dev/null || true
-  while IFS= read -r -t 0.05 _dummy_flush </dev/tty 2>/dev/null; do :; done || true
-  read -r _dummy_flush </dev/tty 2>/dev/null || true
+  sleep 0.3   # let terminal settle after TUI exits
 fi
 
-# In TUI mode the Lab Ready page was already shown interactively inside the TUI.
-# Only print the plain-text banner in --verbose / CI mode.
-[[ "$_WAS_TUI" == "1" ]] && exit 0
-
-step "Lab Ready"
-
-# ── Banner ────────────────────────────────────
-{
-  if command -v figlet &>/dev/null; then
-    figlet -f slant "AKS Lab" 2>/dev/null || figlet "AKS Lab"
+# In TUI mode the completion screen is shown inside the TUI above.
+# Only print a plain-text banner in --verbose / CI mode.
+if [[ "$_WAS_TUI" != "1" ]]; then
+  if [[ $_CHECKS_FAIL -eq 0 ]]; then
+    echo -e "\n  ${GREEN}${BOLD}✓ Setup complete — ${_CHECKS_PASS}/${_CHECKS_TOTAL} components healthy — ${ELAPSED_MIN}m ${ELAPSED_SEC}s${RESET}"
   else
-    echo -e "${BOLD}${CYAN}"
-    echo '    ___   __ __ _____   __        __     __  '
-    echo '   /   | / //_// ___/  / /  ___ _/ /__  / /  '
-    echo '  / /| |/ ,<   \__ \  / /__/ _ `/ __/  /_/   '
-    echo ' / ___ / /| | ___/ / /____/\_,_/\__/  (_)    '
-    echo '/_/  |_/_/ |_|/____/                          '
-    echo -e "${RESET}"
+    echo -e "\n  ${YELLOW}${BOLD}~ Setup complete — ${_CHECKS_PASS}/${_CHECKS_TOTAL} healthy · ${_CHECKS_FAIL} need attention — ${ELAPSED_MIN}m ${ELAPSED_SEC}s${RESET}"
   fi
-  echo -e "${GREEN}${BOLD}  Deployed in ${ELAPSED_MIN}m ${ELAPSED_SEC}s${RESET}"
+  echo -e "  Dashboard: ${GREEN}http://localhost:9997/${RESET}  |  Log: ${LAB_LOG}"
   echo ""
-} >&3
-
-echo -e "
-${BOLD}  Web Apps (via NGINX Ingress + OAuth2 SSO — login with AD credentials)${RESET}
-  TaskFlow:      ${GREEN}http://taskflow.aks-lab.local:9980${RESET}
-  Grafana:       ${GREEN}http://grafana.aks-lab.local:9980${RESET}
-  ArgoCD:        ${GREEN}http://argocd.aks-lab.local:9980${RESET}
-  Rancher:       ${GREEN}http://rancher.aks-lab.local:9980${RESET}          bootstrap: ${RANCHER_BOOTSTRAP_PASSWORD}
-  Blob Explorer: ${GREEN}http://blob-explorer.aks-lab.local:9980${RESET}
-  K8s Dashboard: ${GREEN}http://dashboard.aks-lab.local:9980${RESET}
-  Login with AD: testuser1@corp.internal / AksLab!User1
-
-${BOLD}  Auth Services${RESET}
-  Dex (OIDC):    ${GREEN}http://dex.aks-lab.local:9980/.well-known/openid-configuration${RESET}
-  OAuth2 Proxy:  ${GREEN}http://oauth2-proxy.aks-lab.local:9980/oauth2/auth${RESET}
-  SambaAD VM:    IP: ${SAMBA_IP:-<run: multipass info samba-ad>}
-
-${BOLD}  Azure Emulators (direct port-forwards — no auth gate)${RESET}
-  Azure SQL:     ${GREEN}localhost:1433${RESET}                         login: sa / AksLab!SqlDev1
-  Service Bus:   ${GREEN}localhost:5672${RESET}                          AMQP · SAS key: SAS_KEY_VALUE
-  Registry:      ${GREEN}localhost:5000${RESET}                          (no auth)
-  Cosmos DB:     ${GREEN}http://localhost:8081${RESET}                   NoSQL API · Explorer: http://localhost:1234
-  Vault UI:      ${GREEN}http://vault.aks-lab.local:8200/ui${RESET}        token: ${VAULT_TOKEN}
-  Argo Workflows: ${GREEN}http://argo-workflows.aks-lab.local:2746${RESET}
-
-${BOLD}  Corp Client VM (domain-joined Ubuntu)${RESET}
-  Shell in:      multipass shell corp-client
-  AD user login: su - testuser1  (or testuser2)
-
-${BOLD}  Vault (Azure Key Vault equivalent)${RESET}
-  KV v2 path:  vault kv list ${VAULT_KV_PATH}/azure-services
-  K8s auth:    ${VAULT_AUTH_PATH}/login
-  Logs:        /tmp/vault-dev.log, /tmp/vault-terraform-apply.log
-
-${BOLD}  DNS Lab${RESET}
-  bind9 IP:    $BIND9_IP (simulated ADDS)
-  Edit zones:  edit infrastructure/base/dns/dns-config.yaml then run ./IaC/dns/apply-dns-config.sh
-  Restore DNS: kubectl create configmap coredns -n kube-system \\
-                 --from-file=Corefile=/tmp/corefile-backup.txt \\
-                 --dry-run=client -o yaml | kubectl apply -f -
-
-${BOLD}  Flux (GitOps)${RESET}
-  Watching:    $GITHUB_REPO @ $FLUX_APPS_PATH
-  Add apps:    commit manifests to apps/base/ or infrastructure/base/ and push — Flux syncs within 1 min
-  Status:      flux get all -n flux-system
-  Force sync:  flux reconcile kustomization flux-apps -n flux-system
-
-${BOLD}  Toolbox Pod${RESET}
-  SSH:         ${GREEN}ssh aks-toolbox${RESET}
-  Or:          ssh -p 2222 root@localhost
-  Re-forward:  kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox &
-
-${BOLD}  Useful commands${RESET}
-  All pods:    kubectl get pods -A
-  HPA:         kubectl get hpa -n taskapp
-  Stop lab:    minikube stop -p $PROFILE
-  Destroy:     minikube delete -p $PROFILE
-
-${YELLOW}${BOLD}  Note (macOS + Docker driver)${RESET}
-  minikube ip returns an address inside Docker's Linux VM that macOS
-  cannot route to directly. Always use 'minikube service' or
-  'kubectl port-forward' to access services from your Mac.
-
-${DIM}  Full setup log: ${LAB_LOG}${RESET}
-${DIM}  Re-run with --verbose to stream all output to the terminal${RESET}
-" >&3
+fi

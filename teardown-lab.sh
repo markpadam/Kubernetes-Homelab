@@ -8,6 +8,10 @@ set -euo pipefail
 # ─────────────────────────────────────────────
 
 PROFILE="${LAB_PROFILE:-aks-lab}"
+DELETE_IMAGES=false
+for _arg in "$@"; do
+  [[ "$_arg" == "--delete-images" ]] && DELETE_IMAGES=true
+done
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -139,9 +143,11 @@ HOSTS_ENTRIES=(
   "taskflow.aks-lab.local"
   "grafana.aks-lab.local"
   "argocd.aks-lab.local"
+  "rancher.aks-lab.local"
   "blob-explorer.aks-lab.local"
   "vault.aks-lab.local"
   "argo-workflows.aks-lab.local"
+  "dashboard.aks-lab.local"
   "dex.aks-lab.local"
   "oauth2-proxy.aks-lab.local"
 )
@@ -189,6 +195,37 @@ rm -rf /tmp/dns-apply/ 2>/dev/null || true
 rm -f .lab-state.json
 
 success "Temp files removed"
+
+# ── Image cache ───────────────────────────────
+IMAGE_CACHE_DIR="${HOME}/.lab-cache/images"
+if [[ -d "$IMAGE_CACHE_DIR" ]]; then
+  step "Image Cache"
+  _CACHE_SIZE=$(du -sh "$IMAGE_CACHE_DIR" 2>/dev/null | cut -f1)
+
+  if $DELETE_IMAGES; then
+    log "Deleting image cache (--delete-images passed)..."
+    rm -rf "$IMAGE_CACHE_DIR"
+    success "Image cache deleted"
+  elif [[ -n "${CI:-}" ]]; then
+    log "CI mode — keeping image cache"
+  else
+    echo -e "\n  ${CYAN}${BOLD}Cached images (${_CACHE_SIZE}) at ~/.lab-cache/images${RESET}"
+    echo -e "  These let re-runs skip slow image builds and worker-node distribution."
+    echo ""
+    _img_confirm=""
+    if read -t 30 -rp "  Delete cached images? [y/N] (auto-No in 30s): " _img_confirm 2>/dev/null; then
+      echo ""
+    else
+      echo -e "\n  Timed out — keeping image cache"
+    fi
+    if [[ "$(echo "$_img_confirm" | tr '[:upper:]' '[:lower:]')" == "y" ]]; then
+      rm -rf "$IMAGE_CACHE_DIR"
+      success "Image cache deleted"
+    else
+      log "Keeping image cache (${_CACHE_SIZE})"
+    fi
+  fi
+fi
 
 # ── Done ─────────────────────────────────────
 step "Teardown Complete"

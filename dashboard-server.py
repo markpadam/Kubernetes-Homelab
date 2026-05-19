@@ -59,6 +59,36 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
 
+        # ── Node metrics (JSON) ────────────────────────────────────
+        if path == "/api/node-metrics":
+            try:
+                result = subprocess.run(
+                    ["kubectl", "top", "nodes", "--no-headers"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                nodes = []
+                for line in result.stdout.strip().splitlines():
+                    parts = line.split()
+                    if len(parts) >= 5:
+                        nodes.append({
+                            "name":    parts[0],
+                            "cpu_val": parts[1],
+                            "cpu_pct": int(parts[2].rstrip("%")),
+                            "mem_val": parts[3],
+                            "mem_pct": int(parts[4].rstrip("%")),
+                        })
+                data = json.dumps(nodes).encode()
+                self.send_response(200)
+            except Exception as e:
+                data = json.dumps({"error": str(e)}).encode()
+                self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         # ── Pod status by namespace (JSON) ──────────────────────────
         if path == "/api/pod-status":
             try:

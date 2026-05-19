@@ -81,6 +81,19 @@
     .modal-btns { display: flex; gap: 10px; justify-content: flex-end; }
     .modal-cancel { background: none; border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 7px 16px; cursor: pointer; font-size: 13px; }
     .modal-confirm { background: #f8514922; border: 1px solid #f8514988; color: #f85149; border-radius: 6px; padding: 7px 16px; cursor: pointer; font-size: 13px; font-weight: 600; }
+    /* Node monitoring */
+    .node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); gap: 12px; }
+    .node-panel { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+    .node-name { font-size: 13px; font-weight: 600; margin-bottom: 12px; font-family: monospace; color: var(--blue); }
+    .metric-row { margin-bottom: 10px; }
+    .metric-header { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    .metric-val { color: var(--text); font-family: monospace; }
+    .bar-bg { background: var(--border); border-radius: 3px; height: 5px; }
+    .bar-fill { height: 5px; border-radius: 3px; transition: width .6s ease; background: var(--green); }
+    .bar-fill.warn   { background: #d29642; }
+    .bar-fill.danger { background: #f85149; }
+    .node-updated { font-size: 10px; color: var(--muted); margin-top: 4px; text-align: right; }
+    #node-metrics-err { font-size: 12px; color: var(--muted); padding: 8px 0; }
   </style>
 </head>
 <body>
@@ -89,6 +102,11 @@
   <div class="dot"></div>
   <h1>AKS Lab</h1>
   <span class="badge">${PROFILE}</span>
+</div>
+
+<div class="section-title">Node Monitoring <span id="node-updated" style="font-size:10px;color:var(--muted);font-weight:400;margin-left:8px"></span></div>
+<div id="node-metrics-container">
+  <div id="node-metrics-err">Loading node metrics…</div>
 </div>
 
 <div class="section-title">Services</div>
@@ -195,12 +213,14 @@
   <div class="panel">
     <div class="row"><span class="row-label">Grafana</span><span class="row-val">admin / ${GRAFANA_PASSWORD}</span></div>
     <div class="row"><span class="row-label">ArgoCD</span><span class="row-val">admin / ${ARGOCD_PASSWORD}</span></div>
+    <div class="row"><span class="row-label">Rancher</span><span class="row-val">admin / ${RANCHER_BOOTSTRAP_PASSWORD}</span></div>
     <div class="row"><span class="row-label">Vault</span><span class="row-val">token: ${VAULT_TOKEN}</span></div>
     <div class="row"><span class="row-label">Azure SQL</span><span class="row-val">sa / AksLab!SqlDev1</span></div>
     <div class="row"><span class="row-label">Service Bus</span><span class="row-val" style="font-size:11px">SAS_KEY_VALUE · UseDevelopmentEmulator=true</span></div>
     <div class="row"><span class="row-label">Cosmos DB</span><span class="row-val" style="font-size:11px">well-known key · http://localhost:8081</span></div>
     <div class="row"><span class="row-label">Registry</span><span class="row-val" style="color:var(--muted)">no auth</span></div>
     <div class="row"><span class="row-label">Argo Workflows</span><span class="row-val" style="font-size:11px;word-break:break-all">${ARGO_WORKFLOWS_TOKEN}</span></div>
+    <div class="row"><span class="row-label">K8s Dashboard</span><span class="row-val" style="font-size:11px;word-break:break-all">${K8S_DASHBOARD_TOKEN}</span></div>
   </div>
   <div class="panel">
     <div class="cmd-row">ssh aks-toolbox<button class="copy-btn" onclick="cp(this,'ssh aks-toolbox')">copy</button></div>
@@ -475,9 +495,52 @@
       .catch(function() {});
   }
 
+  function barClass(pct) {
+    return pct >= 85 ? 'danger' : pct >= 65 ? 'warn' : '';
+  }
+
+  function loadNodeMetrics() {
+    fetch('/api/node-metrics')
+      .then(function(r) { return r.json(); })
+      .then(function(nodes) {
+        var container = document.getElementById('node-metrics-container');
+        if (!Array.isArray(nodes) || nodes.length === 0) {
+          container.innerHTML = '<div id="node-metrics-err">No node metrics — metrics-server may still be starting.</div>';
+          return;
+        }
+        var html = '<div class="node-grid">';
+        nodes.forEach(function(n) {
+          var cpuCls = barClass(n.cpu_pct);
+          var memCls = barClass(n.mem_pct);
+          html += '<div class="node-panel">'
+            + '<div class="node-name">' + n.name + '</div>'
+            + '<div class="metric-row">'
+            +   '<div class="metric-header"><span>CPU</span><span class="metric-val">' + n.cpu_val + ' &nbsp; ' + n.cpu_pct + '%</span></div>'
+            +   '<div class="bar-bg"><div class="bar-fill ' + cpuCls + '" style="width:' + n.cpu_pct + '%"></div></div>'
+            + '</div>'
+            + '<div class="metric-row">'
+            +   '<div class="metric-header"><span>Memory</span><span class="metric-val">' + n.mem_val + ' &nbsp; ' + n.mem_pct + '%</span></div>'
+            +   '<div class="bar-bg"><div class="bar-fill ' + memCls + '" style="width:' + n.mem_pct + '%"></div></div>'
+            + '</div>'
+            + '</div>';
+        });
+        html += '</div>';
+        container.innerHTML = html;
+        var now = new Date();
+        document.getElementById('node-updated').textContent =
+          'updated ' + now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0') + ':' + now.getSeconds().toString().padStart(2,'0');
+      })
+      .catch(function() {
+        document.getElementById('node-metrics-container').innerHTML =
+          '<div id="node-metrics-err">Could not reach metrics-server.</div>';
+      });
+  }
+
   loadFeatures();
   loadPodStatus();
+  loadNodeMetrics();
   setInterval(loadPodStatus, 30000);
+  setInterval(loadNodeMetrics, 15000);
 
   function confirmTeardown() {
     document.getElementById('teardown-modal').classList.add('open');
