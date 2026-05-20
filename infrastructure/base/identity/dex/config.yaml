@@ -22,6 +22,15 @@ data:
     web:
       http: 0.0.0.0:5556
 
+    # Static fallback user — works without SambaAD.
+    # Disabled automatically when samba-ad is running (LDAP connector takes over).
+    # Password: AksLabAdmin1!
+    staticPasswords:
+      - email: "admin@corp.internal"
+        hash: "$2y$10$4hADsXgHYFW0bMOnDUmkl.FeAFBZMdp7LeiSpJJ3cwoaHr0V0ZCRG"
+        username: "admin"
+        userID: "a8b9c0d1-e2f3-4a5b-6c7d-8e9f0a1b2c3d"
+
     connectors:
       - type: ldap
         id: corp-ad

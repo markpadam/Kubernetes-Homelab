@@ -205,12 +205,15 @@ This re-prompts for all three values, updates `~/.lab-ado`, and re-applies the K
 
 ## Service URLs
 
+Most web services are protected by OAuth2 SSO (Dex + oauth2-proxy). Sign in once at the login page and the session covers all apps.
+
 | Service | URL | Credentials |
 |---------|-----|-------------|
 | Dashboard | http://localhost:9997 | — |
-| TaskFlow | http://taskflow.aks-lab.local:9980 | — |
-| Grafana | http://grafana.aks-lab.local:9980 | admin / admin123 |
-| ArgoCD | http://argocd.aks-lab.local:9980 | admin / *(shown at setup)* |
+| SSO login | <http://oauth2-proxy.aks-lab.local:9980> | `admin@corp.internal` / `AksLabAdmin1!` |
+| TaskFlow | http://taskflow.aks-lab.local:9980 | *(SSO)* |
+| Grafana | http://grafana.aks-lab.local:9980 | *(SSO)* · or admin / admin123 direct |
+| ArgoCD | http://argocd.aks-lab.local:9980 | *(SSO)* · or admin / *(shown at setup)* direct |
 | Vault UI | http://vault.aks-lab.local:8200/ui | token: root |
 | Argo Workflows | http://localhost:2746 | — |
 | Azure SQL | localhost:1433 | sa / AksLab!SqlDev1 |
@@ -218,6 +221,8 @@ This re-prompts for all three values, updates `~/.lab-ado`, and re-applies the K
 | Cosmos DB | http://localhost:8081 | well-known emulator key |
 | Registry | localhost:5000 | no auth |
 | Toolbox SSH | `ssh aks-toolbox` | key-based |
+
+> When `samba-ad` is enabled the SSO login uses your Active Directory credentials instead of the static account above.
 
 ---
 
