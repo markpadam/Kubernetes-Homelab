@@ -375,8 +375,9 @@ from pathlib import Path
 t = Path('$SCRIPT_DIR/infrastructure/base/identity/dex/config.yaml').read_text()
 Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
 "
-  kubectl apply -f /tmp/dex-config-rendered.yaml
+  # Apply the kustomization first (creates the namespace), then overlay the rendered config.
   kubectl apply -k "$SCRIPT_DIR/infrastructure/base/identity/dex/"
+  kubectl apply -f /tmp/dex-config-rendered.yaml
   kubectl wait deployment dex --for=condition=available --namespace=dex --timeout=120s
   success "Dex ready — http://dex.aks-lab.local:9980"
 }
@@ -398,8 +399,9 @@ from pathlib import Path
 t = Path('$SCRIPT_DIR/infrastructure/base/identity/oauth2-proxy/secret.yaml').read_text()
 Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
 "
-  kubectl apply -f /tmp/oauth2-proxy-secret-rendered.yaml
+  # Apply the kustomization first (creates the namespace), then overlay the rendered secret.
   kubectl apply -k "$SCRIPT_DIR/infrastructure/base/identity/oauth2-proxy/"
+  kubectl apply -f /tmp/oauth2-proxy-secret-rendered.yaml
   kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s
   success "OAuth2 Proxy ready — SSO gate at oauth2-proxy.aks-lab.local:9980"
 }
