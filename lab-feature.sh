@@ -27,7 +27,25 @@ warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*"; }
 error()   { echo -e "${RED}${BOLD}[✗]${RESET} $*"; exit 1; }
 
 # ── Registry helpers ──────────────────────────────────────────────
-_py() { python3 -c "$1" 2>/dev/null; }
+# Validate the registry JSON once at script start. If parsing fails here
+# every downstream _py call would silently return empty strings; far
+# better to surface the actual error and exit immediately.
+[[ -f "$REGISTRY" ]] || error "Component registry not found: $REGISTRY"
+python3 -c "
+import json, sys
+try:
+    data = json.load(open('$REGISTRY'))
+    assert 'components' in data, 'missing top-level \"components\" key'
+    for c in data['components']:
+        assert 'id' in c, f'component missing id: {c}'
+except Exception as e:
+    sys.stderr.write(f'Invalid {repr(\"$REGISTRY\")}: {e}\n')
+    sys.exit(1)
+" || error "Component registry is invalid — fix $REGISTRY and retry"
+
+# Run a Python one-liner. Errors are surfaced on stderr (no 2>/dev/null);
+# the caller is expected to use stdout for downstream parsing.
+_py() { python3 -c "$1"; }
 
 all_ids() {
   _py "import json; cs=json.load(open('$REGISTRY'))['components']; print(' '.join(c['id'] for c in cs))"
@@ -60,9 +78,23 @@ default_ids() {
 }
 
 # ── State helpers ─────────────────────────────────────────────────
+# Validate state file once at startup — calling `error` from inside a $(...)
+# subshell only exits that subshell, not the script, so we can't reliably
+# bail out from read_enabled. Catch corruption here instead.
+if [[ -f "$STATE_FILE" ]]; then
+  python3 -c "
+import json, sys
+try:
+    json.load(open('$STATE_FILE'))
+except Exception as e:
+    sys.stderr.write(f'Invalid {repr(\"$STATE_FILE\")}: {e}\n')
+    sys.exit(1)
+" || error "State file $STATE_FILE is corrupt — fix or remove it"
+fi
+
 read_enabled() {
   if [[ ! -f "$STATE_FILE" ]]; then echo ""; return; fi
-  _py "import json; s=json.load(open('$STATE_FILE')); print(' '.join(s.get('enabled',[])))"
+  python3 -c "import json; print(' '.join(json.load(open('$STATE_FILE')).get('enabled', [])))"
 }
 
 write_state() {
