@@ -37,12 +37,35 @@ Prompts for component selection, then provisions the full cluster. Takes **10–
 | Flag | Effect |
 |------|--------|
 | `--standard` | Default components — skip the prompt |
-| `--all` | Every component including SambaAD, Dex, OAuth2 |
-| `--minimal` | Core cluster only |
+| `--all` | Every component including SambaAD LDAP, Corp Client VM, Cosmos DB, Argo Workflows, Rancher |
+| `--minimal` | Core cluster only — no optional services |
 | `--verbose` | Stream all output to terminal instead of log file |
 | `--reconfigure-ado` | Re-prompt for Azure DevOps credentials even if already saved |
 
+### Standard preset
+
+The standard tier deploys **11 components**:
+
+| Group | Components |
+|-------|-----------|
+| Infrastructure | `vault` · `monitoring` · `argocd` · `kubernetes-dashboard` · `toolbox` |
+| Identity | `dex` · `oauth2-proxy` *(static-password SSO, AD-ready when `samba-ad` is added)* |
+| Storage | `azurite` · `service-bus` · `container-registry` |
+| Apps | `taskflow` |
+
+Optional add-ons via `./lab-feature.sh enable <id>`: `azure-sql`, `cosmos-db`, `blob-explorer`, `samba-ad`, `corp-client`, `argo-workflows`, `azdo-agent`, `rancher`.
+
 Dashboard opens automatically at **http://localhost:9997**
+
+### Verify the setup
+
+After setup completes, run a post-deploy health check:
+
+```bash
+./verify-lab.sh
+```
+
+It checks node readiness, every enabled component's pods, every ingress URL (looking for 2xx/3xx/4xx — anything but 5xx), every declared port-forward, and the dashboard. Exit code 0 means healthy; non-zero prints a punch list of what's broken.
 
 ---
 

@@ -108,14 +108,16 @@ Components are individually toggleable at setup time or live from the dashboard.
 | Argo Workflows | Kubernetes-native workflow engine | ☐ |
 | Azure DevOps Agent | Self-hosted Pipelines agent — run real ADO YAML pipelines in the cluster | ☐ |
 
-### Identity Stack *(optional — requires Multipass)*
+### Identity Stack
 
 | Component | Azure Equivalent | Default |
 |-----------|-----------------|:-------:|
-| SambaAD | Azure Active Directory / AD DS | ☐ |
-| Dex (OIDC) | Azure AD — OIDC issuer | ☐ |
-| OAuth2 Proxy | Azure AD app registration + SSO gate | ☐ |
-| Corp Client VM | Domain-joined workstation (XFCE + VNC) | ☐ |
+| Dex (OIDC) | Azure AD — OIDC issuer | ✅ |
+| OAuth2 Proxy | Azure AD app registration + SSO gate | ✅ |
+| SambaAD *(optional — requires Multipass)* | Azure Active Directory / AD DS | ☐ |
+| Corp Client VM *(optional — requires Multipass)* | Domain-joined workstation (XFCE + VNC) | ☐ |
+
+Dex + OAuth2 Proxy ship enabled by default with a **static admin user** (`admin@corp.internal` / `AksLabAdmin1!`) so SSO works without SambaAD. Enable `samba-ad` to add LDAP authentication on top — the LDAP connector activates automatically when the VM is reachable.
 
 ---
 
@@ -142,15 +144,18 @@ The setup script prompts for a component preset, then builds everything. The **d
 
 | Preset | What you get | Time |
 |--------|-------------|------|
-| Standard | Cluster + monitoring + GitOps + emulators + demo apps | ~15 min |
-| Minimal | Bare cluster + ingress + storage only | ~5 min |
-| All | Everything including SambaAD, Dex, OAuth2, Corp Client | ~30 min |
+| Standard | Cluster + monitoring + GitOps + SSO + storage emulators + demo app | ~15 min |
+| Minimal | Bare cluster + ingress only | ~5 min |
+| All | Everything including SambaAD LDAP, Cosmos DB, Argo Workflows, Rancher | ~30 min |
 | Custom | Pick individual components | varies |
+
+After setup, run `./verify-lab.sh` to confirm every component and ingress is actually responding. The script exits 0 on success or prints a punch list of what's broken.
 
 ### Lifecycle
 
 ```bash
 ./setup-lab.sh          # build and start the lab
+./verify-lab.sh         # post-setup health check (exits non-zero if anything is broken)
 minikube stop -p aks-lab # pause (keeps all state)
 ./resume-lab.sh         # resume after pause or Mac restart
 ./lab-resize.sh         # shrink node memory after the cluster settles
