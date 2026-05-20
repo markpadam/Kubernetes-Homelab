@@ -56,20 +56,15 @@ else
   step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
 fi
 
-# ── Load enabled features from state file ────
-ENABLED_FEATURES=$(python3 -c "
-import json
-try:
-    print(' '.join(json.load(open('.lab-state.json')).get('enabled', [])))
-except Exception:
-    print('')
-" 2>/dev/null)
-feature_enabled() { [[ " $ENABLED_FEATURES " =~ (^|[[:space:]])"$1"([[:space:]]|$) ]]; }
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib-common.sh
+source "$SCRIPT_DIR/scripts/lib-common.sh"
 
+# ── Load enabled features from state file ────
+lab_load_features ".lab-state.json"
 if [[ -z "$ENABLED_FEATURES" ]]; then
-  warn "No .lab-state.json found — resuming all components."
+  warn "No .lab-state.json found — resuming everything that exists in the cluster."
   warn "Run setup-lab.sh first to configure your feature selection."
-  # Fall back: treat all as enabled so nothing is accidentally skipped
   feature_enabled() { return 0; }
 fi
 
@@ -167,44 +162,25 @@ if feature_enabled vault; then
     success "Vault already running at ${VAULT_ADDR}"
   else
     warn "Vault not running — restarting dev server..."
-    pkill -f "vault server -dev" 2>/dev/null || true
-    VAULT_DEV_ROOT_TOKEN_ID="${VAULT_TOKEN}" \
-      vault server -dev \
-      -dev-listen-address="${VAULT_ADDR#http://}" \
-      >> /tmp/vault-dev.log 2>&1 &
-    echo $! > /tmp/vault-dev.pid
-
-    log "Waiting for Vault to be ready..."
-    for i in $(seq 1 30); do
-      if curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1; then
-        success "Vault ready after ${i}s"
-        break
-      fi
-      sleep 1
-    done
-
-    log "Reconfiguring Vault (KV v2, policies, Kubernetes auth)..."
-    terraform -chdir=IaC/terraform apply -auto-approve -input=false \
-      2>&1 | tee /tmp/vault-terraform-apply.log
-    success "Vault configured"
+    if lab_vault_dev_start; then
+      success "Vault ready"
+      log "Reconfiguring Vault (KV v2, policies, Kubernetes auth)..."
+      terraform -chdir=IaC/terraform apply -auto-approve -input=false \
+        2>&1 | tee /tmp/vault-terraform-apply.log
+      success "Vault configured"
+    else
+      error "Vault failed to start within 30s — check /tmp/vault-dev.log"
+    fi
   fi
 fi
 
 # ── Port-forwards ─────────────────────────────
 step "Restoring Port-Forwards"
 
-_start_portforward() {
+# Wraps lab_start_port_forward with a one-line user-facing log message.
+_pf() {
   local name="$1" port="$2" cmd="$3" log="$4"
-  local pid_file="/tmp/lab-pf-${port}.pid"
-  [[ -f "$pid_file" ]] && kill "$(cat "$pid_file")" 2>/dev/null || true
-  lsof -ti:"$port" | xargs kill -9 2>/dev/null || true
-  rm -f "$pid_file"
-  sleep 1
-  # shellcheck disable=SC2094
-  nohup bash -c "while true; do $cmd >> $log 2>&1; sleep 2; done" > /dev/null 2>&1 &
-  echo $! > "$pid_file"
-  sleep 2
-  if kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+  if lab_start_port_forward "$name" "$port" "$cmd" "$log"; then
     success "$name port-forward running (self-healing) — localhost:$port"
   else
     warn "$name port-forward may have failed — check $log"
@@ -212,15 +188,15 @@ _start_portforward() {
 }
 
 log "Clearing stale port-forwards and starting fresh..."
-_start_portforward "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-portforward.log
-feature_enabled toolbox            && _start_portforward "Toolbox SSH"       2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"                        /tmp/toolbox-portforward.log
-feature_enabled argo-workflows     && _start_portforward "Argo Workflows"    2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                         /tmp/argo-workflows-portforward.log
-feature_enabled azure-sql          && _start_portforward "Azure SQL"          1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"                          /tmp/azure-sql-portforward.log
-feature_enabled service-bus        && _start_portforward "Service Bus AMQP"  5672 "kubectl port-forward svc/servicebus 5672:5672 -n service-bus"                    /tmp/servicebus-portforward.log
-feature_enabled service-bus        && _start_portforward "Service Bus Mgmt"  5300 "kubectl port-forward svc/servicebus 5300:5300 -n service-bus"                    /tmp/servicebus-mgmt-portforward.log
-feature_enabled container-registry && _start_portforward "Registry"          5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"               /tmp/registry-portforward.log
-feature_enabled cosmos-db          && _start_portforward "Cosmos DB"          8081 "kubectl port-forward svc/cosmosdb 8081:8081 -n cosmos-db"                        /tmp/cosmosdb-portforward.log
-feature_enabled cosmos-db          && _start_portforward "Cosmos Explorer"    1234 "kubectl port-forward svc/cosmosdb 1234:1234 -n cosmos-db"                        /tmp/cosmosdb-explorer-portforward.log
+_pf "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-portforward.log
+feature_enabled toolbox            && _pf "Toolbox SSH"       2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"             /tmp/toolbox-portforward.log
+feature_enabled argo-workflows     && _pf "Argo Workflows"    2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"             /tmp/argo-workflows-portforward.log
+feature_enabled azure-sql          && _pf "Azure SQL"         1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"              /tmp/azure-sql-portforward.log
+feature_enabled service-bus        && _pf "Service Bus AMQP"  5672 "kubectl port-forward svc/servicebus 5672:5672 -n service-bus"       /tmp/servicebus-portforward.log
+feature_enabled service-bus        && _pf "Service Bus Mgmt"  5300 "kubectl port-forward svc/servicebus 5300:5300 -n service-bus"       /tmp/servicebus-mgmt-portforward.log
+feature_enabled container-registry && _pf "Registry"          5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"  /tmp/registry-portforward.log
+feature_enabled cosmos-db          && _pf "Cosmos DB"         8081 "kubectl port-forward svc/cosmosdb 8081:8081 -n cosmos-db"           /tmp/cosmosdb-portforward.log
+feature_enabled cosmos-db          && _pf "Cosmos Explorer"   1234 "kubectl port-forward svc/cosmosdb 1234:1234 -n cosmos-db"           /tmp/cosmosdb-explorer-portforward.log
 
 # ── Retrieve runtime values for dashboard ────
 ARGOCD_PASSWORD=""
@@ -237,19 +213,12 @@ step "Generating Dashboard"
 export PROFILE GRAFANA_PASSWORD ARGOCD_PASSWORD VAULT_TOKEN \
        ARGO_WORKFLOWS_TOKEN BIND9_IP GITHUB_REPO GITHUB_BRANCH \
        FLUX_APPS_PATH VAULT_KV_PATH VAULT_ADDR VAULT_AUTH_PATH SAMBA_IP
-python3 -c "
-import os, string
-from pathlib import Path
-t = Path('dashboard-template.html').read_text()
-Path('/tmp/lab-dashboard.html').write_text(string.Template(t).safe_substitute(os.environ))
-"
+lab_render_dashboard
 
 success "Dashboard written to /tmp/lab-dashboard.html"
 
 DASHBOARD_PORT=9997
-lsof -ti:"$DASHBOARD_PORT" | xargs kill -9 2>/dev/null || true
-python3 "$PWD/dashboard-server.py" "$PWD" >> /tmp/dashboard-server.log 2>&1 &
-sleep 1
+lab_serve_dashboard "$DASHBOARD_PORT" "$PWD"
 
 DASHBOARD_URL="http://localhost:${DASHBOARD_PORT}/"
 if command -v code &>/dev/null; then

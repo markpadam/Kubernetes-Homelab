@@ -196,6 +196,13 @@ else
   }
 fi
 
+# ── Shared library ────────────────────────────
+# Sourced after log/success/warn/error/step are defined; lib-common.sh
+# uses those to surface errors back to the user.
+_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib-common.sh
+source "$_LIB_DIR/scripts/lib-common.sh"
+
 # ── Progress indicator ─────────────────────────
 # Spins a background subshell that prints spinner + elapsed time + stage name
 # to the terminal while a long-running command writes to a log file.
@@ -1903,21 +1910,11 @@ fi
 # ── Port-Forwards ────────────────────────────
 step "Starting Port-Forwards"
 
-_start_portforward() {
+# Wraps lab_start_port_forward (from scripts/lib-common.sh) with the
+# user-facing log line. lib-common is sourced at the top of this script.
+_pf() {
   local name="$1" port="$2" cmd="$3" log="$4"
-  local pid_file="/tmp/lab-pf-${port}.pid"
-  # Kill existing restart-loop wrapper and anything still bound to the port
-  [[ -f "$pid_file" ]] && kill "$(cat "$pid_file")" 2>/dev/null || true
-  lsof -ti:"$port" | xargs kill -9 2>/dev/null || true
-  rm -f "$pid_file"
-  sleep 1
-  # Self-healing loop: kubectl port-forward reconnects automatically when a pod restarts.
-  # nohup ensures the loop survives the parent shell exiting (no SIGHUP).
-  # shellcheck disable=SC2094
-  nohup bash -c "while true; do $cmd >> $log 2>&1; sleep 2; done" 4>&- > /dev/null 2>&1 &
-  echo $! > "$pid_file"
-  sleep 2
-  if kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+  if lab_start_port_forward "$name" "$port" "$cmd" "$log"; then
     success "$name port-forward running (self-healing) — localhost:$port"
   else
     warn "$name port-forward may have failed — check $log"
@@ -1925,15 +1922,15 @@ _start_portforward() {
 }
 
 # Web apps route through NGINX Ingress on port 9980.
-_start_portforward "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-portforward.log
-feature_enabled toolbox       && _start_portforward "Toolbox SSH"       2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"                       /tmp/toolbox-portforward.log
-feature_enabled argo-workflows && _start_portforward "Argo Workflows"   2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                        /tmp/argo-workflows-portforward.log
-feature_enabled azure-sql     && _start_portforward "Azure SQL"         1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"                          /tmp/azure-sql-portforward.log
-feature_enabled service-bus   && _start_portforward "Service Bus AMQP"  5672 "kubectl port-forward svc/servicebus 5672:5672 -n service-bus"                   /tmp/servicebus-portforward.log
-feature_enabled service-bus   && _start_portforward "Service Bus Mgmt"  5300 "kubectl port-forward svc/servicebus 5300:5300 -n service-bus"                   /tmp/servicebus-mgmt-portforward.log
-feature_enabled container-registry && _start_portforward "Registry"     5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"              /tmp/registry-portforward.log
-feature_enabled cosmos-db     && _start_portforward "Cosmos DB"         8081 "kubectl port-forward svc/cosmosdb 8081:8081 -n cosmos-db"                        /tmp/cosmosdb-portforward.log
-feature_enabled cosmos-db     && _start_portforward "Cosmos Explorer"   1234 "kubectl port-forward svc/cosmosdb 1234:1234 -n cosmos-db"                        /tmp/cosmosdb-explorer-portforward.log
+_pf "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-portforward.log
+feature_enabled toolbox            && _pf "Toolbox SSH"       2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"             /tmp/toolbox-portforward.log
+feature_enabled argo-workflows     && _pf "Argo Workflows"    2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"             /tmp/argo-workflows-portforward.log
+feature_enabled azure-sql          && _pf "Azure SQL"         1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"              /tmp/azure-sql-portforward.log
+feature_enabled service-bus        && _pf "Service Bus AMQP"  5672 "kubectl port-forward svc/servicebus 5672:5672 -n service-bus"       /tmp/servicebus-portforward.log
+feature_enabled service-bus        && _pf "Service Bus Mgmt"  5300 "kubectl port-forward svc/servicebus 5300:5300 -n service-bus"       /tmp/servicebus-mgmt-portforward.log
+feature_enabled container-registry && _pf "Registry"          5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"  /tmp/registry-portforward.log
+feature_enabled cosmos-db          && _pf "Cosmos DB"         8081 "kubectl port-forward svc/cosmosdb 8081:8081 -n cosmos-db"           /tmp/cosmosdb-portforward.log
+feature_enabled cosmos-db          && _pf "Cosmos Explorer"   1234 "kubectl port-forward svc/cosmosdb 1234:1234 -n cosmos-db"           /tmp/cosmosdb-explorer-portforward.log
 
 # ── Schedule heavy services on the primary node ─────────────────────
 # minikube can't size nodes asymmetrically, so we approximate the
