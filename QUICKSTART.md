@@ -10,16 +10,19 @@ Docker Desktop must be running before any lab script is started.
 
 **Docker Desktop memory** — the cluster runs 3 nodes; each tier allocates:
 
-| Tier | Per node | Total cluster | Docker setting |
-|------|----------|---------------|----------------|
-| Low | 3 GB | 9 GB | 12 GB minimum |
-| Standard *(default)* | 4 GB | 12 GB | **14 GB minimum** |
-| High | 5 GB | 15 GB | 18 GB minimum |
+| Tier | Per node | Total cluster | Docker setting | Recommended host |
+|------|----------|---------------|----------------|-----------------|
+| Low | 3 GB | 9 GB | 12 GB minimum | 16 GB Mac |
+| Standard *(default)* | 4 GB | 12 GB | **14 GB minimum** | 16 GB Mac |
+| High | 5 GB | 15 GB | 18 GB minimum | 16–32 GB Mac |
+| Very High | 7 GB | 21 GB | **24 GB minimum** | 32 GB Mac |
 
 Set memory in **Docker Desktop → Settings → Resources → Memory**, then Apply & Restart.  
 The setup script will warn and prompt before starting if Docker has less memory than the selected tier needs. Running below the minimum causes `K8S_APISERVER_MISSING` — the apiserver is starved and never starts.
 
 Heavy services (Rancher, Grafana/Prometheus, ArgoCD, Dex, MSSQL, Cosmos DB) are pinned to the **primary node** via soft node-affinity; light services land on workers naturally. This concentrates the memory pressure on one node so workers can be shrunk after the cluster settles — see [Resize the lab](#resize-the-lab) below.
+
+The **Very High** tier (32 GB Mac) gives each node 7 GB and 4 CPUs — enough to run all services including Cosmos DB and Azure SQL without memory pressure, and with headroom to scale up replica counts.
 
 ---
 

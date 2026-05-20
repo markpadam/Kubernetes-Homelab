@@ -556,21 +556,23 @@ _kubectl_apply_retry() {
 success "Features loaded: ${ENABLED_FEATURES:-none}"
 
 # ── Resource tier ─────────────────────────────
-# Sized for Apple Silicon (M1/M2/M3) — adjust if your Mac has more/less RAM.
-#   Low      2C/2G per node  →  6GB total   leaves ~10GB free  (Mac stays snappy)
-#   Standard 2C/3G per node  →  9GB total   leaves ~6GB free   (recommended)
-#   High     3C/4G per node  → 12GB total   leaves ~3GB free   (max perf, Mac slows)
+# Sized for macOS hosts — pick based on Docker Desktop memory available.
+#   Low       2C/3G  per node →  9 GB cluster  ~12 GB Docker  (16 GB Mac, stays snappy)
+#   Standard  2C/4G  per node → 12 GB cluster  ~14 GB Docker  (16 GB Mac, recommended)
+#   High      3C/5G  per node → 15 GB cluster  ~18 GB Docker  (16-32 GB Mac, full feature set)
+#   Very High 4C/7G  per node → 21 GB cluster  ~24 GB Docker  (32 GB Mac, all services + replicas)
 if [[ -n "${LAB_RESOURCE_TIER:-}" || "$CI_MODE" == "1" ]]; then
   _tier="${LAB_RESOURCE_TIER:-1}"
   [[ "$CI_MODE" == "1" ]] && log "CI mode: resource tier auto-set to Low (override with LAB_RESOURCE_TIER)"
 else
   printf "\n" >&3
   printf "  ${BOLD}Resource tier${RESET} (3-node minikube — heavy services scheduled to primary):\n" >&3
-  printf "    1) Low      — 2 CPU / 3 GB per node  ( 9 GB cluster, ~12 GB Docker)\n" >&3
-  printf "    2) Standard — 2 CPU / 4 GB per node  (12 GB cluster, ~14 GB Docker) [default]\n" >&3
-  printf "    3) High     — 3 CPU / 5 GB per node  (15 GB cluster, ~18 GB Docker, full feature set)\n" >&3
+  printf "    1) Low       — 2 CPU /  3 GB per node  ( 9 GB cluster, ~12 GB Docker)\n" >&3
+  printf "    2) Standard  — 2 CPU /  4 GB per node  (12 GB cluster, ~14 GB Docker) [default]\n" >&3
+  printf "    3) High      — 3 CPU /  5 GB per node  (15 GB cluster, ~18 GB Docker, full feature set)\n" >&3
+  printf "    4) Very High — 4 CPU /  7 GB per node  (21 GB cluster, ~24 GB Docker, 32 GB Mac)\n" >&3
   printf "\n" >&3
-  printf "  Choice [1-3, Enter=2]: " >&3
+  printf "  Choice [1-4, Enter=2]: " >&3
   read -r _tier <&0
 fi
 
@@ -586,6 +588,12 @@ case "${_tier:-2}" in
     SAMBA_CPUS=2; SAMBA_MEM="3G"; SAMBA_DISK="30G"
     CLIENT_CPUS=2; CLIENT_MEM="3G"; CLIENT_DISK="20G"
     success "Resource tier: High  (3 CPU / 5 GB per node)"
+    ;;
+  4)
+    CPUS=4; MEMORY=7168
+    SAMBA_CPUS=4; SAMBA_MEM="4G"; SAMBA_DISK="40G"
+    CLIENT_CPUS=2; CLIENT_MEM="3G"; CLIENT_DISK="20G"
+    success "Resource tier: Very High  (4 CPU / 7 GB per node)"
     ;;
   *)
     CPUS=2; MEMORY=4096
@@ -771,7 +779,7 @@ if [[ $_docker_mem_mib -gt 0 && $_docker_mem_mib -lt $_cluster_needed_mib ]]; th
   _rec_gib=$(( _cluster_gib + 2 ))
   warn "Docker Desktop only has $(( _docker_d10 / 10 )).$(( _docker_d10 % 10 )) GB allocated — this tier needs ${_cluster_gib} GB for the cluster (${NODES} nodes × $(( MEMORY / 1024 )) GB each)."
   warn "  Fix:  Docker Desktop → Settings → Resources → Memory → set to at least ${_rec_gib} GB, then Apply & Restart."
-  warn "  Or:   re-run and choose the Low tier (2 CPU / 3 GB per node, 9 GB total)."
+  warn "  Or:   re-run and choose a lower tier (Low: 9 GB, Standard: 12 GB, High: 15 GB, Very High: 21 GB)."
   warn "  Continuing — insufficient memory may cause K8S_APISERVER_MISSING on minikube start."
 fi
 

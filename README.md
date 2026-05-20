@@ -121,7 +121,7 @@ Components are individually toggleable at setup time or live from the dashboard.
 
 ## Quick Start
 
-> **Docker Desktop memory** — the 3-node cluster needs at least **12 GB** (Low tier) or **14 GB** (Standard, the default) allocated to Docker; the **High tier needs 18 GB**.  
+> **Docker Desktop memory** — the 3-node cluster needs at least **12 GB** (Low) · **14 GB** (Standard, default) · **18 GB** (High) · **24 GB** (Very High — 32 GB Mac).  
 > Set it in Docker Desktop → Settings → Resources → Memory before running. The script warns you if there isn't enough.
 
 ```bash
