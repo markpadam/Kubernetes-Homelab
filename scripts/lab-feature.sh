@@ -856,33 +856,40 @@ _show_interactive_menu() {
   _chk_unset()  { checked_str=$(echo "$checked_str" | tr ' ' '\n' | grep -vx "$1" | tr '\n' ' '); }
   _chk_toggle() { _chk_is "$1" && _chk_unset "$1" || _chk_set "$1"; }
 
+  # The caller invokes this via < <(_show_interactive_menu …) so it captures
+  # this function's stdout. Send all menu rendering and prompts to /dev/tty
+  # (the terminal) so the only thing on stdout is the final selection list.
   while true; do
-    clear
-    echo ""
-    echo -e "  ${BOLD}━━━ AKS Lab — Component Selection ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-    echo ""
-    local i=1
-    local cur_group=""
-    for id in "${ids[@]}"; do
-      local grp; grp=$(_py "import json; cs=json.load(open('$REGISTRY'))['components']; c=next((x for x in cs if x['id']=='$id'),{}); print(c.get('group',''))")
-      local name; name=$(comp_field "$id" name)
-      local deps; deps=$(comp_deps "$id")
-      if [[ "$grp" != "$cur_group" ]]; then
-        [[ "$cur_group" != "" ]] && echo ""
-        echo -e "  ${CYAN}${BOLD}$(echo "$grp" | tr '[:lower:]' '[:upper:]')${RESET}"
-        cur_group="$grp"
-      fi
-      local mark="  [ ]"
-      _chk_is "$id" && mark="  ${GREEN}[x]${RESET}"
-      local dep_note=""
-      [[ -n "$deps" ]] && dep_note=" ${DIM}← $deps${RESET}"
-      printf "%b %2d. %-24s %s%b\n" "$mark" "$i" "$id" "$name" "$dep_note"
-      ((i++))
-    done
-    echo ""
-    echo -e "  ${DIM}Enter number(s) to toggle  |  a=all  n=none  d=defaults  Enter=confirm${RESET}"
-    printf "  > "
-    read -r input
+    {
+      clear
+      echo ""
+      echo -e "  ${BOLD}━━━ AKS Lab — Component Selection ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+      echo ""
+      local i=1
+      local cur_group=""
+      for id in "${ids[@]}"; do
+        local grp; grp=$(_py "import json; cs=json.load(open('$REGISTRY'))['components']; c=next((x for x in cs if x['id']=='$id'),{}); print(c.get('group',''))")
+        local name; name=$(comp_field "$id" name)
+        local deps; deps=$(comp_deps "$id")
+        if [[ "$grp" != "$cur_group" ]]; then
+          [[ "$cur_group" != "" ]] && echo ""
+          echo -e "  ${CYAN}${BOLD}$(echo "$grp" | tr '[:lower:]' '[:upper:]')${RESET}"
+          cur_group="$grp"
+        fi
+        local mark="  [ ]"
+        _chk_is "$id" && mark="  ${GREEN}[x]${RESET}"
+        local dep_note=""
+        [[ -n "$deps" ]] && dep_note=" ${DIM}← $deps${RESET}"
+        printf "%b %2d. %-24s %s%b\n" "$mark" "$i" "$id" "$name" "$dep_note"
+        ((i++))
+      done
+      echo ""
+      echo -e "  ${DIM}Enter number(s) to toggle  |  a=all  n=none  d=defaults  Enter=confirm${RESET}"
+      printf "  > "
+    } >/dev/tty
+    # Read from the terminal directly too — process substitution closes
+    # the parent shell's stdin, so the implicit `read` source would be EOF.
+    read -r input </dev/tty
     case "$input" in
       "")
         break ;;
@@ -900,8 +907,9 @@ _show_interactive_menu() {
         done ;;
     esac
   done
-  clear
+  clear >/dev/tty
 
+  # Only the selected IDs reach stdout — captured by the caller.
   for id in "${ids[@]}"; do
     _chk_is "$id" && echo "$id"
   done
