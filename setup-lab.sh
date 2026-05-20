@@ -537,6 +537,27 @@ _prefer_primary() {
   return 0
 }
 
+# Soft-AVOID the primary node — for stateful services with node-local
+# storage (csi-hostpath-sc binds the PV to whichever node first runs the
+# pod). If they land on primary they're stuck there forever, and primary
+# OOM can't be relieved by rescheduling. Pushing them to a worker on first
+# schedule keeps the primary headroom available for the control plane.
+_avoid_primary() {
+  local ns="$1" name="$2" kind="${3:-deployment}"
+  kubectl -n "$ns" patch "$kind" "$name" --type=merge -p '{
+    "spec":{"template":{"spec":{"affinity":{"nodeAffinity":{
+      "preferredDuringSchedulingIgnoredDuringExecution":[{
+        "weight":100,
+        "preference":{"matchExpressions":[{
+          "key":"minikube.k8s.io/primary",
+          "operator":"NotIn",
+          "values":["true"]
+        }]}
+      }]
+    }}}}}}' &>/dev/null || true
+  return 0
+}
+
 # kubectl apply with retry for transient errors (ingress-nginx webhook flaps,
 # CRD-not-established races, etc.). Use this for any resource whose creation
 # touches the validating webhook — primarily Ingress objects.
@@ -1953,16 +1974,25 @@ feature_enabled container-registry && _pf "Registry"          5000 "kubectl port
 feature_enabled cosmos-db          && _pf "Cosmos DB"         8081 "kubectl port-forward svc/cosmosdb 8081:8081 -n cosmos-db"           /tmp/cosmosdb-portforward.log
 feature_enabled cosmos-db          && _pf "Cosmos Explorer"   1234 "kubectl port-forward svc/cosmosdb 1234:1234 -n cosmos-db"           /tmp/cosmosdb-explorer-portforward.log
 
-# ── Schedule heavy services on the primary node ─────────────────────
-# minikube can't size nodes asymmetrically, so we approximate the
-# "fat-primary / lean-workers" topology via soft node affinity. The scheduler
-# will prefer the primary for these services but still fall back to workers
-# when primary is full. New pods after this patch land on primary; existing
-# pods stay where they are until they restart (rollouts handle that).
-step "Pinning heavy services to primary node"
+# ── Schedule heavy services across the cluster ──────────────────────
+# minikube can't size nodes asymmetrically, so we approximate a
+# "fat-primary / lean-workers" topology via soft node affinity.
+#
+# Two lists:
+#   _HEAVY_PREFER_PRIMARY — stateless services that benefit from being
+#     pinned to primary (where memory headroom is concentrated). They
+#     can be rescheduled freely if primary OOMs.
+#
+#   _HEAVY_AVOID_PRIMARY  — stateful services with node-local PVCs
+#     (csi-hostpath-sc). If these land on primary they're stuck there
+#     forever, blocking any future memory relief. Push them to workers
+#     on first schedule so the primary stays free for control-plane.
+#
+# Both rules are soft (preferredDuringScheduling), so pods still fall
+# back to any available node if their preferred set is full.
+step "Applying node affinity to heavy services"
 
-# (namespace, name, kind) — kind defaults to "deployment"
-_HEAVY_TARGETS=(
+_HEAVY_PREFER_PRIMARY=(
   "monitoring monitoring-grafana deployment"
   "monitoring monitoring-kube-prometheus-operator deployment"
   "monitoring monitoring-kube-state-metrics deployment"
@@ -1974,8 +2004,6 @@ _HEAVY_TARGETS=(
   "argocd argocd-repo-server deployment"
   "argocd argocd-application-controller statefulset"
   "argocd argocd-dex-server deployment"
-  "azure-sql mssql deployment"
-  "cosmos-db cosmosdb deployment"
   "dex dex deployment"
   "oauth2-proxy oauth2-proxy deployment"
   "ingress-nginx ingress-nginx-controller deployment"
@@ -1985,14 +2013,29 @@ _HEAVY_TARGETS=(
   "flux-system notification-controller deployment"
 )
 
-for _t in "${_HEAVY_TARGETS[@]}"; do
+# Stateful services with PVCs (csi-hostpath-sc node-binds the PV).
+# Keep these off the primary so it can't get wedged when they're running.
+_HEAVY_AVOID_PRIMARY=(
+  "azure-sql mssql deployment"
+  "cosmos-db cosmosdb deployment"
+)
+
+for _t in "${_HEAVY_PREFER_PRIMARY[@]}"; do
   read -r _ns _name _kind <<< "$_t"
   if kubectl -n "$_ns" get "$_kind" "$_name" &>/dev/null; then
     _prefer_primary "$_ns" "$_name" "$_kind"
     log "  ↳ ${_kind}/${_name} (-n ${_ns}) prefers primary"
   fi
 done
-success "Primary-node affinity applied to heavy services"
+
+for _t in "${_HEAVY_AVOID_PRIMARY[@]}"; do
+  read -r _ns _name _kind <<< "$_t"
+  if kubectl -n "$_ns" get "$_kind" "$_name" &>/dev/null; then
+    _avoid_primary "$_ns" "$_name" "$_kind"
+    log "  ↳ ${_kind}/${_name} (-n ${_ns}) avoids primary (stateful PVC)"
+  fi
+done
+success "Node affinity applied"
 
 # ── Local DNS (/etc/hosts) ───────────────────
 step "Configuring Local DNS"

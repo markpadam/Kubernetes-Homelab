@@ -166,6 +166,23 @@ _kubectl_apply() {
   else
     warn "No manifest defined for $id"
   fi
+  # Apply anti-primary affinity to stateful services with node-local PVCs
+  # so they land on a worker and don't permanently bind their PV to the
+  # primary node (where the control plane already needs the memory).
+  case "$id" in
+    azure-sql)
+      kubectl -n azure-sql get deployment mssql &>/dev/null && \
+        kubectl -n azure-sql patch deployment mssql --type=merge -p \
+          '{"spec":{"template":{"spec":{"affinity":{"nodeAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":100,"preference":{"matchExpressions":[{"key":"minikube.k8s.io/primary","operator":"NotIn","values":["true"]}]}}]}}}}}}' \
+          &>/dev/null || true
+      ;;
+    cosmos-db)
+      kubectl -n cosmos-db get deployment cosmosdb &>/dev/null && \
+        kubectl -n cosmos-db patch deployment cosmosdb --type=merge -p \
+          '{"spec":{"template":{"spec":{"affinity":{"nodeAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":100,"preference":{"matchExpressions":[{"key":"minikube.k8s.io/primary","operator":"NotIn","values":["true"]}]}}]}}}}}}' \
+          &>/dev/null || true
+      ;;
+  esac
 }
 
 _kubectl_delete_ns() {
