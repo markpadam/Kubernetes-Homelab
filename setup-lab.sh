@@ -1722,9 +1722,30 @@ Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).saf
       || warn "OAuth2 Proxy ingress apply failed after retries — run: kubectl apply -f infrastructure/base/identity/oauth2-proxy/ingress.yaml"
     _OAUTH_RC=0
     kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s || _OAUTH_RC=$?
-    [[ $_OAUTH_RC -eq 0 ]] \
-      && success "OAuth2 Proxy ready — SSO gate at oauth2-proxy.aks-lab.local:9980" \
-      || warn "OAuth2 Proxy deployment did not complete within 120s — check: kubectl logs -n oauth2-proxy deployment/oauth2-proxy"
+    if [[ $_OAUTH_RC -eq 0 ]]; then
+      success "OAuth2 Proxy ready — SSO gate at oauth2-proxy.aks-lab.local:9980"
+      # Patch SSO annotations onto every protected ingress that already exists.
+      # The ingress YAMLs are SSO-free by default so the lab is usable without
+      # oauth2-proxy; this patch is what activates the SSO gate.
+      log "Patching SSO annotations onto protected ingresses..."
+      for _ing in "argocd argocd argocd.aks-lab.local" \
+                  "kubernetes-dashboard kubernetes-dashboard dashboard.aks-lab.local" \
+                  "monitoring grafana grafana.aks-lab.local" \
+                  "blob-explorer blob-explorer blob-explorer.aks-lab.local" \
+                  "taskapp taskapp-ingress taskflow.aks-lab.local"; do
+        # shellcheck disable=SC2086
+        set -- $_ing
+        kubectl get ingress -n "$1" "$2" &>/dev/null && \
+          kubectl annotate ingress -n "$1" "$2" --overwrite \
+            "nginx.ingress.kubernetes.io/auth-url=http://oauth2-proxy.oauth2-proxy.svc.cluster.local:4180/oauth2/auth" \
+            "nginx.ingress.kubernetes.io/auth-response-headers=X-Auth-Request-User,X-Auth-Request-Email" \
+            "nginx.ingress.kubernetes.io/auth-signin=http://oauth2-proxy.aks-lab.local:9980/oauth2/start?rd=http://${3}:9980/" \
+            &>/dev/null || true
+      done
+      success "SSO annotations applied"
+    else
+      warn "OAuth2 Proxy deployment did not complete within 120s — check: kubectl logs -n oauth2-proxy deployment/oauth2-proxy"
+    fi
   fi
 else
   log "Skipping Step 11b — SambaAD not selected"

@@ -3,10 +3,9 @@ kind: Ingress
 metadata:
   name: kubernetes-dashboard
   namespace: kubernetes-dashboard
+  # OAuth2 Proxy SSO annotations are added at runtime by lab-feature.sh when
+  # the oauth2-proxy component is enabled. See infrastructure/base/argocd/ingress.yaml.
   annotations:
-    nginx.ingress.kubernetes.io/auth-url: "http://oauth2-proxy.oauth2-proxy.svc.cluster.local:4180/oauth2/auth"
-    nginx.ingress.kubernetes.io/auth-response-headers: "X-Auth-Request-User,X-Auth-Request-Email"
-    nginx.ingress.kubernetes.io/auth-signin: "http://oauth2-proxy.aks-lab.local:9980/oauth2/start?rd=http://dashboard.aks-lab.local:9980/"
     # Kong proxy (the dashboard's API gateway) serves HTTPS internally.
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
     nginx.ingress.kubernetes.io/ssl-passthrough: "false"

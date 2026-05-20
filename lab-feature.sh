@@ -388,6 +388,46 @@ _disable_dex() {
 }
 
 # ── Special: OAuth2 Proxy ─────────────────────────────────────────
+# Ingresses protected by SSO when oauth2-proxy is enabled.
+# Format per line: "namespace ingress-name external-host"
+_SSO_PROTECTED_INGRESSES=(
+  "argocd               argocd               argocd.aks-lab.local"
+  "kubernetes-dashboard kubernetes-dashboard dashboard.aks-lab.local"
+  "monitoring           grafana              grafana.aks-lab.local"
+  "blob-explorer        blob-explorer        blob-explorer.aks-lab.local"
+  "taskapp              taskapp-ingress      taskflow.aks-lab.local"
+)
+
+# Patch a single ingress with the three nginx auth-* annotations that point
+# nginx at oauth2-proxy. Idempotent — uses --overwrite. Silently skips if
+# the ingress doesn't exist (the protected app may not be enabled).
+_sso_patch_ingress() {
+  local ns="$1" name="$2" host="$3"
+  kubectl get ingress -n "$ns" "$name" &>/dev/null || return 0
+  kubectl annotate ingress -n "$ns" "$name" --overwrite \
+    "nginx.ingress.kubernetes.io/auth-url=http://oauth2-proxy.oauth2-proxy.svc.cluster.local:4180/oauth2/auth" \
+    "nginx.ingress.kubernetes.io/auth-response-headers=X-Auth-Request-User,X-Auth-Request-Email" \
+    "nginx.ingress.kubernetes.io/auth-signin=http://oauth2-proxy.aks-lab.local:9980/oauth2/start?rd=http://${host}:9980/" \
+    &>/dev/null
+}
+
+# Strip the auth-* annotations from a single ingress. Idempotent — kubectl
+# treats removing a missing annotation as a no-op.
+_sso_unpatch_ingress() {
+  local ns="$1" name="$2"
+  kubectl get ingress -n "$ns" "$name" &>/dev/null || return 0
+  kubectl annotate ingress -n "$ns" "$name" \
+    "nginx.ingress.kubernetes.io/auth-url-" \
+    "nginx.ingress.kubernetes.io/auth-response-headers-" \
+    "nginx.ingress.kubernetes.io/auth-signin-" \
+    &>/dev/null
+}
+
+# Apply or remove SSO annotations across every protected ingress. Call
+# `apply` after oauth2-proxy is up and `remove` before tearing it down.
+_sso_apply_all()  { for line in "${_SSO_PROTECTED_INGRESSES[@]}";  do _sso_patch_ingress   $line; done; }
+_sso_remove_all() { for line in "${_SSO_PROTECTED_INGRESSES[@]}";  do _sso_unpatch_ingress $line; done; }
+
 _enable_oauth2_proxy() {
   local COOKIE_SECRET; COOKIE_SECRET=$(python3 -c \
     "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())")
@@ -403,10 +443,14 @@ Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).saf
   kubectl apply -k "$SCRIPT_DIR/infrastructure/base/identity/oauth2-proxy/"
   kubectl apply -f /tmp/oauth2-proxy-secret-rendered.yaml
   kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s
+  log "Patching SSO annotations onto protected ingresses..."
+  _sso_apply_all
   success "OAuth2 Proxy ready — SSO gate at oauth2-proxy.aks-lab.local:9980"
 }
 
 _disable_oauth2_proxy() {
+  log "Removing SSO annotations from ingresses..."
+  _sso_remove_all
   _kubectl_delete_ns oauth2-proxy
   success "OAuth2 Proxy disabled"
 }
@@ -532,6 +576,16 @@ do_enable() {
       ;;
   esac
   add_to_state "$id"
+  # If this component has an SSO-protected ingress and oauth2-proxy is
+  # running, re-apply the auth annotations now (the ingress yaml doesn't
+  # include them — see infrastructure/base/argocd/ingress.yaml).
+  if is_enabled "oauth2-proxy"; then
+    case "$id" in
+      argocd|kubernetes-dashboard|monitoring|blob-explorer|taskflow)
+        _sso_apply_all
+        ;;
+    esac
+  fi
 }
 
 do_disable() {

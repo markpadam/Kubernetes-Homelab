@@ -1,12 +1,10 @@
+# OAuth2 Proxy SSO annotations are added at runtime by lab-feature.sh when
+# the oauth2-proxy component is enabled. See infrastructure/base/argocd/ingress.yaml.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: grafana
   namespace: monitoring
-  annotations:
-    nginx.ingress.kubernetes.io/auth-url: "http://oauth2-proxy.oauth2-proxy.svc.cluster.local:4180/oauth2/auth"
-    nginx.ingress.kubernetes.io/auth-response-headers: "X-Auth-Request-User,X-Auth-Request-Email"
-    nginx.ingress.kubernetes.io/auth-signin: "http://oauth2-proxy.aks-lab.local:9980/oauth2/start?rd=http://grafana.aks-lab.local:9980/"
 spec:
   ingressClassName: nginx
   rules:
