@@ -522,6 +522,78 @@ _disable_oauth2_proxy() {
   success "OAuth2 Proxy disabled"
 }
 
+# Provision a long-lived cluster-admin service account for the corp-client,
+# build a kubeconfig that uses the Mac host's IP (as seen from the VM) as
+# the API server URL, and copy it into the VM at /home/ubuntu/.kube/config.
+#
+# The API server's TLS cert doesn't include the host IP in its SAN, so we
+# set insecure-skip-tls-verify: true. Acceptable for a local lab where the
+# port-forward only exposes the API on the Mac's multipass bridge — never
+# adapt this for any cluster with real users or real network exposure.
+_setup_corp_client_kubeconfig() {
+  log "Provisioning kubeconfig for corp-client..."
+
+  # Service account + cluster-admin binding. Idempotent via apply.
+  kubectl create sa corp-client-admin -n kube-system --dry-run=client -o yaml \
+    | kubectl apply -f - >/dev/null
+  kubectl create clusterrolebinding corp-client-admin \
+    --serviceaccount=kube-system:corp-client-admin \
+    --clusterrole=cluster-admin \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+
+  # Long-lived token (capped at the cluster's max — usually 1 year).
+  local TOKEN
+  TOKEN=$(kubectl create token corp-client-admin -n kube-system --duration=87600h 2>/dev/null) \
+    || { warn "Could not mint corp-client token — skipping kubeconfig setup"; return 0; }
+
+  # The Mac's IP from the VM's perspective is the VM's default gateway.
+  local MAC_IP_FROM_VM
+  MAC_IP_FROM_VM=$(multipass exec corp-client -- ip route 2>/dev/null \
+    | awk '/^default/ {print $3; exit}')
+  [[ -z "$MAC_IP_FROM_VM" ]] && {
+    warn "Could not determine Mac IP from corp-client perspective — skipping kubeconfig setup"
+    return 0
+  }
+
+  local KUBECONFIG_TMP=/tmp/corp-client-kubeconfig
+  cat > "$KUBECONFIG_TMP" <<KUBECONFIG_EOF
+apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: https://${MAC_IP_FROM_VM}:8443
+    insecure-skip-tls-verify: true
+  name: aks-lab
+contexts:
+- context:
+    cluster: aks-lab
+    user: corp-client-admin
+  name: aks-lab
+current-context: aks-lab
+users:
+- name: corp-client-admin
+  user:
+    token: ${TOKEN}
+KUBECONFIG_EOF
+
+  multipass exec corp-client -- sudo -u ubuntu mkdir -p /home/ubuntu/.kube >/dev/null 2>&1
+  multipass transfer "$KUBECONFIG_TMP" corp-client:/tmp/kubeconfig >/dev/null
+  multipass exec corp-client -- sudo mv /tmp/kubeconfig /home/ubuntu/.kube/config
+  multipass exec corp-client -- sudo chown -R ubuntu:ubuntu /home/ubuntu/.kube
+  multipass exec corp-client -- sudo chmod 600 /home/ubuntu/.kube/config
+  rm -f "$KUBECONFIG_TMP"
+
+  # Also start the API port-forward so kubectl from inside the VM has
+  # something to talk to. lib-common's helper handles idempotency.
+  lab_start_port_forward "K8s API (corp-client)" 8443 \
+    "kubectl port-forward -n default svc/kubernetes 8443:443 --address 0.0.0.0" \
+    /tmp/k8s-api-portforward.log \
+    && success "K8s API port-forward running on 0.0.0.0:8443" \
+    || warn "K8s API port-forward did not start — kubectl from VM won't work until manual run"
+
+  success "Corp Client kubeconfig installed — try: ssh into VM and run 'kubectl get nodes'"
+}
+
 # ── Special: Corp Client ──────────────────────────────────────────
 _enable_corp_client() {
   log "Creating Corp Client Multipass VM via Terraform..."
@@ -531,6 +603,7 @@ _enable_corp_client() {
   local CLIENT_IP; CLIENT_IP=$(multipass info corp-client --format json \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['ipv4'][0])" \
     2>/dev/null || echo "")
+  _setup_corp_client_kubeconfig
   success "Corp Client ready — open vnc://${CLIENT_IP}:5901  (password: AksLab1!)"
 }
 

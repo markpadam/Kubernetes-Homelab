@@ -62,7 +62,7 @@ for pid_file in /tmp/lab-pf-*.pid; do
   rm -f "$pid_file"
 done
 
-for port in 2222 8080 9980 2746 1433 5672 5300 5000 8081 1234 9997; do
+for port in 2222 8080 9980 2746 1433 5672 5300 5000 8081 1234 9997 8443; do
   pids=$(lsof -ti:"$port" 2>/dev/null || true)
   [[ -n "$pids" ]] && echo "$pids" | xargs kill -9 2>/dev/null || true
 done
@@ -204,6 +204,7 @@ rm -f /tmp/argo-workflows-portforward.log /tmp/azure-sql-portforward.log
 rm -f /tmp/servicebus-portforward.log /tmp/servicebus-mgmt-portforward.log
 rm -f /tmp/registry-portforward.log /tmp/cosmosdb-portforward.log
 rm -f /tmp/cosmosdb-explorer-portforward.log
+rm -f /tmp/k8s-api-portforward.log /tmp/corp-client-kubeconfig
 rm -f /tmp/vault-dev.log /tmp/vault-terraform-apply.log /tmp/vault-terraform-init.log
 rm -f /tmp/samba-terraform-apply.log /tmp/corp-client-terraform-apply.log
 rm -f /tmp/dex-config-rendered.yaml /tmp/oauth2-proxy-secret-rendered.yaml

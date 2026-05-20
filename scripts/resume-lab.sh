@@ -202,6 +202,8 @@ feature_enabled service-bus        && _pf "Service Bus Mgmt"  5300 "kubectl port
 feature_enabled container-registry && _pf "Registry"          5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"  /tmp/registry-portforward.log
 feature_enabled cosmos-db          && _pf "Cosmos DB"         8081 "kubectl port-forward svc/cosmosdb 8081:8081 -n cosmos-db"           /tmp/cosmosdb-portforward.log
 feature_enabled cosmos-db          && _pf "Cosmos Explorer"   1234 "kubectl port-forward svc/cosmosdb 1234:1234 -n cosmos-db"           /tmp/cosmosdb-explorer-portforward.log
+# Bind to 0.0.0.0 so the corp-client VM can reach https://<mac-ip>:8443.
+feature_enabled corp-client        && _pf "K8s API (corp-client)" 8443 "kubectl port-forward svc/kubernetes 8443:443 -n default --address 0.0.0.0" /tmp/k8s-api-portforward.log
 
 # ── Retrieve runtime values for dashboard ────
 ARGOCD_PASSWORD=""
