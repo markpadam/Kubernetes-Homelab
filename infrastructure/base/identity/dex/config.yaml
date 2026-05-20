@@ -23,8 +23,10 @@ data:
       http: 0.0.0.0:5556
 
     # Static fallback user — works without SambaAD.
-    # Disabled automatically when samba-ad is running (LDAP connector takes over).
+    # When samba-ad is running the LDAP connector takes over as the primary
+    # auth path; the static user remains as an emergency local account.
     # Password: AksLabAdmin1!
+    enablePasswordDB: true
     staticPasswords:
       - email: "admin@corp.internal"
         hash: "$2y$10$4hADsXgHYFW0bMOnDUmkl.FeAFBZMdp7LeiSpJJ3cwoaHr0V0ZCRG"

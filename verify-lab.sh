@@ -63,7 +63,10 @@ check_pods() {
   [[ $running -eq $total ]]
 }
 
-# HTTP check via the ingress port-forward (uses host header)
+# HTTP check via the ingress port-forward (uses host header).
+# Treats 2xx/3xx/4xx as healthy — only 5xx indicates a backend problem.
+# A 404 from a backend that doesn't have a "/" route (like oauth2-proxy)
+# still confirms the upstream is up and the ingress is routing correctly.
 check_ingress_host() {
   local host="$1"
   local code
@@ -71,7 +74,7 @@ check_ingress_host() {
     --resolve "${host}:${INGRESS_PORT}:127.0.0.1" \
     "http://${host}:${INGRESS_PORT}/" 2>/dev/null) || code="000"
   echo "$code"
-  [[ "$code" =~ ^[23] ]]
+  [[ "$code" =~ ^[234] ]]
 }
 
 check_tcp() {
