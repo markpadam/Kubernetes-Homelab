@@ -213,7 +213,8 @@ if [[ -d "$IMAGE_CACHE_DIR" ]]; then
     echo -e "  These let re-runs skip slow image builds and worker-node distribution."
     echo ""
     _img_confirm=""
-    if read -t 30 -rp "  Delete cached images? [y/N] (auto-No in 30s): " _img_confirm 2>/dev/null; then
+    printf "  Delete cached images? [y/N] (auto-No in 30s): " >/dev/tty
+    if read -t 30 -r _img_confirm </dev/tty 2>/dev/null; then
       echo ""
     else
       echo -e "\n  Timed out — keeping image cache"
