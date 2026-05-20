@@ -61,6 +61,120 @@ write_files:
       DEBIAN_FRONTEND=noninteractive apt-get install -y firefox sublime-text
       echo "[extras] Extra packages installed."
 
+  - path: /root/install-k8s-tools.sh
+    owner: root:root
+    permissions: '0700'
+    content: |
+      #!/bin/bash
+      # Install the Kubernetes / GitOps CLI toolchain on the corp-client VM
+      # so domain users can drive the lab from inside the VM.
+      #
+      # Installed:
+      #   kubectl   — pkgs.k8s.io apt repo
+      #   helm      — baltocdn helm apt repo
+      #   flux      — official fluxcd.io install script
+      #   vault     — HashiCorp apt repo
+      #   argocd    — github release binary
+      #   k9s       — github release .deb
+      #   jq, yq    — JSON / YAML processing
+      #
+      # No kubeconfig is set up here — that needs to be copied in by the user
+      # (e.g. multipass transfer ~/.kube/config corp-client:/home/ubuntu/.kube/config)
+      # because the cluster API lives on the Mac host and the server URL has
+      # to be rewritten to the corp-client's view of the host.
+      set -euo pipefail
+
+      # Multipass inherits the host architecture. Detect once so we pick the
+      # right binary on both Apple Silicon (arm64) and Intel (amd64) Macs.
+      ARCH=$(dpkg --print-architecture)   # arm64 | amd64
+      case "$ARCH" in
+        arm64) GH_ARCH=arm64 ;;
+        amd64) GH_ARCH=amd64 ;;
+        *)     echo "[k8s-tools] Unsupported architecture: $ARCH"; exit 1 ;;
+      esac
+      echo "[k8s-tools] Detected architecture: $ARCH"
+
+      # ── kubectl (apt) ─────────────────────────────────────────────
+      echo "[k8s-tools] Adding Kubernetes apt repo..."
+      mkdir -p -m 755 /etc/apt/keyrings
+      curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key \
+        | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      chmod 644 /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /" \
+        > /etc/apt/sources.list.d/kubernetes.list
+
+      # ── helm (apt) ────────────────────────────────────────────────
+      echo "[k8s-tools] Adding Helm apt repo..."
+      curl -fsSL https://baltocdn.com/helm/signing.asc \
+        | gpg --dearmor -o /etc/apt/keyrings/helm.gpg
+      chmod 644 /etc/apt/keyrings/helm.gpg
+      echo "deb [arch=$ARCH signed-by=/etc/apt/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" \
+        > /etc/apt/sources.list.d/helm-stable-debian.list
+
+      # ── HashiCorp Vault (apt) ─────────────────────────────────────
+      echo "[k8s-tools] Adding HashiCorp apt repo..."
+      curl -fsSL https://apt.releases.hashicorp.com/gpg \
+        | gpg --dearmor -o /etc/apt/keyrings/hashicorp.gpg
+      chmod 644 /etc/apt/keyrings/hashicorp.gpg
+      UBUNTU_CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME")
+      echo "deb [arch=$ARCH signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com $UBUNTU_CODENAME main" \
+        > /etc/apt/sources.list.d/hashicorp.list
+
+      echo "[k8s-tools] Installing kubectl, helm, vault, jq from apt..."
+      apt-get update -qq
+      DEBIAN_FRONTEND=noninteractive apt-get install -y kubectl helm vault jq
+
+      # ── flux (curl installer — drops binary in /usr/local/bin) ───
+      echo "[k8s-tools] Installing flux..."
+      curl -fsSL https://fluxcd.io/install.sh | bash >/dev/null
+
+      # ── argocd CLI (GitHub release) ───────────────────────────────
+      echo "[k8s-tools] Installing argocd CLI..."
+      ARGOCD_VERSION=$(curl -fsSL https://api.github.com/repos/argoproj/argo-cd/releases/latest \
+        | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+      curl -fsSL "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-${GH_ARCH}" \
+        -o /usr/local/bin/argocd
+      chmod +x /usr/local/bin/argocd
+
+      # ── k9s (GitHub release .deb) ─────────────────────────────────
+      echo "[k8s-tools] Installing k9s..."
+      K9S_VERSION=$(curl -fsSL https://api.github.com/repos/derailed/k9s/releases/latest \
+        | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+      curl -fsSL "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_linux_${GH_ARCH}.deb" \
+        -o /tmp/k9s.deb
+      DEBIAN_FRONTEND=noninteractive dpkg -i /tmp/k9s.deb || apt-get -f install -y
+      rm -f /tmp/k9s.deb
+
+      # ── yq (GitHub release binary) ────────────────────────────────
+      echo "[k8s-tools] Installing yq..."
+      curl -fsSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${GH_ARCH}" \
+        -o /usr/local/bin/yq
+      chmod +x /usr/local/bin/yq
+
+      # ── Shell completion + aliases for the ubuntu user ────────────
+      echo "[k8s-tools] Adding shell completion and aliases..."
+      cat >> /home/ubuntu/.bashrc <<'BASHRC'
+
+      # AKS lab CLI completions and aliases
+      command -v kubectl &>/dev/null && source <(kubectl completion bash) && alias k=kubectl && complete -o default -F __start_kubectl k
+      command -v helm    &>/dev/null && source <(helm completion bash)
+      command -v flux    &>/dev/null && source <(flux completion bash)
+      command -v argocd  &>/dev/null && source <(argocd completion bash)
+      BASHRC
+      chown ubuntu:ubuntu /home/ubuntu/.bashrc
+
+      echo "[k8s-tools] Tool versions:"
+      kubectl version --client 2>/dev/null | head -1 || true
+      helm version --short 2>/dev/null      || true
+      flux --version 2>/dev/null            || true
+      vault version 2>/dev/null             || true
+      argocd version --client --short 2>/dev/null || true
+      k9s version --short 2>/dev/null       || true
+      yq --version 2>/dev/null              || true
+      jq --version 2>/dev/null              || true
+
+      echo "[k8s-tools] Install complete."
+
   - path: /root/client-setup.sh
     owner: root:root
     permissions: '0700'
@@ -153,4 +267,5 @@ packages:
 
 runcmd:
   - [bash, /root/install-extras.sh]
+  - [bash, /root/install-k8s-tools.sh]
   - [bash, /root/client-setup.sh]
