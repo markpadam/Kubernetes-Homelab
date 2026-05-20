@@ -1699,7 +1699,10 @@ except Exception:
   fi
 
   if feature_enabled dex; then
-    DEX_CLIENT_SECRET="dex-lab-client-secret-aks"
+    # Both Dex and OAuth2 Proxy use this secret — must match between them.
+    # Persisted to ~/.aks-lab-secrets so it's stable across setup/resume.
+    DEX_CLIENT_SECRET=$(lab_secret_get_or_create DEX_CLIENT_SECRET \
+      "python3 -c 'import secrets; print(secrets.token_urlsafe(32))'")
     export DEX_CLIENT_SECRET AD_ADMIN_PASSWORD="AksLab!AdDev1"
     log "Applying Dex ConfigMap (SambaAD IP: $SAMBA_IP)..."
     kubectl apply -f infrastructure/base/identity/dex/namespace.yaml
@@ -1724,7 +1727,11 @@ Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substit
   fi
 
   if feature_enabled oauth2-proxy; then
-    COOKIE_SECRET=$(python3 -c "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())")
+    # Persisting COOKIE_SECRET means SSO sessions survive oauth2-proxy
+    # restarts. A new random one each run logged everyone out every time
+    # the script ran.
+    COOKIE_SECRET=$(lab_secret_get_or_create COOKIE_SECRET \
+      "python3 -c 'import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())'")
     export COOKIE_SECRET
     log "Applying OAuth2 Proxy secret..."
     kubectl apply -f infrastructure/base/identity/oauth2-proxy/namespace.yaml

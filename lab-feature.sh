@@ -26,6 +26,12 @@ success() { echo -e "${GREEN}${BOLD}[✓]${RESET} $*"; }
 warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*"; }
 error()   { echo -e "${RED}${BOLD}[✗]${RESET} $*"; exit 1; }
 
+# ── Shared library ────────────────────────────────────────────────
+# Provides lab_secret_get_or_create (persistent internal secrets) and
+# other utilities shared with setup-lab.sh and resume-lab.sh.
+# shellcheck source=scripts/lib-common.sh
+source "$SCRIPT_DIR/scripts/lib-common.sh"
+
 # ── Registry helpers ──────────────────────────────────────────────
 # Validate the registry JSON once at script start. If parsing fails here
 # every downstream _py call would silently return empty strings; far
@@ -416,7 +422,12 @@ _enable_dex() {
   local SAMBA_IP; SAMBA_IP=$(multipass info samba-ad --format json \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" \
     2>/dev/null || echo "<samba-ip>")
-  export SAMBA_IP AD_ADMIN_PASSWORD="AksLab!AdDev1"
+  # DEX_CLIENT_SECRET persists in ~/.aks-lab-secrets so it stays in sync
+  # with the value oauth2-proxy uses (both render from $DEX_CLIENT_SECRET).
+  local DEX_CLIENT_SECRET
+  DEX_CLIENT_SECRET=$(lab_secret_get_or_create DEX_CLIENT_SECRET \
+    "python3 -c 'import secrets; print(secrets.token_urlsafe(32))'")
+  export SAMBA_IP DEX_CLIENT_SECRET AD_ADMIN_PASSWORD="AksLab!AdDev1"
   log "Rendering Dex config (SambaAD: $SAMBA_IP)..."
   python3 -c "
 import os, string
@@ -478,9 +489,15 @@ _sso_apply_all()  { for line in "${_SSO_PROTECTED_INGRESSES[@]}";  do _sso_patch
 _sso_remove_all() { for line in "${_SSO_PROTECTED_INGRESSES[@]}";  do _sso_unpatch_ingress $line; done; }
 
 _enable_oauth2_proxy() {
-  local COOKIE_SECRET; COOKIE_SECRET=$(python3 -c \
-    "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())")
-  export COOKIE_SECRET DEX_CLIENT_SECRET="dex-lab-client-secret-aks"
+  # Both secrets persist across runs in ~/.aks-lab-secrets so the dex
+  # client_secret stays in sync between dex and oauth2-proxy, and SSO
+  # cookies remain valid across oauth2-proxy restarts.
+  local COOKIE_SECRET DEX_CLIENT_SECRET
+  COOKIE_SECRET=$(lab_secret_get_or_create COOKIE_SECRET \
+    "python3 -c 'import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())'")
+  DEX_CLIENT_SECRET=$(lab_secret_get_or_create DEX_CLIENT_SECRET \
+    "python3 -c 'import secrets; print(secrets.token_urlsafe(32))'")
+  export COOKIE_SECRET DEX_CLIENT_SECRET
   log "Applying OAuth2 Proxy secret..."
   python3 -c "
 import os, string

@@ -389,6 +389,21 @@ git add ado && git commit -m "chore: bump ado submodule"
 
 ---
 
+## Security note
+
+This lab is **local-only** and intended for learning. It ships with weak, well-known defaults:
+
+- `admin / admin123` for Grafana
+- `admin / AksLabAdmin1!` for SSO (Dex static user)
+- `admin / AksLabRancher1` for Rancher
+- `sa / AksLab!SqlDev1` for Azure SQL
+- `Administrator / AksLab!AdDev1` for SambaAD
+- Vault dev mode with `root` token (data is in-memory)
+
+Internal-only secrets (OAuth2 cookie key, Dex client secret) are generated randomly on first setup and persisted to `~/.aks-lab-secrets` (`chmod 600`) so they survive across resume cycles. Nothing here should ever be exposed to a network. Do not adapt these manifests for shared environments without replacing every credential.
+
+---
+
 *Built for learning Azure-shaped infrastructure patterns without the Azure bill.*
 
 ---

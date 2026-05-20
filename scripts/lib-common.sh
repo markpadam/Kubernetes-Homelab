@@ -113,3 +113,31 @@ lab_serve_dashboard() {
   python3 "${cwd}/dashboard-server.py" "$cwd" >> /tmp/dashboard-server.log 2>&1 &
   sleep 1
 }
+
+# Persistent secret store for the lab. These are internal secrets that the
+# user doesn't need to see (oauth2-proxy cookie, Dex client secret) — but
+# they must remain stable across setup/resume cycles so SSO sessions don't
+# get invalidated and dex/oauth2-proxy stay in sync.
+#
+# Format: one KEY=VALUE per line, file is chmod 600.
+# Usage:  secret=$(lab_secret_get_or_create COOKIE_SECRET "command-that-generates-one")
+LAB_SECRETS_FILE="${LAB_SECRETS_FILE:-$HOME/.aks-lab-secrets}"
+
+lab_secret_get_or_create() {
+  local key="$1" generator="$2"
+  if [[ -f "$LAB_SECRETS_FILE" ]]; then
+    local existing
+    existing=$(grep -E "^${key}=" "$LAB_SECRETS_FILE" 2>/dev/null | tail -1 | cut -d= -f2-)
+    if [[ -n "$existing" ]]; then
+      echo "$existing"
+      return 0
+    fi
+  fi
+  local value
+  value=$(eval "$generator")
+  [[ -z "$value" ]] && return 1
+  touch "$LAB_SECRETS_FILE"
+  chmod 600 "$LAB_SECRETS_FILE"
+  echo "${key}=${value}" >> "$LAB_SECRETS_FILE"
+  echo "$value"
+}
