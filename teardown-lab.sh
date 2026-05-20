@@ -25,6 +25,14 @@ success() { echo -e "${GREEN}${BOLD}[✓]${RESET} $*"; }
 warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*"; }
 step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
 
+# sed -i has different flag conventions on BSD (macOS) vs GNU (Linux).
+# Use an array so callers can do: sed "${SED_INPLACE[@]}" 's/x/y/' file
+if [[ "$(uname)" == "Darwin" ]]; then
+  SED_INPLACE=(-i '')
+else
+  SED_INPLACE=(-i)
+fi
+
 # ── Confirm ───────────────────────────────────
 if [[ -z "${CI:-}" ]]; then
   echo -e "\n${RED}${BOLD}  This will permanently delete the '$PROFILE' Minikube cluster${RESET}"
@@ -155,7 +163,7 @@ HOSTS_ENTRIES=(
 REMOVED=0
 for host in "${HOSTS_ENTRIES[@]}"; do
   if grep -qF "127.0.0.1 $host" /etc/hosts 2>/dev/null; then
-    sudo sed -i '' "/127\.0\.0\.1 ${host}/d" /etc/hosts
+    sudo sed "${SED_INPLACE[@]}" "/127\.0\.0\.1 ${host}/d" /etc/hosts
     success "Removed $host"
     REMOVED=$(( REMOVED + 1 ))
   fi
@@ -166,10 +174,17 @@ done
 step "Cleaning Up SSH Config"
 
 SSH_CONFIG="$HOME/.ssh/config"
-if grep -q "Host aks-toolbox" "$SSH_CONFIG" 2>/dev/null; then
+if grep -q "^Host aks-toolbox" "$SSH_CONFIG" 2>/dev/null; then
   log "Removing aks-toolbox from ~/.ssh/config ..."
-  # Remove the Host aks-toolbox block (6 lines)
-  sed -i '' '/^Host aks-toolbox/,/^$/d' "$SSH_CONFIG" 2>/dev/null || true
+  # Use awk so the block boundary is "the next Host directive OR end of
+  # file" — the old sed pattern (/^Host aks-toolbox/,/^$/d) deleted to
+  # the next blank line and would consume everything until EOF if the
+  # block was the last entry with no trailing newline.
+  awk '
+    /^Host aks-toolbox([[:space:]]|$)/  { skip=1; next }
+    skip && /^Host[[:space:]]/          { skip=0 }
+    !skip                               { print }
+  ' "$SSH_CONFIG" > "${SSH_CONFIG}.tmp" && mv "${SSH_CONFIG}.tmp" "$SSH_CONFIG"
   success "SSH config entry removed"
 else
   warn "No aks-toolbox entry in ~/.ssh/config — skipping."
