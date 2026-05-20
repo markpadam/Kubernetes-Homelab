@@ -20,11 +20,12 @@ GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'
 CYAN='\033[0;36m';  BOLD='\033[1m';      DIM='\033[2m'; RESET='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STATE_FILE="$SCRIPT_DIR/.lab-state.json"
-REGISTRY="$SCRIPT_DIR/lab-components.json"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+STATE_FILE="$REPO_ROOT/.lab-state.json"
+REGISTRY="$REPO_ROOT/lab-components.json"
 INGRESS_PORT=9980  # local port-forward to ingress-nginx
 
-[[ -f "$STATE_FILE" ]] || { echo -e "${RED}✗${RESET} No .lab-state.json found — run setup-lab.sh first."; exit 1; }
+[[ -f "$STATE_FILE" ]] || { echo -e "${RED}✗${RESET} No .lab-state.json found — run ./aks-lab setup first."; exit 1; }
 [[ -f "$REGISTRY" ]]   || { echo -e "${RED}✗${RESET} No lab-components.json found."; exit 1; }
 
 ENABLED=$(python3 -c "import json; print(' '.join(json.load(open('$STATE_FILE')).get('enabled',[])))")

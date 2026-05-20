@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────
+#  aks-lab — single entry point for the AKS Homelab.
+#
+#  No-args:  launches an interactive TUI menu.
+#  Subcommand mode dispatches directly to the implementation
+#  script in scripts/ — useful for muscle memory and CI/CD.
+#
+#  Run `./aks-lab help` for the full command list.
+# ─────────────────────────────────────────────
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPTS="$SCRIPT_DIR/scripts"
+PROFILE="${LAB_PROFILE:-aks-lab}"
+
+# Colours
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'
+CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
+
+_usage() {
+  echo -e "${BOLD}aks-lab${RESET} — AKS Homelab control script
+"
+  echo -e "${BOLD}Usage:${RESET}"
+  echo -e "  ./aks-lab                          interactive menu"
+  echo -e "  ./aks-lab <command> [args...]      run a command directly
+"
+  echo -e "${BOLD}Lifecycle:${RESET}"
+  echo -e "  setup [--all|--minimal|--standard|--verbose|--reconfigure-ado]"
+  echo -e "                                     build and start the lab (~15 min)"
+  echo -e "  resume [--verbose]                 resume after pause / Mac restart"
+  echo -e "  pause                              minikube stop  (keeps state)"
+  echo -e "  refresh [--images|--restart|--only <id>|--verbose]"
+  echo -e "                                     re-apply manifests on running cluster"
+  echo -e "  teardown [--delete-images]         full wipe"
+  echo -e "  verify                             post-setup health check (exits 1 on failure)"
+  echo -e "  resize [--yes|--worker-gb N|--master-pct N|--restore]"
+  echo -e "                                     shrink node memory once cluster settles
+"
+  echo -e "${BOLD}Features:${RESET}"
+  echo -e "  feature list                       show all components + state"
+  echo -e "  feature status                     live pod health per component"
+  echo -e "  feature enable <id|group>          enable a component (auto-resolves deps)"
+  echo -e "  feature disable <id|group> [--force]"
+  echo -e "                                     disable a component"
+  echo -e "  feature init [--all|--minimal|--standard|--interactive]"
+  echo -e "                                     reset the enabled list
+"
+  echo -e "${BOLD}Other:${RESET}"
+  echo -e "  dashboard                          open the web dashboard"
+  echo -e "  help                               show this message
+"
+  echo -e "${DIM}Implementation scripts live in scripts/. You can call them directly"
+  echo -e "if you prefer — ./aks-lab is just a thin dispatcher.${RESET}"
+}
+
+_cluster_running() {
+  minikube status -p "$PROFILE" 2>/dev/null | grep -q "host: Running"
+}
+
+# ── Subcommand dispatch ──────────────────────
+case "${1:-}" in
+  ""|menu|tui)
+    exec python3 "$SCRIPTS/menu.py" "$SCRIPT_DIR"
+    ;;
+  setup)
+    shift
+    exec bash "$SCRIPTS/setup-lab.sh" "$@"
+    ;;
+  resume)
+    shift
+    exec bash "$SCRIPTS/resume-lab.sh" "$@"
+    ;;
+  pause)
+    if _cluster_running; then
+      echo -e "${CYAN}${BOLD}[lab]${RESET} Pausing cluster '${PROFILE}'..."
+      minikube stop -p "$PROFILE"
+      echo -e "${GREEN}${BOLD}[✓]${RESET} Cluster paused. Run ./aks-lab resume to bring it back."
+    else
+      echo -e "${YELLOW}${BOLD}[!]${RESET} Cluster '${PROFILE}' is not running."
+    fi
+    ;;
+  refresh)
+    shift
+    exec bash "$SCRIPTS/refresh-lab.sh" "$@"
+    ;;
+  teardown)
+    shift
+    exec bash "$SCRIPTS/teardown-lab.sh" "$@"
+    ;;
+  verify)
+    shift
+    exec bash "$SCRIPTS/verify-lab.sh" "$@"
+    ;;
+  resize)
+    shift
+    exec bash "$SCRIPTS/lab-resize.sh" "$@"
+    ;;
+  feature|features)
+    shift
+    exec bash "$SCRIPTS/lab-feature.sh" "$@"
+    ;;
+  dashboard)
+    if curl -sf http://localhost:9997/ &>/dev/null; then
+      echo -e "${CYAN}${BOLD}[lab]${RESET} Opening http://localhost:9997 ..."
+      if command -v code &>/dev/null; then code --open-url http://localhost:9997/; else open http://localhost:9997/; fi
+    else
+      echo -e "${YELLOW}${BOLD}[!]${RESET} Dashboard server is not running."
+      echo -e "    Start it with: ${CYAN}./aks-lab resume${RESET} (if cluster is paused) or ${CYAN}./aks-lab setup${RESET}"
+      exit 1
+    fi
+    ;;
+  -h|--help|help)
+    _usage
+    ;;
+  *)
+    echo -e "${RED}${BOLD}[✗]${RESET} Unknown command: $1"
+    echo ""
+    _usage
+    exit 1
+    ;;
+esac

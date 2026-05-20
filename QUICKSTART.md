@@ -29,7 +29,7 @@ The **Very High** tier (32 GB Mac) gives each node 7 GB and 4 CPUs — enough to
 ## Start the lab
 
 ```bash
-./setup-lab.sh
+./aks-lab setup
 ```
 
 Prompts for component selection, then provisions the full cluster. Takes **10–20 min** on first run.
@@ -53,7 +53,7 @@ The standard tier deploys **11 components**:
 | Storage | `azurite` · `service-bus` · `container-registry` |
 | Apps | `taskflow` |
 
-Optional add-ons via `./lab-feature.sh enable <id>`: `azure-sql`, `cosmos-db`, `blob-explorer`, `samba-ad`, `corp-client`, `argo-workflows`, `azdo-agent`, `rancher`.
+Optional add-ons via `./aks-lab feature enable <id>`: `azure-sql`, `cosmos-db`, `blob-explorer`, `samba-ad`, `corp-client`, `argo-workflows`, `azdo-agent`, `rancher`.
 
 Dashboard opens automatically at **http://localhost:9997**
 
@@ -62,7 +62,7 @@ Dashboard opens automatically at **http://localhost:9997**
 After setup completes, run a post-deploy health check:
 
 ```bash
-./verify-lab.sh
+./aks-lab verify
 ```
 
 It checks node readiness, every enabled component's pods, every ingress URL (looking for 2xx/3xx/4xx — anything but 5xx), every declared port-forward, and the dashboard. Exit code 0 means healthy; non-zero prints a punch list of what's broken.
@@ -72,23 +72,23 @@ It checks node readiness, every enabled component's pods, every ingress URL (loo
 ## Pause the lab (keep state)
 
 ```bash
-minikube stop -p aks-lab
+./aks-lab pause
 ```
 
-Stops all containers. Data and cluster state are preserved. Takes ~10 seconds.
+Stops all containers (runs `minikube stop -p aks-lab`). Data and cluster state are preserved. Takes ~10 seconds.
 
 ---
 
 ## Resume after pause
 
 ```bash
-./resume-lab.sh
+./aks-lab resume
 ```
 
 Starts the cluster, restores all port-forwards, restarts Vault, and reopens the dashboard.
 
 ```bash
-./resume-lab.sh --verbose   # stream output to terminal
+./aks-lab resume --verbose   # stream output to terminal
 ```
 
 ---
@@ -96,7 +96,7 @@ Starts the cluster, restores all port-forwards, restarts Vault, and reopens the 
 ## Destroy the lab (full wipe)
 
 ```bash
-./teardown-lab.sh
+./aks-lab teardown
 ```
 
 Deletes the minikube cluster, Multipass VMs, Terraform state, /etc/hosts entries, SSH config, and all temp files. Prompts for confirmation.
@@ -108,7 +108,7 @@ Deletes the minikube cluster, Multipass VMs, Terraform state, /etc/hosts entries
 After setup finishes the cluster sits well below its peak memory — image pulls, Helm installs, and the initial Flux reconcile are all done. You can reclaim that headroom from Docker Desktop with:
 
 ```bash
-./lab-resize.sh
+./aks-lab resize
 ```
 
 **Defaults:** workers shrunk to 2 GB each, master reduced by 22%. Soft node-affinity (applied during setup) keeps heavy services pinned to the master, so workers only need to host light pods.
@@ -126,17 +126,17 @@ After setup finishes the cluster sits well below its peak memory — image pulls
 
 - Changes apply via `docker update --memory` — they're **lost on `minikube stop && minikube start`**. Re-run the script after each restart.
 - The script aborts (or warns, with `--yes`) if any node is currently using more memory than the proposed target. Resizing below current usage triggers OOM kills on running pods.
-- If the safety check fires, reduce load first: `./lab-feature.sh disable cosmos-db` is the biggest single win (~2 GB), or roll out heavy services so they re-schedule onto the primary.
+- If the safety check fires, reduce load first: `./aks-lab feature disable cosmos-db` is the biggest single win (~2 GB), or roll out heavy services so they re-schedule onto the primary.
 
 ---
 
 ## Manage components
 
 ```bash
-./lab-feature.sh list                  # show all components and enabled state
-./lab-feature.sh enable  <id>          # enable a component (auto-enables deps)
-./lab-feature.sh disable <id>          # disable a component
-./lab-feature.sh status                # live pod health check for enabled components
+./aks-lab feature list                  # show all components and enabled state
+./aks-lab feature enable  <id>          # enable a component (auto-enables deps)
+./aks-lab feature disable <id>          # disable a component
+./aks-lab feature status                # live pod health check for enabled components
 ```
 
 Components can also be toggled from the **Lab Management** section of the dashboard.
@@ -180,7 +180,7 @@ Runs a self-hosted Azure Pipelines agent in the cluster so you can execute real 
 ### Enable the agent
 
 ```bash
-./lab-feature.sh enable azdo-agent
+./aks-lab feature enable azdo-agent
 ```
 
 On the **first run** you will be prompted for:
@@ -193,7 +193,7 @@ Credentials are saved to `~/.lab-ado` (mode `600`, never committed). Subsequent 
 To update credentials (e.g. rotate a PAT):
 
 ```bash
-./setup-lab.sh --reconfigure-ado
+./aks-lab setup --reconfigure-ado
 ```
 
 The agent pod registers with ADO automatically on start and appears in the pool within ~30 seconds.
@@ -219,7 +219,7 @@ kubectl logs -n azdo-agent -l app=azdo-agent # registration output
 To rotate the PAT or change any credential:
 
 ```bash
-./setup-lab.sh --reconfigure-ado
+./aks-lab setup --reconfigure-ado
 ```
 
 This re-prompts for all three values, updates `~/.lab-ado`, and re-applies the Kubernetes secret.
@@ -269,7 +269,7 @@ vault kv list kv/azure-services                              # list Vault secret
 # Default mode is quiet — all output goes to the log
 tail -f /tmp/lab-setup-*.log
 # Or re-run with:
-./setup-lab.sh --verbose
+./aks-lab setup --verbose
 ```
 
 **Kill stuck processes**

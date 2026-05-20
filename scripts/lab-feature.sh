@@ -14,9 +14,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REGISTRY="$SCRIPT_DIR/lab-components.json"
-STATE_FILE="$SCRIPT_DIR/.lab-state.json"
-TF_DIR="$SCRIPT_DIR/IaC/terraform"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REGISTRY="$REPO_ROOT/lab-components.json"
+STATE_FILE="$REPO_ROOT/.lab-state.json"
+TF_DIR="$REPO_ROOT/IaC/terraform"
 
 # ── Colours ───────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -29,8 +30,8 @@ error()   { echo -e "${RED}${BOLD}[✗]${RESET} $*"; exit 1; }
 # ── Shared library ────────────────────────────────────────────────
 # Provides lab_secret_get_or_create (persistent internal secrets) and
 # other utilities shared with setup-lab.sh and resume-lab.sh.
-# shellcheck source=scripts/lib-common.sh
-source "$SCRIPT_DIR/scripts/lib-common.sh"
+# shellcheck source=lib-common.sh
+source "$SCRIPT_DIR/lib-common.sh"
 
 # ── Registry helpers ──────────────────────────────────────────────
 # Validate the registry JSON once at script start. If parsing fails here
@@ -197,10 +198,10 @@ _kubectl_apply() {
   local manifest; manifest=$(comp_field "$id" manifest)
   if [[ -n "$flux_dir" ]]; then
     log "Applying $id ($flux_dir/)..."
-    kubectl apply -k "$SCRIPT_DIR/$flux_dir/"
+    kubectl apply -k "$REPO_ROOT/$flux_dir/"
   elif [[ -n "$manifest" ]]; then
     log "Applying $id ($manifest)..."
-    kubectl apply -f "$SCRIPT_DIR/$manifest"
+    kubectl apply -f "$REPO_ROOT/$manifest"
   else
     warn "No manifest defined for $id"
   fi
@@ -293,8 +294,8 @@ _enable_monitoring() {
       --set grafana.adminPassword="admin123" \
       --wait --timeout=5m
   fi
-  [[ -f "$SCRIPT_DIR/infrastructure/base/monitoring/ingress.yaml" ]] && \
-    kubectl apply -f "$SCRIPT_DIR/infrastructure/base/monitoring/ingress.yaml"
+  [[ -f "$REPO_ROOT/infrastructure/base/monitoring/ingress.yaml" ]] && \
+    kubectl apply -f "$REPO_ROOT/infrastructure/base/monitoring/ingress.yaml"
   success "Monitoring ready — http://grafana.aks-lab.local:9980  (admin/admin123)"
 }
 
@@ -306,7 +307,7 @@ _disable_monitoring() {
 
 # ── Special: ArgoCD ───────────────────────────────────────────────
 _enable_argocd() {
-  local GITHUB_REPO="${GITHUB_REPO:-$(git -C "$SCRIPT_DIR" remote get-url origin 2>/dev/null || echo '')}"
+  local GITHUB_REPO="${GITHUB_REPO:-$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || echo '')}"
   local GITHUB_TOKEN="${GITHUB_TOKEN:-$(security find-generic-password -a "$USER" -s "aks-lab-github-token" -w 2>/dev/null || echo '')}"
   if kubectl get deployment argocd-server -n argocd &>/dev/null; then
     warn "ArgoCD already installed."
@@ -326,8 +327,8 @@ _enable_argocd() {
       | kubectl label --local -f - 'argocd.argoproj.io/secret-type=repository' -o yaml \
       | kubectl apply -f - 2>/dev/null || true
   fi
-  [[ -f "$SCRIPT_DIR/infrastructure/base/argocd/ingress.yaml" ]] && \
-    kubectl apply -f "$SCRIPT_DIR/infrastructure/base/argocd/ingress.yaml"
+  [[ -f "$REPO_ROOT/infrastructure/base/argocd/ingress.yaml" ]] && \
+    kubectl apply -f "$REPO_ROOT/infrastructure/base/argocd/ingress.yaml"
   local pw; pw=$(kubectl -n argocd get secret argocd-initial-admin-secret \
     -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<password-already-changed>")
   success "ArgoCD ready — http://argocd.aks-lab.local:9980  (admin / $pw)"
@@ -352,7 +353,7 @@ _enable_toolbox() {
   local PUBLIC_KEY; PUBLIC_KEY=$(cat "$SSH_KEY_PATH")
   local TEMP; TEMP=$(mktemp /tmp/toolbox-XXXXXX.yaml)
   sed "s|REPLACE_WITH_YOUR_PUBLIC_KEY|${PUBLIC_KEY}|g" \
-    "$SCRIPT_DIR/infrastructure/base/toolbox/toolbox.yaml" > "$TEMP"
+    "$REPO_ROOT/infrastructure/base/toolbox/toolbox.yaml" > "$TEMP"
   kubectl apply -f "$TEMP"
   rm "$TEMP"
   log "Waiting for toolbox pod (2–3 min first run)..."
@@ -432,11 +433,11 @@ _enable_dex() {
   python3 -c "
 import os, string
 from pathlib import Path
-t = Path('$SCRIPT_DIR/infrastructure/base/identity/dex/config.yaml').read_text()
+t = Path('$REPO_ROOT/infrastructure/base/identity/dex/config.yaml').read_text()
 Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
 "
   # Apply the kustomization first (creates the namespace), then overlay the rendered config.
-  kubectl apply -k "$SCRIPT_DIR/infrastructure/base/identity/dex/"
+  kubectl apply -k "$REPO_ROOT/infrastructure/base/identity/dex/"
   kubectl apply -f /tmp/dex-config-rendered.yaml
   kubectl wait deployment dex --for=condition=available --namespace=dex --timeout=120s
   success "Dex ready — http://dex.aks-lab.local:9980"
@@ -502,11 +503,11 @@ _enable_oauth2_proxy() {
   python3 -c "
 import os, string
 from pathlib import Path
-t = Path('$SCRIPT_DIR/infrastructure/base/identity/oauth2-proxy/secret.yaml').read_text()
+t = Path('$REPO_ROOT/infrastructure/base/identity/oauth2-proxy/secret.yaml').read_text()
 Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
 "
   # Apply the kustomization first (creates the namespace), then overlay the rendered secret.
-  kubectl apply -k "$SCRIPT_DIR/infrastructure/base/identity/oauth2-proxy/"
+  kubectl apply -k "$REPO_ROOT/infrastructure/base/identity/oauth2-proxy/"
   kubectl apply -f /tmp/oauth2-proxy-secret-rendered.yaml
   kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s
   log "Patching SSO annotations onto protected ingresses..."
@@ -600,7 +601,7 @@ _enable_azdo_agent() {
     --namespace azdo-agent \
     --dry-run=client -o yaml | kubectl apply --validate=false -f -
 
-  kubectl apply --validate=false -k "$SCRIPT_DIR/apps/base/azdo-agent/"
+  kubectl apply --validate=false -k "$REPO_ROOT/apps/base/azdo-agent/"
   _AZDO_RC=0
   kubectl rollout status deployment/azdo-agent -n azdo-agent --timeout=120s || _AZDO_RC=$?
   if [[ $_AZDO_RC -ne 0 ]]; then
@@ -762,7 +763,7 @@ cmd_list() {
     [[ -n "$deps" ]] && printf "    %60s ${DIM}← requires: %s${RESET}\n" "" "$deps"
   done
   echo ""
-  echo -e "  ${DIM}Toggle with: ./lab-feature.sh enable <id>  |  ./lab-feature.sh disable <id>${RESET}"
+  echo -e "  ${DIM}Toggle with: ./aks-lab feature enable <id>  |  ./aks-lab feature disable <id>${RESET}"
   echo ""
 }
 
@@ -773,7 +774,7 @@ cmd_status() {
   echo -e "${BOLD}  Lab Status${RESET}"
   echo ""
   if [[ -z "$enabled_list" ]]; then
-    echo -e "  ${DIM}No components enabled — run: ./lab-feature.sh list${RESET}"
+    echo -e "  ${DIM}No components enabled — run: ./aks-lab feature list${RESET}"
     echo ""
     return
   fi
@@ -931,11 +932,11 @@ case "$cmd" in
     cmd_init "${1:---interactive}"
     ;;
   enable)
-    [[ -n "${1:-}" ]] || error "Usage: lab-feature.sh enable <id|group>"
+    [[ -n "${1:-}" ]] || error "Usage: ./aks-lab feature enable <id|group>"
     cmd_enable "$1"
     ;;
   disable)
-    [[ -n "${1:-}" ]] || error "Usage: lab-feature.sh disable <id|group> [--force]"
+    [[ -n "${1:-}" ]] || error "Usage: ./aks-lab feature disable <id|group> [--force]"
     cmd_disable "$@"
     ;;
   list)
@@ -945,7 +946,7 @@ case "$cmd" in
     cmd_status
     ;;
   is-enabled)
-    [[ -n "${1:-}" ]] || error "Usage: lab-feature.sh is-enabled <id>"
+    [[ -n "${1:-}" ]] || error "Usage: ./aks-lab feature is-enabled <id>"
     is_enabled "$1" && exit 0 || exit 1
     ;;
   list-json)

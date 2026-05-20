@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ─────────────────────────────────────────────
 #  AKS Lab — Resume Script
-#  Usage: ./resume-lab.sh
+#  Usage: ./aks-lab resume  (or run this directly: ./scripts/resume-lab.sh)
 #  Starts the cluster and restores all port-forwards.
 #  Run this after: minikube stop -p aks-lab
 # ─────────────────────────────────────────────
@@ -57,14 +57,19 @@ else
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib-common.sh
-source "$SCRIPT_DIR/scripts/lib-common.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib-common.sh
+source "$SCRIPT_DIR/lib-common.sh"
+
+# Run from repo root so relative paths (IaC/terraform, dashboard-template.html,
+# infrastructure/base/...) resolve correctly regardless of where the caller is.
+cd "$REPO_ROOT"
 
 # ── Load enabled features from state file ────
 lab_load_features ".lab-state.json"
 if [[ -z "$ENABLED_FEATURES" ]]; then
   warn "No .lab-state.json found — resuming everything that exists in the cluster."
-  warn "Run setup-lab.sh first to configure your feature selection."
+  warn "Run ./aks-lab setup first to configure your feature selection."
   feature_enabled() { return 0; }
 fi
 
@@ -110,7 +115,7 @@ if feature_enabled samba-ad; then
   elif [[ "$VM_STATUS" == "Running" ]]; then
     success "samba-ad already running"
   else
-    warn "samba-ad not found — run setup-lab.sh to recreate it"
+    warn "samba-ad not found — run ./aks-lab setup to recreate it"
   fi
 
   SAMBA_IP=$(multipass info samba-ad --format json 2>/dev/null \
@@ -143,7 +148,7 @@ if feature_enabled corp-client; then
   elif [[ "$VM_STATUS" == "Running" ]]; then
     success "corp-client already running"
   else
-    warn "corp-client not found — run setup-lab.sh to recreate it"
+    warn "corp-client not found — run ./aks-lab setup to recreate it"
   fi
 
   CORP_CLIENT_IP=$(multipass info corp-client --format json 2>/dev/null \
@@ -253,9 +258,9 @@ feature_enabled toolbox        && echo -e "  Toolbox SSH:   ${GREEN}ssh aks-tool
 
 echo -e ""
 echo -e "${BOLD}  Manage features${RESET}"
-echo -e "  List:    ./lab-feature.sh list"
-echo -e "  Enable:  ./lab-feature.sh enable <id>"
-echo -e "  Disable: ./lab-feature.sh disable <id>"
+echo -e "  List:    ./aks-lab feature list"
+echo -e "  Enable:  ./aks-lab feature enable <id>"
+echo -e "  Disable: ./aks-lab feature disable <id>"
 echo -e ""
 echo -e "${DIM}  Full resume log: ${LAB_LOG}${RESET}"
 echo -e "${DIM}  Re-run with --verbose to stream all output to the terminal${RESET}"

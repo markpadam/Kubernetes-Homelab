@@ -134,7 +134,7 @@ brew install minikube kubectl helm fluxcd/tap/flux \
 # Clone and run (--recurse-submodules also fetches the ADO bicep/pipelines repo)
 git clone --recurse-submodules https://github.com/markpadam/Kubernetes-Homelab.git
 cd Kubernetes-Homelab
-./setup-lab.sh
+./aks-lab setup
 ```
 
 > **Already cloned?** Run `git submodule update --init --recursive` to populate `ado/`.  
@@ -149,17 +149,20 @@ The setup script prompts for a component preset, then builds everything. The **d
 | All | Everything including SambaAD LDAP, Cosmos DB, Argo Workflows, Rancher | ~30 min |
 | Custom | Pick individual components | varies |
 
-After setup, run `./verify-lab.sh` to confirm every component and ingress is actually responding. The script exits 0 on success or prints a punch list of what's broken.
+After setup, run `./aks-lab verify` to confirm every component and ingress is actually responding. The script exits 0 on success or prints a punch list of what's broken.
 
 ### Lifecycle
 
 ```bash
-./setup-lab.sh          # build and start the lab
-./verify-lab.sh         # post-setup health check (exits non-zero if anything is broken)
-minikube stop -p aks-lab # pause (keeps all state)
-./resume-lab.sh         # resume after pause or Mac restart
-./lab-resize.sh         # shrink node memory after the cluster settles
-./teardown-lab.sh       # full wipe — cluster, VMs, state, hosts
+./aks-lab                # interactive TUI menu (default if you forget the command)
+./aks-lab setup          # build and start the lab
+./aks-lab verify         # post-setup health check (exits non-zero if anything is broken)
+./aks-lab pause          # minikube stop -p aks-lab (keeps all state)
+./aks-lab resume         # resume after pause or Mac restart
+./aks-lab resize         # shrink node memory after the cluster settles
+./aks-lab teardown       # full wipe — cluster, VMs, state, hosts
+./aks-lab feature list   # show enabled / available components
+./aks-lab help           # full command reference
 ```
 
 See [QUICKSTART.md](QUICKSTART.md) for the full reference including all flags, component IDs, URLs, and troubleshooting.
@@ -196,7 +199,7 @@ A browser dashboard is auto-generated at **`http://localhost:9997`** on every se
 
 ## GitOps
 
-Anything committed to `apps/base/` or `infrastructure/base/` is automatically deployed by **Flux** within 1 minute of a push — and restored on every `setup-lab.sh` run. Use this for apps you want to survive teardown.
+Anything committed to `apps/base/` or `infrastructure/base/` is automatically deployed by **Flux** within 1 minute of a push — and restored on every `./aks-lab setup` run. Use this for apps you want to survive teardown.
 
 **ArgoCD** is also installed for visual, point-and-click GitOps — good for experimenting. Apps deployed via the ArgoCD UI are ephemeral (wiped on teardown).
 
@@ -277,15 +280,15 @@ The `azdo-agent` component runs a self-hosted Azure Pipelines agent as a pod in 
 ### Enable the agent
 
 ```bash
-./lab-feature.sh enable azdo-agent
+./aks-lab feature enable azdo-agent
 ```
 
-On the **first run** `setup-lab.sh` will prompt for org URL, pool name, and PAT. Credentials are saved to `~/.lab-ado` (mode `600`, never committed) and reused on every subsequent run.
+On the **first run** `./aks-lab setup` will prompt for org URL, pool name, and PAT. Credentials are saved to `~/.lab-ado` (mode `600`, never committed) and reused on every subsequent run.
 
 To update credentials:
 
 ```bash
-./setup-lab.sh --reconfigure-ado
+./aks-lab setup --reconfigure-ado
 ```
 
 The agent registers automatically when the pod starts and appears in your ADO pool within ~30 seconds.
@@ -319,14 +322,22 @@ The agent pod has network access to all in-cluster services — Vault, Azurite, 
 ## Repo Structure
 
 ```text
-├── setup-lab.sh          # Build and start the lab
-├── resume-lab.sh         # Resume after pause / restart
-├── teardown-lab.sh       # Full wipe
-├── lab-resize.sh         # Live-shrink node memory (workers → 2 GB, master −22%)
-├── lab-feature.sh        # Component manager (enable/disable/list)
+├── aks-lab               # Main entry script — interactive TUI or subcommand mode
 ├── lab-components.json   # Component registry
 ├── dashboard-server.py   # Local dashboard server
 ├── dashboard-template.html
+│
+├── scripts/              # Implementation scripts (called by ./aks-lab)
+│   ├── setup-lab.sh      # Build and start the lab
+│   ├── resume-lab.sh     # Resume after pause / restart
+│   ├── teardown-lab.sh   # Full wipe
+│   ├── verify-lab.sh     # Post-setup health check
+│   ├── refresh-lab.sh    # Re-apply manifests on running cluster
+│   ├── lab-resize.sh     # Live-shrink node memory (workers → 2 GB, master −22%)
+│   ├── lab-feature.sh    # Component manager (enable/disable/list)
+│   ├── menu.py           # TUI action menu (no-args entry point)
+│   ├── tui.py            # Setup-flow live dashboard
+│   └── lib-common.sh     # Shared bash helpers
 │
 ├── src/                  # Application source + Dockerfiles
 │   ├── taskflow/         # Node.js API
@@ -410,6 +421,6 @@ Internal-only secrets (OAuth2 cookie key, Dex client secret) are generated rando
 
 ## Forking
 
-If you fork this repo, update `GITHUB_REPO` on line 26 of `setup-lab.sh` to point at your fork — Flux uses that URL to sync manifests.
+If you fork this repo, update `GITHUB_REPO` near the top of `scripts/setup-lab.sh` (and the equivalent line in `scripts/resume-lab.sh`) to point at your fork — Flux uses that URL to sync manifests.
 
 Questions or issues: [markpadam@hotmail.com](mailto:markpadam@hotmail.com)

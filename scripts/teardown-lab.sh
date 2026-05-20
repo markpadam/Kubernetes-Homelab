@@ -4,8 +4,12 @@ set -euo pipefail
 # ─────────────────────────────────────────────
 #  teardown-lab.sh
 #  Cleanly destroys the AKS lab Minikube environment.
-#  Run from repo root: ./teardown-lab.sh
+#  Usage: ./aks-lab teardown  (or directly: ./scripts/teardown-lab.sh)
 # ─────────────────────────────────────────────
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
 PROFILE="${LAB_PROFILE:-aks-lab}"
 DELETE_IMAGES=false
@@ -249,5 +253,5 @@ step "Teardown Complete"
 echo -e "
   Everything has been wiped. To start fresh:
 
-  ${GREEN}./setup-lab.sh${RESET}
+  ${GREEN}./aks-lab setup${RESET}
 "

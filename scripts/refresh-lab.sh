@@ -8,12 +8,16 @@ set -euo pipefail
 #  Does NOT restart the cluster, reinstall Helm releases, or re-provision VMs.
 #
 #  Usage:
-#    ./refresh-lab.sh                  # re-apply manifests + port-forwards + dashboard
-#    ./refresh-lab.sh --images         # also rebuild & redistribute Docker images first
-#    ./refresh-lab.sh --restart        # also rollout-restart all deployments after
-#    ./refresh-lab.sh --only <id>      # target a single component (e.g. taskflow)
-#    ./refresh-lab.sh --verbose / -v   # stream all output to the terminal
+#    ./aks-lab refresh                # re-apply manifests + port-forwards + dashboard
+#    ./aks-lab refresh --images       # also rebuild & redistribute Docker images first
+#    ./aks-lab refresh --restart      # also rollout-restart all deployments after
+#    ./aks-lab refresh --only <id>    # target a single component (e.g. taskflow)
+#    ./aks-lab refresh --verbose / -v # stream all output to the terminal
 # ─────────────────────────────────────────────
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
 PROFILE="${LAB_PROFILE:-aks-lab}"
 GRAFANA_PASSWORD="admin123"

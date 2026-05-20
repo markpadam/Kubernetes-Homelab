@@ -39,25 +39,28 @@ def _cache_get_or_fetch(key: str, ttl: float, fetch_fn) -> tuple[bytes, int]:
 # Keys match the name in GET /exec/<name>.
 _PROFILE = os.environ.get("PROFILE", "aks-lab")
 
+_SCRIPTS = REPO_ROOT / "scripts"
+
 COMMANDS = {
-    "resume":          ["bash", str(REPO_ROOT / "resume-lab.sh")],
+    "resume":          ["bash", str(_SCRIPTS / "resume-lab.sh")],
     "pause":           ["minikube", "stop", "-p", _PROFILE],
-    "refresh":         ["bash", str(REPO_ROOT / "refresh-lab.sh")],
-    "refresh-images":  ["bash", str(REPO_ROOT / "refresh-lab.sh"), "--images"],
-    "refresh-restart": ["bash", str(REPO_ROOT / "refresh-lab.sh"), "--restart"],
-    "teardown":        ["bash", str(REPO_ROOT / "teardown-lab.sh")],
+    "refresh":         ["bash", str(_SCRIPTS / "refresh-lab.sh")],
+    "refresh-images":  ["bash", str(_SCRIPTS / "refresh-lab.sh"), "--images"],
+    "refresh-restart": ["bash", str(_SCRIPTS / "refresh-lab.sh"), "--restart"],
+    "teardown":        ["bash", str(_SCRIPTS / "teardown-lab.sh")],
     "dns":             ["bash", str(REPO_ROOT / "IaC/dns/apply-dns-config.sh")],
     "flux-sync":       ["flux", "reconcile", "kustomization", "flux-apps", "-n", "flux-system", "--with-source"],
     "ado-sync":        ["bash", "-c", "git submodule update --remote ado && git add ado && git diff --cached --quiet ado && echo 'Already up to date.' || git commit -m 'chore: bump ado submodule'"],
     "pods":            ["kubectl", "get", "pods", "-A", "-o", "wide"],
     "nodes":           ["kubectl", "get", "nodes", "-o", "wide"],
     "hpa":             ["kubectl", "get", "hpa", "-A"],
+    "verify":          ["bash", str(_SCRIPTS / "verify-lab.sh")],
 }
 
 _running: dict = {}
 _lock = threading.Lock()
 
-LAB_FEATURE = str(REPO_ROOT / "lab-feature.sh")
+LAB_FEATURE = str(_SCRIPTS / "lab-feature.sh")
 
 
 def _run_feature_cmd(args: list[str]) -> tuple[int, str]:

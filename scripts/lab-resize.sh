@@ -8,11 +8,11 @@
 #  minikube stops. Re-run after `minikube start`.
 #
 #  Usage:
-#    ./lab-resize.sh                      # interactive
-#    ./lab-resize.sh --yes                # no confirmation prompt
-#    ./lab-resize.sh --worker-gb 3        # different worker target
-#    ./lab-resize.sh --master-pct 25      # different master reduction
-#    ./lab-resize.sh --restore            # restore from minikube profile
+#    ./aks-lab resize                     # interactive
+#    ./aks-lab resize --yes               # no confirmation prompt
+#    ./aks-lab resize --worker-gb 3       # different worker target
+#    ./aks-lab resize --master-pct 25     # different master reduction
+#    ./aks-lab resize --restore           # restore from minikube profile
 # ─────────────────────────────────────────────
 
 set -euo pipefail
@@ -165,4 +165,4 @@ docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}'
 echo ""
 echo -e "  ${DIM}Note: these changes are live-only.${RESET}"
 echo -e "  ${DIM}After 'minikube stop && minikube start', re-run this script.${RESET}"
-echo -e "  ${DIM}To restore original sizes from profile: ./lab-resize.sh --restore${RESET}"
+echo -e "  ${DIM}To restore original sizes from profile: ./aks-lab resize --restore${RESET}"

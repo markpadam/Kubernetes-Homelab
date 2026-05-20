@@ -200,8 +200,14 @@ fi
 # Sourced after log/success/warn/error/step are defined; lib-common.sh
 # uses those to surface errors back to the user.
 _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib-common.sh
-source "$_LIB_DIR/scripts/lib-common.sh"
+_REPO_ROOT="$(cd "$_LIB_DIR/.." && pwd)"
+# shellcheck source=lib-common.sh
+source "$_LIB_DIR/lib-common.sh"
+
+# Run from repo root so the many relative paths in this script
+# (infrastructure/base/..., IaC/terraform, dashboard-template.html, etc.)
+# resolve correctly regardless of where the caller invoked us from.
+cd "$_REPO_ROOT"
 
 # ── Progress indicator ─────────────────────────
 # Spins a background subshell that prints spinner + elapsed time + stage name
@@ -2251,7 +2257,8 @@ printf "\n" >&3
 # takes sole ownership of the terminal for the Lab Ready page.
 _LAUNCHAGENT_LABEL="local.aks-lab-resume"
 _LAUNCHAGENT_PATH="$HOME/Library/LaunchAgents/${_LAUNCHAGENT_LABEL}.plist"
-_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# This script lives in scripts/; the LaunchAgent needs the repo root as
+# its working directory and the absolute path to scripts/resume-lab.sh.
 mkdir -p "$HOME/Library/LaunchAgents"
 cat > "$_LAUNCHAGENT_PATH" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -2263,12 +2270,12 @@ cat > "$_LAUNCHAGENT_PATH" <<PLIST
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>${_SCRIPT_DIR}/resume-lab.sh</string>
+        <string>${_REPO_ROOT}/scripts/resume-lab.sh</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>WorkingDirectory</key>
-    <string>${_SCRIPT_DIR}</string>
+    <string>${_REPO_ROOT}</string>
     <key>StandardOutPath</key>
     <string>/tmp/lab-launchd.log</string>
     <key>StandardErrorPath</key>
