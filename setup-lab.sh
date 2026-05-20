@@ -408,6 +408,27 @@ except Exception:
 
 feature_enabled() { [[ " $ENABLED_FEATURES " =~ (^|[[:space:]])"$1"([[:space:]]|$) ]]; }
 
+# Soft-prefer the minikube primary node for memory-heavy workloads. Uses the
+# built-in `minikube.k8s.io/primary=true` label with preferredDuringScheduling
+# affinity — pods still fall back to workers if primary is full. Applied to
+# Deployments and StatefulSets; pass kind as the third arg ("deployment" by
+# default). Returns 0 even on miss so callers can call it unconditionally.
+_prefer_primary() {
+  local ns="$1" name="$2" kind="${3:-deployment}"
+  kubectl -n "$ns" patch "$kind" "$name" --type=merge -p '{
+    "spec":{"template":{"spec":{"affinity":{"nodeAffinity":{
+      "preferredDuringSchedulingIgnoredDuringExecution":[{
+        "weight":100,
+        "preference":{"matchExpressions":[{
+          "key":"minikube.k8s.io/primary",
+          "operator":"In",
+          "values":["true"]
+        }]}
+      }]
+    }}}}}}' &>/dev/null || true
+  return 0
+}
+
 # kubectl apply with retry for transient errors (ingress-nginx webhook flaps,
 # CRD-not-established races, etc.). Use this for any resource whose creation
 # touches the validating webhook — primarily Ingress objects.
@@ -443,10 +464,10 @@ if [[ -n "${LAB_RESOURCE_TIER:-}" || "$CI_MODE" == "1" ]]; then
   [[ "$CI_MODE" == "1" ]] && log "CI mode: resource tier auto-set to Low (override with LAB_RESOURCE_TIER)"
 else
   printf "\n" >&3
-  printf "  ${BOLD}Resource tier${RESET} (sized for M3 Pro / 18 GB):\n" >&3
-  printf "    1) Low      — 2 CPU / 2 GB per node  (6 GB total, Mac stays responsive)\n" >&3
-  printf "    2) Standard — 2 CPU / 3 GB per node  (9 GB total, recommended) [default]\n" >&3
-  printf "    3) High     — 3 CPU / 4 GB per node  (12 GB total, max performance)\n" >&3
+  printf "  ${BOLD}Resource tier${RESET} (3-node minikube — heavy services scheduled to primary):\n" >&3
+  printf "    1) Low      — 2 CPU / 3 GB per node  ( 9 GB cluster, ~12 GB Docker)\n" >&3
+  printf "    2) Standard — 2 CPU / 4 GB per node  (12 GB cluster, ~14 GB Docker) [default]\n" >&3
+  printf "    3) High     — 3 CPU / 5 GB per node  (15 GB cluster, ~18 GB Docker, full feature set)\n" >&3
   printf "\n" >&3
   printf "  Choice [1-3, Enter=2]: " >&3
   read -r _tier <&0
@@ -454,22 +475,22 @@ fi
 
 case "${_tier:-2}" in
   1)
-    CPUS=2; MEMORY=2048
+    CPUS=2; MEMORY=3072
     SAMBA_CPUS=1; SAMBA_MEM="1G"; SAMBA_DISK="20G"
     CLIENT_CPUS=1; CLIENT_MEM="1G"; CLIENT_DISK="10G"
-    success "Resource tier: Low  (2 CPU / 2 GB per node)"
+    success "Resource tier: Low  (2 CPU / 3 GB per node)"
     ;;
   3)
-    CPUS=3; MEMORY=4096
+    CPUS=3; MEMORY=5120
     SAMBA_CPUS=2; SAMBA_MEM="3G"; SAMBA_DISK="30G"
     CLIENT_CPUS=2; CLIENT_MEM="3G"; CLIENT_DISK="20G"
-    success "Resource tier: High  (3 CPU / 4 GB per node)"
+    success "Resource tier: High  (3 CPU / 5 GB per node)"
     ;;
   *)
-    CPUS=2; MEMORY=3072
+    CPUS=2; MEMORY=4096
     SAMBA_CPUS=2; SAMBA_MEM="2G"; SAMBA_DISK="20G"
     CLIENT_CPUS=2; CLIENT_MEM="2G"; CLIENT_DISK="15G"
-    success "Resource tier: Standard  (2 CPU / 3 GB per node)"
+    success "Resource tier: Standard  (2 CPU / 4 GB per node)"
     ;;
 esac
 
@@ -649,7 +670,7 @@ if [[ $_docker_mem_mib -gt 0 && $_docker_mem_mib -lt $_cluster_needed_mib ]]; th
   _rec_gib=$(( _cluster_gib + 2 ))
   warn "Docker Desktop only has $(( _docker_d10 / 10 )).$(( _docker_d10 % 10 )) GB allocated — this tier needs ${_cluster_gib} GB for the cluster (${NODES} nodes × $(( MEMORY / 1024 )) GB each)."
   warn "  Fix:  Docker Desktop → Settings → Resources → Memory → set to at least ${_rec_gib} GB, then Apply & Restart."
-  warn "  Or:   re-run and choose the Low tier (2 CPU / 2 GB per node, 6 GB total)."
+  warn "  Or:   re-run and choose the Low tier (2 CPU / 3 GB per node, 9 GB total)."
   warn "  Continuing — insufficient memory may cause K8S_APISERVER_MISSING on minikube start."
 fi
 
@@ -1804,6 +1825,47 @@ feature_enabled service-bus   && _start_portforward "Service Bus Mgmt"  5300 "ku
 feature_enabled container-registry && _start_portforward "Registry"     5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"              /tmp/registry-portforward.log
 feature_enabled cosmos-db     && _start_portforward "Cosmos DB"         8081 "kubectl port-forward svc/cosmosdb 8081:8081 -n cosmos-db"                        /tmp/cosmosdb-portforward.log
 feature_enabled cosmos-db     && _start_portforward "Cosmos Explorer"   1234 "kubectl port-forward svc/cosmosdb 1234:1234 -n cosmos-db"                        /tmp/cosmosdb-explorer-portforward.log
+
+# ── Schedule heavy services on the primary node ─────────────────────
+# minikube can't size nodes asymmetrically, so we approximate the
+# "fat-primary / lean-workers" topology via soft node affinity. The scheduler
+# will prefer the primary for these services but still fall back to workers
+# when primary is full. New pods after this patch land on primary; existing
+# pods stay where they are until they restart (rollouts handle that).
+step "Pinning heavy services to primary node"
+
+# (namespace, name, kind) — kind defaults to "deployment"
+_HEAVY_TARGETS=(
+  "monitoring monitoring-grafana deployment"
+  "monitoring monitoring-kube-prometheus-operator deployment"
+  "monitoring monitoring-kube-state-metrics deployment"
+  "monitoring prometheus-monitoring-kube-prometheus-prometheus statefulset"
+  "monitoring alertmanager-monitoring-kube-prometheus-alertmanager statefulset"
+  "cattle-system rancher deployment"
+  "cattle-system rancher-webhook deployment"
+  "argocd argocd-server deployment"
+  "argocd argocd-repo-server deployment"
+  "argocd argocd-application-controller statefulset"
+  "argocd argocd-dex-server deployment"
+  "azure-sql mssql deployment"
+  "cosmos-db cosmosdb deployment"
+  "dex dex deployment"
+  "oauth2-proxy oauth2-proxy deployment"
+  "ingress-nginx ingress-nginx-controller deployment"
+  "flux-system source-controller deployment"
+  "flux-system kustomize-controller deployment"
+  "flux-system helm-controller deployment"
+  "flux-system notification-controller deployment"
+)
+
+for _t in "${_HEAVY_TARGETS[@]}"; do
+  read -r _ns _name _kind <<< "$_t"
+  if kubectl -n "$_ns" get "$_kind" "$_name" &>/dev/null; then
+    _prefer_primary "$_ns" "$_name" "$_kind"
+    log "  ↳ ${_kind}/${_name} (-n ${_ns}) prefers primary"
+  fi
+done
+success "Primary-node affinity applied to heavy services"
 
 # ── Local DNS (/etc/hosts) ───────────────────
 step "Configuring Local DNS"
