@@ -108,3 +108,42 @@ All web apps are accessed through the NGINX ingress controller port-forward on *
 | `testuser1` | `AksLab!User1` | `corp.internal` |
 | `testuser2` | `AksLab!User2` | `corp.internal` |
 | `Administrator` | `AksLab!AdDev1` | `corp.internal` |
+
+---
+
+## Flux + feature toggle — a hybrid GitOps model
+
+The lab uses a deliberately **non-pure** GitOps setup. Read this section before you assume "Flux should manage X but doesn't" is a bug.
+
+### What Flux manages
+
+Flux watches three Kustomizations in `clusters/lab/`:
+
+| Kustomization | Path | Resources |
+| --- | --- | --- |
+| `infrastructure` | `./infrastructure/lab` | `../base/dns/` *(only — see below)* |
+| `apps` | `./apps/lab` | *(empty — `resources: []`)* |
+| `flux-apps` | `./clusters/lab` | the three Kustomization CRDs themselves |
+
+In other words: **Flux reconciles the cluster baseline (DNS) and its own bootstrap manifests, and nothing else.** All optional components — ArgoCD, monitoring, identity, storage emulators, demo apps — are applied directly by `lab-feature.sh` via `kubectl apply -k <path>` and tracked in `.lab-state.json` rather than via Flux.
+
+### Why it's structured this way
+
+A 3-node Minikube lab on a laptop has different needs from a production cluster:
+
+- **Component combinations change frequently.** A user might want monitoring + ArgoCD today and add Cosmos DB + Argo Workflows tomorrow without committing to git. Pure Flux would require either editing kustomization.yaml + push + reconcile, or accepting that the cluster always runs everything.
+- **Resource ceilings are tight.** Memory budgets force runtime decisions like "disable cosmos-db because the primary node is at 96%". Those need to be one-line CLI commands, not git commits.
+- **Some setup is genuinely stateful**: SambaAD lives in a Multipass VM, the lab's `/etc/hosts` is mutated, Vault writes secrets. None of this fits a "git is the source of truth" reconciliation loop.
+
+The feature toggle pattern fits this constraint: the manifests in `infrastructure/base/` and `apps/base/` are the *catalogue*, and `lab-feature.sh` is the *installer*. State (what's enabled) lives in `.lab-state.json`.
+
+### What this means in practice
+
+- **Editing a manifest in `infrastructure/base/argocd/ingress.yaml` does NOT auto-deploy.** Flux doesn't watch that path. To pick up the change, run `./lab-feature.sh enable argocd` again (idempotent — re-applies the kustomize bundle).
+- **Drift correction is opt-in.** `kubectl delete` of an ArgoCD resource won't trigger Flux to put it back. Use `lab-feature.sh enable argocd` to reapply.
+- **Pruning is bounded.** Flux's `prune: true` only affects resources Flux itself applied — the DNS bundle. It can't accidentally delete oauth2-proxy or anything else `lab-feature.sh` created.
+- **`flux reconcile` is for DNS only.** The dashboard's "Flux Sync" button (and `flux reconcile kustomization flux-apps`) re-runs DNS reconciliation and not much else. To force every component to re-apply, run `./setup-lab.sh` again or `./lab-feature.sh enable <id>` per component.
+
+### Could it be made pure GitOps?
+
+Yes — by moving every component into `infrastructure/lab/kustomization.yaml` as conditional `patches`, and having `lab-feature.sh` edit-commit-push to toggle them. The cost is that every enable/disable would round-trip through git, Flux would have to be running and reconciling for the toggle to take effect, and the lab's offline ergonomics would degrade. The current hybrid model is the right trade-off for this scope.
