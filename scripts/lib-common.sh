@@ -6,7 +6,7 @@
 #  log-like function the callers want to use), and any colour variables,
 #  BEFORE sourcing this file.
 #
-#  Source with: source "$SCRIPT_DIR/scripts/lib-common.sh"
+#  Source with: source "$SCRIPT_DIR/lib-common.sh" (scripts live alongside this file in scripts/).
 # ─────────────────────────────────────────────
 
 # Read .lab-state.json into the global ENABLED_FEATURES (space-separated)

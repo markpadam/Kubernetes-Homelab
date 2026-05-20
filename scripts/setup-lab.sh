@@ -754,7 +754,7 @@ printf "\n" >&3
 if [[ "$VERBOSE" != "1" && "$CI_MODE" != "1" ]]; then
   _TUI_FIFO="/tmp/lab_tui_$$"
   mkfifo "$_TUI_FIFO"
-  python3 "$(dirname "$0")/scripts/tui.py" "$_TUI_FIFO" "$LAB_LOG" >/dev/tty 2>/dev/tty &
+  python3 "$(dirname "$0")/tui.py" "$_TUI_FIFO" "$LAB_LOG" >/dev/tty 2>/dev/tty &
   _TUI_PID=$!
   # Open the write end of the FIFO on fd 4 and keep it open for the whole run.
   # Using <> (O_RDWR) avoids blocking if the Python reader thread isn't ready yet.
