@@ -10,14 +10,16 @@ Docker Desktop must be running before any lab script is started.
 
 **Docker Desktop memory** — the cluster runs 3 nodes; each tier allocates:
 
-| Tier | Per node | Total needed | Docker setting |
-|------|----------|-------------|----------------|
-| Low | 2 GB | 6 GB | 8 GB minimum |
-| Standard *(default)* | 3 GB | 9 GB | **11 GB minimum** |
-| High | 4 GB | 12 GB | 14 GB minimum |
+| Tier | Per node | Total cluster | Docker setting |
+|------|----------|---------------|----------------|
+| Low | 3 GB | 9 GB | 12 GB minimum |
+| Standard *(default)* | 4 GB | 12 GB | **14 GB minimum** |
+| High | 5 GB | 15 GB | 18 GB minimum |
 
 Set memory in **Docker Desktop → Settings → Resources → Memory**, then Apply & Restart.  
 The setup script will warn and prompt before starting if Docker has less memory than the selected tier needs. Running below the minimum causes `K8S_APISERVER_MISSING` — the apiserver is starved and never starts.
+
+Heavy services (Rancher, Grafana/Prometheus, ArgoCD, Dex, MSSQL, Cosmos DB) are pinned to the **primary node** via soft node-affinity; light services land on workers naturally. This concentrates the memory pressure on one node so workers can be shrunk after the cluster settles — see [Resize the lab](#resize-the-lab) below.
 
 ---
 
@@ -72,6 +74,33 @@ Starts the cluster, restores all port-forwards, restarts Vault, and reopens the 
 ```
 
 Deletes the minikube cluster, Multipass VMs, Terraform state, /etc/hosts entries, SSH config, and all temp files. Prompts for confirmation.
+
+---
+
+## Resize the lab
+
+After setup finishes the cluster sits well below its peak memory — image pulls, Helm installs, and the initial Flux reconcile are all done. You can reclaim that headroom from Docker Desktop with:
+
+```bash
+./lab-resize.sh
+```
+
+**Defaults:** workers shrunk to 2 GB each, master reduced by 22%. Soft node-affinity (applied during setup) keeps heavy services pinned to the master, so workers only need to host light pods.
+
+| Flag | Effect |
+|------|--------|
+| (no flags) | Interactive — prints a plan, warns if current usage exceeds the target, asks for confirmation |
+| `--yes` / `-y` | Skip the confirmation prompt |
+| `--worker-gb N` | Target worker size in GB (default `2`) |
+| `--master-pct N` | Percentage to reduce master by (default `22`) |
+| `--restore` | Reset every node to the original size stored in `~/.minikube/profiles/aks-lab/config.json` |
+| `--help` | Show usage |
+
+**Caveats:**
+
+- Changes apply via `docker update --memory` — they're **lost on `minikube stop && minikube start`**. Re-run the script after each restart.
+- The script aborts (or warns, with `--yes`) if any node is currently using more memory than the proposed target. Resizing below current usage triggers OOM kills on running pods.
+- If the safety check fires, reduce load first: `./lab-feature.sh disable cosmos-db` is the biggest single win (~2 GB), or roll out heavy services so they re-schedule onto the primary.
 
 ---
 

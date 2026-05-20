@@ -408,6 +408,107 @@ except Exception:
 
 feature_enabled() { [[ " $ENABLED_FEATURES " =~ (^|[[:space:]])"$1"([[:space:]]|$) ]]; }
 
+# Render an app-like live status dashboard to the terminal (fd 5). Redraws in
+# place using cursor-home + clear-screen so the user sees a single steady page
+# that updates rather than a stream. Inputs come from globals already set by
+# _run_health_checks: _HEALTH_ROWS, _CHECKS_PASS, _CHECKS_FAIL, _CHECKS_TOTAL.
+#   $1 = elapsed seconds since setup start
+#   $2 = "waiting" | "ready" | "timeout"  — top-banner state
+_render_live_dashboard() {
+  local elapsed=$1 state=$2
+  local emin=$(( elapsed / 60 )) esec=$(( elapsed % 60 ))
+  local pass=${_CHECKS_PASS:-0} total=${_CHECKS_TOTAL:-0}
+  local pct=0
+  [[ $total -gt 0 ]] && pct=$(( pass * 100 / total ))
+
+  # Progress bar — 30 wide
+  local bar="" filled=$(( pct * 30 / 100 )) i
+  for (( i=0; i<30; i++ )); do
+    if (( i < filled )); then bar+="▓"; else bar+="░"; fi
+  done
+
+  local title_color="$CYAN" title_icon="⟳" title_text="Waiting for services"
+  case "$state" in
+    ready)   title_color="$GREEN";  title_icon="✓"; title_text="All services ready" ;;
+    timeout) title_color="$YELLOW"; title_icon="!"; title_text="Timed out — some services still pending" ;;
+  esac
+
+  {
+    # Clear screen + cursor home, hide cursor while drawing to avoid flicker
+    printf '\033[H\033[2J\033[?25l'
+
+    # Header — horizontal rule + two info lines (no right-edge box so ANSI
+    # escapes don't confuse the alignment).
+    echo ""
+    echo -e "  ${title_color}${BOLD}━━━ AKS Homelab ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    printf  "    %b ${BOLD}%s${RESET}   ${DIM}%d/%d ready · %dm %02ds${RESET}\n" \
+            "${title_color}${title_icon}${RESET}" "$title_text" "$pass" "$total" "$emin" "$esec"
+    printf  "    %s ${DIM}%d%%${RESET}\n" "$bar" "$pct"
+    echo -e "  ${title_color}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo ""
+
+    # Per-component rows
+    local row status label detail rest
+    for row in "${_HEALTH_ROWS[@]}"; do
+      status="${row%%|*}"
+      if [[ "$status" == "section" ]]; then
+        label="${row#section|}"
+        echo -e "    ${BOLD}${label}${RESET}"
+      else
+        rest="${row#*|}"
+        label="${rest%%|*}"
+        detail="${rest#*|}"
+        case "$status" in
+          ok)   echo -e "      ${GREEN}✓${RESET}  $(printf '%-22s' "$label")${DIM}${detail}${RESET}" ;;
+          warn) echo -e "      ${YELLOW}⟳${RESET}  $(printf '%-22s' "$label")${YELLOW}${detail}${RESET}" ;;
+          fail) echo -e "      ${RED}✗${RESET}  $(printf '%-22s' "$label")${RED}${detail}${RESET}" ;;
+        esac
+      fi
+    done
+
+    echo ""
+    if [[ "$state" == "waiting" ]]; then
+      echo -e "  ${DIM}Dashboard → http://localhost:9997/    ·    Press Ctrl-C to skip wait${RESET}"
+    else
+      echo -e "  ${DIM}Dashboard → http://localhost:9997/${RESET}"
+    fi
+
+    # Re-show cursor
+    printf '\033[?25h'
+  } >&5 2>/dev/null || true
+}
+
+# Poll _run_health_checks until everything is healthy or the timeout elapses.
+# Honours SIGINT (Ctrl-C) to skip waiting and proceed to the final banner.
+#   $1 = poll interval seconds (default 5)
+#   $2 = max wait seconds (default 900 = 15 min)
+#   $3 = start epoch seconds (default $SETUP_START)
+_wait_until_ready() {
+  local interval=${1:-5} max=${2:-900} start=${3:-$SETUP_START}
+  local _skip=0
+  trap '_skip=1' INT
+  local state="waiting" elapsed
+  while true; do
+    _run_health_checks
+    elapsed=$(( $(date +%s) - start ))
+
+    if (( _CHECKS_FAIL == 0 && _CHECKS_TOTAL > 0 )); then
+      state="ready"
+    elif (( elapsed >= max )); then
+      state="timeout"
+    elif (( _skip == 1 )); then
+      state="timeout"   # treat skip the same as timeout for display
+    fi
+
+    _render_live_dashboard "$elapsed" "$state"
+
+    [[ "$state" != "waiting" ]] && break
+    sleep "$interval"
+  done
+  trap - INT
+  return 0
+}
+
 # Soft-prefer the minikube primary node for memory-heavy workloads. Uses the
 # built-in `minikube.k8s.io/primary=true` label with preferredDuringScheduling
 # affinity — pods still fall back to workers if primary is full. Applied to
@@ -1971,9 +2072,14 @@ _check_ns() {
     _chk_fail "$label" "namespace '$ns' not found"
     return
   fi
+  # Use awk for the count so we never get the double-zero "0\n0" output that
+  # BSD `grep -c` produces (prints 0 + exits 1, which then triggers `|| echo 0`
+  # and concatenates a second 0). awk's END always fires with one clean line.
   local running total
-  running=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | grep -c " Running " || echo 0)
-  total=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | grep -cv "Completed" || echo 0)
+  running=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
+            | awk '/ Running /{c++}END{print c+0}')
+  total=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
+          | awk '!/Completed/{c++}END{print c+0}')
   if [[ "$total" -eq 0 ]]; then
     _chk_fail "$label" "no pods deployed"
   elif [[ "$running" -eq "$total" ]]; then
@@ -1983,65 +2089,80 @@ _check_ns() {
   fi
 }
 
-_chk_section "Core"
-_check_ns "ingress-nginx" ingress-nginx
-_check_ns "flux"          flux-system
-_check_ns "dns-lab"       dns-lab
+# All health checks gathered into one re-runnable function so the post-setup
+# live-watch phase can poll them every few seconds without code duplication.
+# Each call resets the counters/rows and re-emits health_result events to the
+# TUI (the TUI's `health_result` handler replaces by label, so the display
+# updates instead of stacking duplicates).
+_run_health_checks() {
+  _CHECKS_PASS=0
+  _CHECKS_FAIL=0
+  _HEALTH_ROWS=()
 
-_chk_section "Infrastructure"
-if feature_enabled vault; then
-  if curl -sf http://127.0.0.1:8200/v1/sys/health 2>/dev/null \
-      | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if not d.get('sealed') else 1)" 2>/dev/null; then
-    _chk_ok "vault" "dev server unsealed at :8200"
-  else
-    _chk_fail "vault" "not reachable at http://127.0.0.1:8200"
+  _chk_section "Core"
+  _check_ns "ingress-nginx" ingress-nginx
+  _check_ns "flux"          flux-system
+  _check_ns "dns-lab"       dns-lab
+
+  _chk_section "Infrastructure"
+  if feature_enabled vault; then
+    if curl -sf http://127.0.0.1:8200/v1/sys/health 2>/dev/null \
+        | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if not d.get('sealed') else 1)" 2>/dev/null; then
+      _chk_ok "vault" "dev server unsealed at :8200"
+    else
+      _chk_fail "vault" "not reachable at http://127.0.0.1:8200"
+    fi
   fi
-fi
-feature_enabled monitoring           && _check_ns "monitoring"  monitoring
-feature_enabled kubernetes-dashboard && _check_ns "k8s-dashboard" kubernetes-dashboard
-feature_enabled rancher              && _check_ns "rancher"       cattle-system
-feature_enabled argocd               && _check_ns "argocd"       argocd
-feature_enabled toolbox              && _check_ns "toolbox"      toolbox
+  feature_enabled monitoring           && _check_ns "monitoring"  monitoring
+  feature_enabled kubernetes-dashboard && _check_ns "k8s-dashboard" kubernetes-dashboard
+  feature_enabled rancher              && _check_ns "rancher"       cattle-system
+  feature_enabled argocd               && _check_ns "argocd"       argocd
+  feature_enabled toolbox              && _check_ns "toolbox"      toolbox
 
-_chk_section "Identity"
-if feature_enabled samba-ad; then
-  _SAMBA_STATE=$(multipass info samba-ad --format json 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); i=d['info']['samba-ad']; print(i['state']+'|'+i['ipv4'][0])" \
-    2>/dev/null || echo "Error|")
-  if [[ "$_SAMBA_STATE" == Running* ]]; then
-    _chk_ok "samba-ad" "VM running — ${_SAMBA_STATE#*|}"
-  else
-    _chk_fail "samba-ad" "VM not running (state: ${_SAMBA_STATE%|*})"
+  _chk_section "Identity"
+  if feature_enabled samba-ad; then
+    _SAMBA_STATE=$(multipass info samba-ad --format json 2>/dev/null \
+      | python3 -c "import sys,json; d=json.load(sys.stdin); i=d['info']['samba-ad']; print(i['state']+'|'+i['ipv4'][0])" \
+      2>/dev/null || echo "Error|")
+    if [[ "$_SAMBA_STATE" == Running* ]]; then
+      _chk_ok "samba-ad" "VM running — ${_SAMBA_STATE#*|}"
+    else
+      _chk_fail "samba-ad" "VM not running (state: ${_SAMBA_STATE%|*})"
+    fi
   fi
-fi
-feature_enabled dex          && _check_ns "dex"          dex
-feature_enabled oauth2-proxy && _check_ns "oauth2-proxy" oauth2-proxy
-if feature_enabled corp-client; then
-  _CLIENT_STATE=$(multipass info corp-client --format json 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['state'])" \
-    2>/dev/null || echo "Error")
-  if [[ "$_CLIENT_STATE" == "Running" ]]; then
-    _chk_ok "corp-client" "VM running"
-  else
-    _chk_fail "corp-client" "VM not running (state: $_CLIENT_STATE)"
+  feature_enabled dex          && _check_ns "dex"          dex
+  feature_enabled oauth2-proxy && _check_ns "oauth2-proxy" oauth2-proxy
+  if feature_enabled corp-client; then
+    _CLIENT_STATE=$(multipass info corp-client --format json 2>/dev/null \
+      | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['state'])" \
+      2>/dev/null || echo "Error")
+    if [[ "$_CLIENT_STATE" == "Running" ]]; then
+      _chk_ok "corp-client" "VM running"
+    else
+      _chk_fail "corp-client" "VM not running (state: $_CLIENT_STATE)"
+    fi
   fi
-fi
 
-_chk_section "Storage"
-feature_enabled azurite            && _check_ns "azurite"            azure-storage
-feature_enabled azure-sql          && _check_ns "azure-sql"          azure-sql
-feature_enabled cosmos-db          && _check_ns "cosmos-db"          cosmos-db
-feature_enabled service-bus        && _check_ns "service-bus"        service-bus
-feature_enabled container-registry && _check_ns "container-registry" container-registry
+  _chk_section "Storage"
+  feature_enabled azurite            && _check_ns "azurite"            azure-storage
+  feature_enabled azure-sql          && _check_ns "azure-sql"          azure-sql
+  feature_enabled cosmos-db          && _check_ns "cosmos-db"          cosmos-db
+  feature_enabled service-bus        && _check_ns "service-bus"        service-bus
+  feature_enabled container-registry && _check_ns "container-registry" container-registry
 
-_chk_section "Apps"
-feature_enabled taskflow       && _check_ns "taskflow"       taskapp
-feature_enabled blob-explorer  && _check_ns "blob-explorer"  blob-explorer
-feature_enabled argo-workflows && _check_ns "argo-workflows" argo
-feature_enabled azdo-agent     && _check_ns "azdo-agent"     azdo-agent
+  _chk_section "Apps"
+  feature_enabled taskflow       && _check_ns "taskflow"       taskapp
+  feature_enabled blob-explorer  && _check_ns "blob-explorer"  blob-explorer
+  feature_enabled argo-workflows && _check_ns "argo-workflows" argo
+  feature_enabled azdo-agent     && _check_ns "azdo-agent"     azdo-agent
+
+  _CHECKS_TOTAL=$(( _CHECKS_PASS + _CHECKS_FAIL ))
+  return 0
+}
+
+_run_health_checks
 
 printf "\n" >&3
-_CHECKS_TOTAL=$(( _CHECKS_PASS + _CHECKS_FAIL ))
 if [[ $_CHECKS_FAIL -eq 0 ]]; then
   echo -e "  ${GREEN}${BOLD}All ${_CHECKS_TOTAL} components healthy${RESET}" >&3
 else
@@ -2089,35 +2210,44 @@ ELAPSED=$(( SETUP_END - SETUP_START ))
 ELAPSED_MIN=$(( ELAPSED / 60 ))
 ELAPSED_SEC=$(( ELAPSED % 60 ))
 
-# Signal TUI that setup is complete, then close the FIFO write-end so the Python
-# reader sees EOF and exits cleanly. Gate on _WAS_TUI (not _TUI_ACTIVE) so the
-# FIFO is always closed even if
-# _TUI_ACTIVE was cleared by a failed emit mid-run.
+# Hand off from the install-step TUI to the live readiness watcher. The TUI
+# was useful while bash was driving step-by-step work, but during readiness
+# polling the watcher (built into bash, rendered to /dev/tty via fd 5) is the
+# right UI — it's purpose-built for showing per-service status that updates.
 if [[ "$_WAS_TUI" == "1" ]]; then
   if (( _STEP_ID > 0 )); then
     printf '%s\n' "{\"event\":\"step_done\",\"id\":${_STEP_ID},\"elapsed\":\"$(_fmt_elapsed)\"}" >&4 2>/dev/null || true
   fi
   printf '%s\n' "{\"event\":\"done\",\"pass\":${_CHECKS_PASS},\"fail\":${_CHECKS_FAIL}}" >&4 2>/dev/null || true
-  exec 4>&-          # close write-end → Python reader gets EOF, exits cleanly
+  exec 4>&-
   _TUI_ACTIVE=0
   wait "$_TUI_PID" 2>/dev/null || true
   _TUI_PID=""
   rm -f "$_TUI_FIFO"
   _TUI_FIFO=""
 
-  # Reset terminal state on the immutable terminal handle (fd 5). Long setups
-  # can leave the terminal in alternate-screen mode, with cursor hidden, or
-  # in raw mode — any of which makes subsequent writes invisible.
+  # Reset terminal state on the immutable terminal handle (fd 5).
   {
-    printf '\033[?1049l'   # exit alternate screen buffer
-    printf '\033[?25h'     # show cursor
-    printf '\033[0m'       # reset SGR (colours/attributes)
-    printf '\r\n'
+    printf '\033[?1049l\033[?25h\033[0m\r\n'
   } >&5 2>/dev/null || true
   stty sane < /dev/tty 2>/dev/null || true
-
   sleep 0.3
 fi
+
+# ─── Live readiness watcher ────────────────────────────────────────────────
+# Poll the cluster every 5s and re-render an app-style status page until all
+# components are healthy. Times out after 15 minutes — that's the upper bound
+# on a cold cosmos-db/rancher boot. Ctrl-C skips the wait and lets the trap
+# print the final snapshot. After this returns, ELAPSED reflects the time
+# spent waiting too, so the banner shows real total time.
+echo "[$(date +%T)] entering live readiness watcher" >> "$LAB_LOG"
+_wait_until_ready 5 900 "$SETUP_START"
+
+# Recompute elapsed to include the wait phase
+SETUP_END=$(date +%s)
+ELAPSED=$(( SETUP_END - SETUP_START ))
+ELAPSED_MIN=$(( ELAPSED / 60 ))
+ELAPSED_SEC=$(( ELAPSED % 60 ))
 
 # Banner is printed by the _at_exit trap — runs whether the script exits
 # here normally or `set -e` kills it earlier. Nothing more to do here.

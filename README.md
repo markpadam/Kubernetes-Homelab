@@ -121,7 +121,7 @@ Components are individually toggleable at setup time or live from the dashboard.
 
 ## Quick Start
 
-> **Docker Desktop memory** — the 3-node cluster needs at least **8 GB** (Low tier) or **11 GB** (Standard, the default) allocated to Docker.  
+> **Docker Desktop memory** — the 3-node cluster needs at least **12 GB** (Low tier) or **14 GB** (Standard, the default) allocated to Docker; the **High tier needs 18 GB**.  
 > Set it in Docker Desktop → Settings → Resources → Memory before running. The script warns you if there isn't enough.
 
 ```bash
@@ -153,6 +153,7 @@ The setup script prompts for a component preset, then builds everything. The **d
 ./setup-lab.sh          # build and start the lab
 minikube stop -p aks-lab # pause (keeps all state)
 ./resume-lab.sh         # resume after pause or Mac restart
+./lab-resize.sh         # shrink node memory after the cluster settles
 ./teardown-lab.sh       # full wipe — cluster, VMs, state, hosts
 ```
 
@@ -316,6 +317,7 @@ The agent pod has network access to all in-cluster services — Vault, Azurite, 
 ├── setup-lab.sh          # Build and start the lab
 ├── resume-lab.sh         # Resume after pause / restart
 ├── teardown-lab.sh       # Full wipe
+├── lab-resize.sh         # Live-shrink node memory (workers → 2 GB, master −22%)
 ├── lab-feature.sh        # Component manager (enable/disable/list)
 ├── lab-components.json   # Component registry
 ├── dashboard-server.py   # Local dashboard server
