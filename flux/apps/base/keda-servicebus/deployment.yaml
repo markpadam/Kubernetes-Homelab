@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: message-processor
+  namespace: keda-servicebus
+spec:
+  # Replica count is intentionally 0 — KEDA's ScaledObject owns scaling.
+  # Setting replicas here would conflict with the ScaledObject.
+  replicas: 0
+  selector:
+    matchLabels:
+      app: message-processor
+  template:
+    metadata:
+      labels:
+        app: message-processor
+    spec:
+      containers:
+        - name: processor
+          image: aks-lab/keda-servicebus:latest
+          imagePullPolicy: Never
+          env:
+            - name: SERVICE_BUS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: servicebus-keda-secret
+                  key: connection-string
+            - name: QUEUE_NAME
+              value: "queue.1"
+            - name: PROCESSING_DELAY_MS
+              value: "3000"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

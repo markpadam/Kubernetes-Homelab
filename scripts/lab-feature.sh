@@ -305,6 +305,27 @@ _disable_monitoring() {
   success "Monitoring disabled"
 }
 
+# ── Special: KEDA ─────────────────────────────────────────────────
+_enable_keda() {
+  helm repo add kedacore https://kedacore.github.io/charts &>/dev/null || true
+  helm repo update &>/dev/null
+  if helm status keda -n keda &>/dev/null; then
+    warn "Helm release 'keda' already exists — skipping install."
+  else
+    log "Installing KEDA operator..."
+    helm install keda kedacore/keda \
+      --namespace keda --create-namespace \
+      --wait --timeout=3m
+  fi
+  success "KEDA ready — ScaledObject and TriggerAuthentication CRDs available"
+}
+
+_disable_keda() {
+  helm uninstall keda -n keda 2>/dev/null || true
+  _kubectl_delete_ns keda
+  success "KEDA disabled"
+}
+
 # ── Special: ArgoCD ───────────────────────────────────────────────
 _enable_argocd() {
   local GITHUB_REPO="${GITHUB_REPO:-$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || echo '')}"
@@ -701,6 +722,7 @@ do_enable() {
   case "$id" in
     vault)          _enable_vault ;;
     monitoring)     _enable_monitoring ;;
+    keda)           _enable_keda ;;
     argocd)         _enable_argocd ;;
     toolbox)        _enable_toolbox ;;
     samba-ad)       _enable_samba_ad ;;
@@ -747,6 +769,7 @@ do_disable() {
   case "$id" in
     vault)          _disable_vault ;;
     monitoring)     _disable_monitoring ;;
+    keda)           _disable_keda ;;
     argocd)         _disable_argocd ;;
     toolbox)        _disable_toolbox ;;
     samba-ad)       _disable_samba_ad ;;

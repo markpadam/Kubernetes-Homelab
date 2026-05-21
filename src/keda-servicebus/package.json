@@ -1,0 +1,13 @@
+{
+  "name": "keda-servicebus",
+  "version": "1.0.0",
+  "description": "KEDA Service Bus message processor demo",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "produce": "node producer.js"
+  },
+  "dependencies": {
+    "@azure/service-bus": "^7.9.5"
+  }
+}

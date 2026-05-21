@@ -1,0 +1,23 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: servicebus-scaler
+  namespace: keda-servicebus
+spec:
+  scaleTargetRef:
+    name: message-processor
+  # Scale to zero when the queue is empty — this is the key difference from HPA.
+  minReplicaCount: 0
+  maxReplicaCount: 5
+  # How long to wait with zero messages before scaling back to 0.
+  cooldownPeriod: 30
+  triggers:
+    - type: azure-servicebus
+      metadata:
+        # Service Bus namespace name (matches emulator config)
+        namespace: sbemulatorns
+        queueName: queue.1
+        # Spin up 1 replica for every 5 queued messages → 20 msgs = 4 replicas
+        messageCount: "5"
+      authenticationRef:
+        name: servicebus-trigger-auth

@@ -1,0 +1,33 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: servicebus-producer
+  namespace: keda-servicebus
+spec:
+  # Allow re-running: delete old job first or use a unique name
+  ttlSecondsAfterFinished: 120
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: producer
+          image: aks-lab/keda-servicebus:latest
+          imagePullPolicy: Never
+          command: ["node", "producer.js"]
+          env:
+            - name: SERVICE_BUS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: servicebus-keda-secret
+                  key: connection-string
+            - name: QUEUE_NAME
+              value: "queue.1"
+            - name: MESSAGE_COUNT
+              value: "20"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
