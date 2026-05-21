@@ -2,6 +2,19 @@
   "version": 1,
   "components": [
     {
+      "id": "cert-manager",
+      "name": "cert-manager + Vault PKI",
+      "group": "infrastructure",
+      "default": true,
+      "type": "special",
+      "ns": "cert-manager",
+      "flux_dir": "flux/infrastructure/base/cert-manager",
+      "manifest": "",
+      "depends": ["vault"],
+      "port_forwards": [],
+      "desc": "TLS certificate lifecycle management — issues, renews and revokes HTTPS certs for all lab services via Vault PKI (root CA + intermediate CA, CRL/OCSP)"
+    },
+    {
       "id": "vault",
       "name": "HashiCorp Vault",
       "group": "infrastructure",
@@ -12,7 +25,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "Simulates Azure Key Vault — KV v2 secrets, Kubernetes auth backend"
+      "desc": "Simulates Azure Key Vault — KV v2 secrets, Kubernetes auth backend, PKI root and intermediate CA"
     },
     {
       "id": "monitoring",

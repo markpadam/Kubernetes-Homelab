@@ -85,4 +85,14 @@ ldapsearch -H ldap://$SAMBA_IP:389 \
 Created by `IaC/terraform/samba.tf` (`null_resource.samba_vm`) via `terraform apply`.  
 Destroyed by `terraform destroy` or `teardown-lab.sh`.
 
-See also: [corp-client.md](../tools/corp-client.md), [dex.md](dex.md), [auth-walkthrough.md](../guides/auth-walkthrough.md)
+### Faster provisioning with Packer
+
+On first provision Terraform launches a plain Ubuntu 24.04 VM and cloud-init installs the samba packages (~5 min). You can eliminate that wait by pre-building a Packer base image with the packages already baked in:
+
+```bash
+IaC/packer/build.sh samba
+```
+
+The image is saved to `~/.lab-cache/images/samba-base.tar.gz`. Terraform detects it automatically on the next `terraform apply` and launches from the cache instead of pulling Ubuntu 24.04 fresh. Domain provisioning (samba-tool, user creation) still runs via cloud-init at apply time since it requires the domain name and credentials.
+
+See also: [corp-client.md](../tools/corp-client.md), [dex.md](dex.md), [auth-walkthrough.md](../guides/auth-walkthrough.md), [packer.md](../iac/packer.md)

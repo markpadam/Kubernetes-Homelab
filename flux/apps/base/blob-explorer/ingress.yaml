@@ -5,8 +5,14 @@ kind: Ingress
 metadata:
   name: blob-explorer
   namespace: blob-explorer
+  annotations:
+    cert-manager.io/cluster-issuer: "lab-ca"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - blob-explorer.aks-lab.local
+      secretName: blob-explorer-tls
   rules:
     - host: blob-explorer.aks-lab.local
       http:

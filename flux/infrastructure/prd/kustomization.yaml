@@ -6,3 +6,4 @@ kind: Kustomization
 # Optional components are still managed by lab-feature.sh enable/disable.
 resources:
   - ../base/dns/
+  - ../base/cert-manager/

@@ -5,3 +5,4 @@ kind: Kustomization
 # are managed by lab-feature.sh enable/disable.
 resources:
   - ../base/dns/
+  - ../base/cert-manager/

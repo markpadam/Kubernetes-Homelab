@@ -5,8 +5,14 @@ kind: Ingress
 metadata:
   name: grafana
   namespace: monitoring
+  annotations:
+    cert-manager.io/cluster-issuer: "lab-ca"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - grafana.aks-lab.local
+      secretName: grafana-tls
   rules:
     - host: grafana.aks-lab.local
       http:

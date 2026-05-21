@@ -263,11 +263,20 @@ if feature_enabled vault; then
     warn "Vault not running — restarting dev server..."
     if lab_vault_dev_start; then
       success "Vault ready"
-      log "Reconfiguring Vault (KV v2, policies, Kubernetes auth)..."
+      log "Reconfiguring Vault (KV v2, PKI, policies, Kubernetes auth)..."
       terraform -chdir=IaC/terraform apply -auto-approve -input=false \
         -var="minikube_profile=${PROFILE}" \
         2>&1 | tee /tmp/vault-terraform-apply.log
       success "Vault configured"
+      log "Re-trusting Vault Root CA in macOS System Keychain (sudo required)..."
+      _CA_FILE="/tmp/aks-lab-root-ca.crt"
+      curl -sf "${VAULT_ADDR}/v1/pki/ca/pem" -o "$_CA_FILE"
+      sudo security delete-certificate -c "aks-lab.local Root CA" \
+        /Library/Keychains/System.keychain 2>/dev/null || true
+      sudo security add-trusted-cert -d -r trustRoot \
+        -k /Library/Keychains/System.keychain "$_CA_FILE"
+      rm -f "$_CA_FILE"
+      success "Vault Root CA re-trusted — restart Chrome/Firefox if the padlock is missing"
     else
       error "Vault failed to start within 30s — check /tmp/vault-dev.log"
     fi
@@ -289,6 +298,7 @@ _pf() {
 
 log "Clearing stale port-forwards and starting fresh..."
 _pf "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-portforward.log
+_pf "Ingress (HTTPS)"    9443 "kubectl port-forward svc/ingress-nginx-controller 9443:443 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-https-portforward.log
 feature_enabled toolbox            && _pf "Toolbox SSH"       2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"             /tmp/toolbox-portforward.log
 feature_enabled argo-workflows     && _pf "Argo Workflows"    2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"             /tmp/argo-workflows-portforward.log
 feature_enabled azure-sql          && _pf "Azure SQL"         1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"              /tmp/azure-sql-portforward.log

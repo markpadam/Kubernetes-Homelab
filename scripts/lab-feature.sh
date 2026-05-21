@@ -271,8 +271,32 @@ _enable_vault() {
     -target=vault_auth_backend.kubernetes \
     -target=vault_kubernetes_auth_backend_config.minikube \
     -target=vault_kubernetes_auth_backend_role.azure_services \
+    -target=vault_mount.pki \
+    -target=vault_pki_secret_backend_root_cert.root \
+    -target=vault_pki_secret_backend_config_urls.pki \
+    -target=vault_mount.pki_int \
+    -target=vault_pki_secret_backend_intermediate_cert_request.int \
+    -target=vault_pki_secret_backend_root_sign.int \
+    -target=vault_pki_secret_backend_intermediate_set_signed.int \
+    -target=vault_pki_secret_backend_config_urls.pki_int \
+    -target=vault_pki_secret_backend_role.web \
+    -target=vault_policy.cert_manager \
+    -target=vault_kubernetes_auth_backend_role.cert_manager \
     2>&1 | tee /tmp/vault-terraform-apply.log
+
+  log "Trusting Vault Root CA in macOS System Keychain..."
+  _CA_FILE="/tmp/aks-lab-root-ca.crt"
+  curl -sf "${VAULT_ADDR}/v1/pki/ca/pem" -o "$_CA_FILE"
+  sudo security delete-certificate -c "aks-lab.local Root CA" \
+    /Library/Keychains/System.keychain 2>/dev/null || true
+  sudo security add-trusted-cert -d -r trustRoot \
+    -k /Library/Keychains/System.keychain "$_CA_FILE"
+  rm -f "$_CA_FILE"
+
   success "Vault ready — http://127.0.0.1:8200/ui  (token: root)"
+  log "  PKI: root CA trusted in macOS Keychain — restart Chrome/Firefox for the padlock"
+  log "  Revoke a cert: vault write pki_int/revoke serial_number=<serial>"
+  log "  List issued:   vault list pki_int/certs"
 }
 
 _disable_vault() {
@@ -296,7 +320,7 @@ _enable_monitoring() {
   fi
   [[ -f "$REPO_ROOT/flux/infrastructure/base/monitoring/ingress.yaml" ]] && \
     kubectl apply -f "$REPO_ROOT/flux/infrastructure/base/monitoring/ingress.yaml"
-  success "Monitoring ready — http://grafana.aks-lab.local:9980  (admin/admin123)"
+  success "Monitoring ready — https://grafana.aks-lab.local:9443  (admin/admin123)"
 }
 
 _disable_monitoring() {
@@ -352,7 +376,7 @@ _enable_argocd() {
     kubectl apply -f "$REPO_ROOT/flux/infrastructure/base/argocd/ingress.yaml"
   local pw; pw=$(kubectl -n argocd get secret argocd-initial-admin-secret \
     -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<password-already-changed>")
-  success "ArgoCD ready — http://argocd.aks-lab.local:9980  (admin / $pw)"
+  success "ArgoCD ready — https://argocd.aks-lab.local:9443  (admin / $pw)"
 }
 
 _disable_argocd() {
@@ -461,7 +485,7 @@ Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substit
   kubectl apply -k "$REPO_ROOT/flux/infrastructure/base/identity/dex/"
   kubectl apply -f /tmp/dex-config-rendered.yaml
   kubectl wait deployment dex --for=condition=available --namespace=dex --timeout=120s
-  success "Dex ready — http://dex.aks-lab.local:9980"
+  success "Dex ready — https://dex.aks-lab.local:9443"
 }
 
 _disable_dex() {
@@ -489,7 +513,7 @@ _sso_patch_ingress() {
   kubectl annotate ingress -n "$ns" "$name" --overwrite \
     "nginx.ingress.kubernetes.io/auth-url=http://oauth2-proxy.oauth2-proxy.svc.cluster.local:4180/oauth2/auth" \
     "nginx.ingress.kubernetes.io/auth-response-headers=X-Auth-Request-User,X-Auth-Request-Email" \
-    "nginx.ingress.kubernetes.io/auth-signin=http://oauth2-proxy.aks-lab.local:9980/oauth2/start?rd=http://${host}:9980/" \
+    "nginx.ingress.kubernetes.io/auth-signin=https://oauth2-proxy.aks-lab.local:9443/oauth2/start?rd=https://${host}:9443/" \
     &>/dev/null
 }
 
@@ -533,7 +557,7 @@ Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).saf
   kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s
   log "Patching SSO annotations onto protected ingresses..."
   _sso_apply_all
-  success "OAuth2 Proxy ready — SSO gate at oauth2-proxy.aks-lab.local:9980"
+  success "OAuth2 Proxy ready — SSO gate at https://oauth2-proxy.aks-lab.local:9443"
 }
 
 _disable_oauth2_proxy() {
@@ -649,11 +673,16 @@ _enable_argo_workflows() {
   fi
   kubectl wait deployment workflow-controller --for=condition=available --namespace="$ARGO_NS" --timeout=180s
   kubectl wait deployment argo-server --for=condition=available --namespace="$ARGO_NS" --timeout=180s
-  kubectl patch deployment argo-server -n "$ARGO_NS" --type=json -p='[
-    {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--auth-mode=server"},
-    {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--secure=false"}
-  ]' 2>/dev/null || true
-  kubectl wait deployment argo-server --for=condition=available --namespace="$ARGO_NS" --timeout=300s
+  # Strategic merge patch matches the container by name and replaces args entirely,
+  # so --secure=false and --auth-mode=server always win regardless of what
+  # quick-start-minimal.yaml ships (--type=json append silently lost to --secure=true).
+  kubectl patch deployment argo-server -n "$ARGO_NS" --type=strategic -p '{
+    "spec": {"template": {"spec": {"containers": [{
+      "name": "argo-server",
+      "args": ["server", "--auth-mode=server", "--secure=false"]
+    }]}}}
+  }'
+  kubectl rollout status deployment/argo-server -n "$ARGO_NS" --timeout=120s
   _start_comp_portforwards "argo-workflows"
   success "Argo Workflows ready — http://localhost:2746"
 }

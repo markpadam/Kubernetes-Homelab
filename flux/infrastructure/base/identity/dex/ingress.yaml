@@ -3,8 +3,14 @@ kind: Ingress
 metadata:
   name: dex
   namespace: dex
+  annotations:
+    cert-manager.io/cluster-issuer: "lab-ca"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - dex.aks-lab.local
+      secretName: dex-tls
   rules:
     - host: dex.aks-lab.local
       http:

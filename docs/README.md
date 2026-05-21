@@ -17,7 +17,8 @@ Each service running in the cluster has its own doc below.
 | Doc | Namespace | Purpose |
 |-----|-----------|---------|
 | [dns.md](services/dns.md) | `dns-lab` | Bind9 + CoreDNS — simulates ADDS split-brain DNS |
-| [vault.md](services/vault.md) | Mac host | HashiCorp Vault dev server — simulates Azure Key Vault |
+| [vault.md](services/vault.md) | Mac host | HashiCorp Vault dev server — simulates Azure Key Vault + private CA |
+| [cert-manager.md](services/cert-manager.md) | `cert-manager` | TLS certificate lifecycle — issues, renews and revokes HTTPS certs via Vault PKI |
 | [kubernetes-dashboard.md](services/kubernetes-dashboard.md) | `kubernetes-dashboard` | Official Kubernetes web UI — cluster explorer, workloads, logs |
 | [toolbox.md](tools/toolbox.md) | `toolbox` | Ubuntu SSH pod for in-cluster debugging |
 
@@ -38,9 +39,17 @@ Each service running in the cluster has its own doc below.
 | [taskflow.md](services/taskflow.md) | `taskapp` | Three-tier task app — Nginx → Node.js → PostgreSQL |
 | [blob-explorer.md](services/blob-explorer.md) | `blob-explorer` | ASP.NET Core Blob Storage browser |
 
+## IaC
+
+| Doc | Description |
+|-----|-------------|
+| [packer.md](iac/packer.md) | Packer VM image builder — pre-bake samba-ad and corp-client base images |
+
 ## Guides
 
 | Doc | Description |
 |-----|-------------|
 | [auth-walkthrough.md](guides/auth-walkthrough.md) | Nine-stage guide to the full SSO authentication chain |
-| [lab-features.md](guides/lab-features.md) | How to enable / disable optional lab components |
+| [vault-walkthrough.md](guides/vault-walkthrough.md) | Eight-stage guide to Vault KV, Kubernetes auth, and Private Link DNS |
+| [cert-manager-walkthrough.md](guides/cert-manager-walkthrough.md) | Seven-stage guide to PKI hierarchy, cert issuance, revocation, and auto-renewal |
+| [lab-features.md](lab-features.md) | How to enable / disable optional lab components |

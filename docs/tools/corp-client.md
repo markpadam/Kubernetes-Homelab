@@ -98,10 +98,40 @@ systemctl status sssd
 cat /etc/sssd/sssd.conf
 ```
 
+## Pre-built base image (Packer)
+
+The corp-client VM has the heaviest provisioning footprint in the lab — XFCE4, Firefox, Sublime Text, Azure CLI, and the full Kubernetes toolchain all install on first provision (~20 min). A Packer-built base image bakes all of this in, so Terraform only needs to run the domain join and VNC configuration at apply time (under a minute).
+
+```bash
+IaC/packer/build.sh corp-client
+```
+
+The image is saved to `~/.lab-cache/images/corp-client-base.tar.gz` and detected automatically by Terraform on the next apply.
+
+### Tools pre-installed in the base image
+
+| Category | Tools |
+|----------|-------|
+| Kubernetes | `kubectl`, `helm`, `k9s`, `kubectx`, `kubens` |
+| GitOps | `flux`, `argocd`, `argo` (Workflows CLI) |
+| HashiCorp | `vault` |
+| Azure | `az` (Azure CLI + azure-devops extension), `azcopy` |
+| Observability | `stern` (multi-pod log tailing) |
+| Utilities | `jq`, `yq` |
+| Desktop | XFCE4, TigerVNC, Firefox, Sublime Text |
+
+The `kubeconfig` is **not** set up in the base image — it needs the Mac host IP at runtime. After provisioning:
+
+```bash
+# Copy your kubeconfig in and rewrite the server address to the Multipass gateway
+multipass transfer ~/.kube/config corp-client:/home/ubuntu/.kube/config
+multipass exec corp-client -- sed -i 's|https://127.0.0.1|https://192.168.64.1|g' /home/ubuntu/.kube/config
+```
+
 ## Provisioning
 
 Created by `IaC/terraform/samba.tf` (`null_resource.corp_client_vm`) via `terraform apply`.  
 Depends on `null_resource.samba_vm` — the domain controller must exist before the client can join.  
 Destroyed by `terraform destroy` or `teardown-lab.sh`.
 
-See also: [samba-ad.md](../services/samba-ad.md), [auth-walkthrough.md](../guides/auth-walkthrough.md)
+See also: [samba-ad.md](../services/samba-ad.md), [auth-walkthrough.md](../guides/auth-walkthrough.md), [packer.md](../iac/packer.md)

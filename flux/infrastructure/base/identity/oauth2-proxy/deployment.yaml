@@ -20,20 +20,22 @@ spec:
             # OIDC provider — Dex running in-cluster
             # Azure equivalent: --provider=azure with a registered App Registration
             - --provider=oidc
-            # Dex's issuer is the internal cluster URL; tokens carry this as the `iss` claim.
-            - --oidc-issuer-url=http://dex.dex.svc.cluster.local:5556
+            # Dex's issuer must match the `iss` claim in JWT tokens — use the external HTTPS URL.
+            - --oidc-issuer-url=https://dex.aks-lab.local:9443
             - --insecure-oidc-allow-unverified-email=true
             # Skip auto-discovery: the discovery document returns internal cluster URLs for
             # all endpoints, which browsers cannot reach. We set each endpoint manually so
             # pod-to-pod calls use the internal service URL and browser redirects use the
             # external ingress URL.
             - --skip-oidc-discovery=true
-            - --login-url=http://dex.aks-lab.local:9980/auth
+            # Browser redirect — use external HTTPS URL
+            - --login-url=https://dex.aks-lab.local:9443/auth
+            # Pod-to-pod token exchange — keep internal HTTP (no TLS between pods)
             - --redeem-url=http://dex.dex.svc.cluster.local:5556/token
             - --oidc-jwks-url=http://dex.dex.svc.cluster.local:5556/keys
 
             # Redirect URL — must match the redirectURI registered in Dex
-            - --redirect-url=http://oauth2-proxy.aks-lab.local:9980/oauth2/callback
+            - --redirect-url=https://oauth2-proxy.aks-lab.local:9443/oauth2/callback
 
             # Forward auth mode — OAuth2 Proxy validates sessions but does not
             # serve the upstream itself. NGINX handles the upstream proxy.
@@ -45,8 +47,8 @@ spec:
             # Restrict to corp.internal email addresses
             - --email-domain=corp.internal
 
-            # Session cookie — not secure (no TLS in lab)
-            - --cookie-secure=false
+            # Session cookie — secure flag required now that the lab uses TLS
+            - --cookie-secure=true
             - --cookie-name=_oauth2_proxy_lab
             # Scope the cookie to the whole .aks-lab.local domain so all app
             # subdomains (taskflow, grafana, argocd, blob-explorer) receive it.
@@ -56,10 +58,10 @@ spec:
             - --skip-provider-button=true
 
             # Allow post-login redirects to any *.aks-lab.local subdomain.
-            # Both forms required: the bare domain for standard port 80, and the
-            # :9980 variant for the NodePort tunnel used by external VMs.
+            # Both forms required: the bare domain for standard HTTPS port 443, and the
+            # :9443 variant for the port-forward tunnel used by the lab.
             - --whitelist-domain=.aks-lab.local
-            - --whitelist-domain=.aks-lab.local:9980
+            - --whitelist-domain=.aks-lab.local:9443
 
             # Pass user identity to the backend via headers
             - --set-xauthrequest=true

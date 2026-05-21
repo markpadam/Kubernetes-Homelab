@@ -3,7 +3,7 @@
 ## Prerequisites
 
 ```bash
-brew install minikube kubectl helm fluxcd/tap/flux hashicorp/tap/vault terraform multipass
+brew install minikube kubectl helm fluxcd/tap/flux hashicorp/tap/vault terraform multipass packer
 ```
 
 Docker Desktop must be running before any lab script is started.
@@ -23,6 +23,20 @@ The setup script will warn and prompt before starting if Docker has less memory 
 Heavy services (Rancher, Grafana/Prometheus, ArgoCD, Dex, MSSQL, Cosmos DB) are pinned to the **primary node** via soft node-affinity; light services land on workers naturally. This concentrates the memory pressure on one node so workers can be shrunk after the cluster settles — see [Resize the lab](#resize-the-lab) below.
 
 The **Very High** tier (32 GB Mac) gives each node 7 GB and 4 CPUs — enough to run all services including Cosmos DB and Azure SQL without memory pressure, and with headroom to scale up replica counts.
+
+---
+
+## Pre-build VM images (optional — recommended for identity stack)
+
+If you plan to use `samba-ad` or `corp-client`, pre-building their Packer base images saves significant time. The corp-client image installs XFCE4, Azure CLI, and the full Kubernetes toolchain — about 20 minutes on first provision. With a cached image, VM provisioning drops to under a minute.
+
+```bash
+IaC/packer/build.sh            # build both images (~30 min, one-time)
+IaC/packer/build.sh samba      # samba-ad base only (~5 min)
+IaC/packer/build.sh corp-client  # corp-client base only (~25 min)
+```
+
+Images are saved to `~/.lab-cache/images/` and reused automatically. Terraform falls back to a plain Ubuntu 24.04 launch if no cache is present — nothing breaks, it just takes longer.
 
 ---
 

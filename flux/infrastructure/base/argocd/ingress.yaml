@@ -9,10 +9,15 @@ metadata:
   name: argocd
   namespace: argocd
   annotations:
+    cert-manager.io/cluster-issuer: "lab-ca"
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
     nginx.ingress.kubernetes.io/ssl-passthrough: "false"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - argocd.aks-lab.local
+      secretName: argocd-tls
   rules:
     - host: argocd.aks-lab.local
       http:

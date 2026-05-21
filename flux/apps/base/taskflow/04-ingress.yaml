@@ -6,9 +6,14 @@ metadata:
   name: taskapp-ingress
   namespace: taskapp
   annotations:
+    cert-manager.io/cluster-issuer: "lab-ca"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - taskflow.aks-lab.local
+      secretName: taskflow-tls
   rules:
     - host: taskflow.aks-lab.local
       http:

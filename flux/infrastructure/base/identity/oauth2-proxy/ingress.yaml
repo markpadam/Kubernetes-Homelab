@@ -7,8 +7,14 @@ kind: Ingress
 metadata:
   name: oauth2-proxy
   namespace: oauth2-proxy
+  annotations:
+    cert-manager.io/cluster-issuer: "lab-ca"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - oauth2-proxy.aks-lab.local
+      secretName: oauth2-proxy-tls
   rules:
     - host: oauth2-proxy.aks-lab.local
       http:

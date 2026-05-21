@@ -17,6 +17,7 @@ Simulate AKS, Active Directory, GitOps, secrets management, and Azure PaaS servi
 ![Kubernetes](https://img.shields.io/badge/kubernetes-v1.29-326CE5?logo=kubernetes&logoColor=white)
 ![Minikube](https://img.shields.io/badge/minikube-docker%20driver-0db7ed?logo=docker&logoColor=white)
 ![Terraform](https://img.shields.io/badge/terraform-IaC-7B42BC?logo=terraform&logoColor=white)
+![Packer](https://img.shields.io/badge/packer-VM%20images-02A8EF?logo=packer&logoColor=white)
 ![Flux](https://img.shields.io/badge/flux-GitOps-5468FF?logo=flux&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -115,7 +116,7 @@ Components are individually toggleable at setup time or live from the dashboard.
 | Dex (OIDC) | Azure AD — OIDC issuer | ✅ |
 | OAuth2 Proxy | Azure AD app registration + SSO gate | ✅ |
 | SambaAD *(optional — requires Multipass)* | Azure Active Directory / AD DS | ☐ |
-| Corp Client VM *(optional — requires Multipass)* | Domain-joined workstation (XFCE + VNC) | ☐ |
+| Corp Client VM *(optional — requires Multipass + Packer cache recommended)* | Domain-joined workstation (XFCE + VNC) | ☐ |
 
 Dex + OAuth2 Proxy ship enabled by default with a **static admin user** (`admin@corp.internal` / `AksLabAdmin1!`) so SSO works without SambaAD. Enable `samba-ad` to add LDAP authentication on top — the LDAP connector activates automatically when the VM is reachable.
 
@@ -129,7 +130,7 @@ Dex + OAuth2 Proxy ship enabled by default with a **static admin user** (`admin@
 ```bash
 # Install dependencies (first time only)
 brew install minikube kubectl helm fluxcd/tap/flux \
-             hashicorp/tap/vault terraform multipass
+             hashicorp/tap/vault terraform multipass packer
 
 # Clone and run (--recurse-submodules also fetches the ADO bicep/pipelines repo)
 git clone --recurse-submodules https://github.com/markpadam/Kubernetes-Homelab.git
@@ -150,8 +151,14 @@ Watch the setup flow: [installer.mov](https://github.com/markpadam/Kubernetes-Ho
 |--------|-------------|------|
 | Standard | Cluster + monitoring + GitOps + SSO + storage emulators + demo app | ~15 min |
 | Minimal | Bare cluster + ingress only | ~5 min |
-| All | Everything including SambaAD LDAP, Cosmos DB, Argo Workflows, Rancher | ~30 min |
+| All | Everything including SambaAD LDAP, Cosmos DB, Argo Workflows, Rancher | ~30 min* |
 | Custom | Pick individual components | varies |
+
+> **\* Speed up identity VM provisioning** — `samba-ad` and `corp-client` build their VMs from scratch on first run (~5 and ~20 min respectively). Pre-build Packer base images to cut that to under a minute.
+>
+> ```bash
+> IaC/packer/build.sh   # one-time, ~30 min — images cached to ~/.lab-cache/images/
+> ```
 
 After setup, run `./aks-lab verify` to confirm every component and ingress is actually responding. The script exits 0 on success or prints a punch list of what's broken.
 
@@ -355,6 +362,7 @@ The agent pod has network access to all in-cluster services — Vault, Azurite, 
 │
 ├── IaC/
 │   ├── terraform/        # Vault + SambaAD + Corp Client VMs
+│   ├── packer/           # Packer templates — pre-built base images for Multipass VMs
 │   └── dns/              # DNS management scripts
 │
 └── ado/                  # Git submodule → Azure DevOps (Bicep IaC + YAML pipelines)
@@ -401,6 +409,8 @@ git add ado && git commit -m "chore: bump ado submodule"
 |-----|-------------|
 | [QUICKSTART.md](QUICKSTART.md) | Start, pause, resume, destroy — flags, URLs, troubleshooting |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Detailed diagrams — cluster layout, GitOps flow, secrets, DNS |
+| [docs/README.md](docs/README.md) | Full service documentation index |
+| [docs/iac/packer.md](docs/iac/packer.md) | Packer VM image builder — pre-bake samba-ad and corp-client base images |
 
 ---
 

@@ -67,8 +67,21 @@ resource "null_resource" "samba_vm" {
       echo "[samba] Removing any pre-existing samba-ad VM..."
       multipass delete samba-ad --purge 2>/dev/null || true
 
-      echo "[samba] Launching samba-ad VM (packages install during boot)..."
-      multipass launch 24.04 \
+      # Use the Packer-built base image if it exists — packages are already
+      # installed so cloud-init only needs to run the domain provisioning step.
+      # Fall back to plain Ubuntu 24.04 if the cache is missing.
+      _SAMBA_BASE="${HOME}/.lab-cache/images/samba-base.tar.gz"
+      if [[ -f "$_SAMBA_BASE" ]]; then
+        _LAUNCH_IMAGE="file://$_SAMBA_BASE"
+        echo "[samba] Using Packer base image — packages pre-installed (${_SAMBA_BASE})"
+      else
+        _LAUNCH_IMAGE="24.04"
+        echo "[samba] No Packer cache found — packages will install via cloud-init"
+        echo "[samba] Tip: run IaC/packer/build.sh samba to pre-build the image"
+      fi
+
+      echo "[samba] Launching samba-ad VM..."
+      multipass launch "$_LAUNCH_IMAGE" \
         --name samba-ad \
         --cpus "${var.samba_vm_cpus}" \
         --memory "${var.samba_vm_memory}" \
@@ -184,8 +197,20 @@ resource "null_resource" "corp_client_vm" {
       echo "[client] Removing any pre-existing corp-client VM..."
       multipass delete corp-client --purge 2>/dev/null || true
 
-      echo "[client] Launching corp-client VM (packages + desktop install during boot)..."
-      multipass launch 24.04 \
+      # Use the Packer-built base image if cached — saves 15-20 min on first run
+      # (XFCE4, Firefox, k8s tools, Azure CLI are all pre-installed).
+      _CLIENT_BASE="${HOME}/.lab-cache/images/corp-client-base.tar.gz"
+      if [[ -f "$_CLIENT_BASE" ]]; then
+        _LAUNCH_IMAGE="file://$_CLIENT_BASE"
+        echo "[client] Using Packer base image — packages pre-installed (${_CLIENT_BASE})"
+      else
+        _LAUNCH_IMAGE="24.04"
+        echo "[client] No Packer cache found — packages will install via cloud-init (~15-20 min)"
+        echo "[client] Tip: run IaC/packer/build.sh corp-client to pre-build the image"
+      fi
+
+      echo "[client] Launching corp-client VM..."
+      multipass launch "$_LAUNCH_IMAGE" \
         --name corp-client \
         --cpus "${var.client_vm_cpus}" \
         --memory "${var.client_vm_memory}" \

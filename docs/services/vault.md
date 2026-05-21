@@ -68,6 +68,73 @@ Token TTL: 1 hour. Max TTL: 2 hours.
 | `vault_kubernetes_auth_backend_config.minikube` | Configures Vault with the cluster's CA and reviewer token |
 | `vault_kubernetes_auth_backend_role.azure_services` | Binds namespaces → policy |
 
+## PKI Secrets Engine
+
+Vault also hosts a two-tier PKI that issues TLS certificates for all lab services via cert-manager.
+
+### Root CA (`pki` mount)
+
+| Field | Value |
+|-------|-------|
+| Mount | `pki/` |
+| Common name | `aks-lab.local Root CA` |
+| Key type | EC P-256 |
+| Validity | 10 years |
+| Purpose | Trust anchor — cert added to macOS System Keychain at setup |
+
+### Intermediate CA (`pki_int` mount)
+
+| Field | Value |
+|-------|-------|
+| Mount | `pki_int/` |
+| Common name | `aks-lab.local Intermediate CA` |
+| Key type | EC P-256 |
+| Validity | 2 years |
+| Purpose | Signs all leaf certs — root key stays offline |
+
+### Issuance role
+
+The `web` role on `pki_int` constrains cert-manager to issuing only `*.aks-lab.local` subdomains with a maximum TTL of 30 days using EC P-256 keys.
+
+### Revocation
+
+Vault publishes live revocation data at:
+- **CRL:** `http://vault.aks-lab.local:8200/v1/pki_int/crl`
+- **OCSP:** `http://vault.aks-lab.local:8200/v1/pki_int/ocsp`
+
+Both URLs are embedded in every leaf certificate.
+
+```bash
+# List issued cert serial numbers
+vault list pki_int/certs
+
+# Revoke a specific cert
+vault write pki_int/revoke serial_number=<serial>
+
+# Inspect the CRL
+curl -s http://localhost:8200/v1/pki_int/crl/pem | openssl crl -noout -text
+```
+
+> **Dev server caveat:** the Vault dev server resets on every restart. `./aks-lab resume` re-runs Terraform (recreating all PKI config with a fresh root CA) and re-trusts the new root CA in the macOS Keychain automatically. Restart Chrome or Firefox once after a resume for the new CA to take effect.
+
+## Additional Terraform Resources (PKI)
+
+| Resource | Purpose |
+|----------|---------|
+| `vault_mount.pki` | Mounts the root PKI engine at `pki/` |
+| `vault_pki_secret_backend_root_cert.root` | Generates the self-signed root CA certificate |
+| `vault_pki_secret_backend_config_urls.pki` | Sets CRL and issuing certificate URLs for the root |
+| `vault_mount.pki_int` | Mounts the intermediate PKI engine at `pki_int/` |
+| `vault_pki_secret_backend_intermediate_cert_request.int` | Generates the intermediate CA CSR |
+| `vault_pki_secret_backend_root_sign.int` | Root CA signs the intermediate CSR |
+| `vault_pki_secret_backend_intermediate_set_signed.int` | Imports the signed chain into `pki_int` |
+| `vault_pki_secret_backend_config_urls.pki_int` | Sets CRL, OCSP, and issuing certificate URLs |
+| `vault_pki_secret_backend_role.web` | Defines the `web` role — restricts to `*.aks-lab.local` |
+| `vault_policy.cert_manager` | Grants cert-manager permission to sign via `pki_int` only |
+| `vault_kubernetes_auth_backend_role.cert_manager` | Binds cert-manager SA → cert-manager policy |
+
 ## Logs
 
 Vault logs are written to `/tmp/vault-dev.log`. The PID is stored in `/tmp/vault-dev.pid`.
+
+See also: [cert-manager.md](cert-manager.md), [vault-walkthrough.md](../guides/vault-walkthrough.md), [cert-manager-walkthrough.md](../guides/cert-manager-walkthrough.md)

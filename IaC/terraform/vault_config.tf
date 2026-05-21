@@ -139,3 +139,126 @@ resource "vault_kubernetes_auth_backend_role" "azure_services" {
 
   token_policies = [vault_policy.azure_services.name]
 }
+
+# ── PKI Root CA ───────────────────────────────────────────────────────────────
+# Azure equivalent: a private root CA in Azure Certificate Manager (Private CA).
+# The root CA cert is exported and trusted in the macOS System Keychain so
+# browsers show a valid padlock for *.aks-lab.local without warnings.
+resource "vault_mount" "pki" {
+  path                      = "pki"
+  type                      = "pki"
+  default_lease_ttl_seconds = 315360000 # 10 years
+  max_lease_ttl_seconds     = 315360000
+
+  depends_on = [null_resource.vault_health_check]
+}
+
+resource "vault_pki_secret_backend_root_cert" "root" {
+  backend     = vault_mount.pki.path
+  type        = "internal"
+  common_name = "aks-lab.local Root CA"
+  ttl         = "315360000"
+  key_type    = "ec"
+  key_bits    = 256
+}
+
+resource "vault_pki_secret_backend_config_urls" "pki" {
+  backend                 = vault_mount.pki.path
+  issuing_certificates    = ["http://vault.aks-lab.local:8200/v1/pki/ca"]
+  crl_distribution_points = ["http://vault.aks-lab.local:8200/v1/pki/crl"]
+}
+
+# ── PKI Intermediate CA ───────────────────────────────────────────────────────
+# Azure equivalent: a subordinate CA issued by your private root CA.
+# cert-manager requests leaf certificates from here — the root CA key never
+# touches the network. CRL and OCSP endpoints are published so browsers can
+# check revocation status in real time.
+resource "vault_mount" "pki_int" {
+  path                      = "pki_int"
+  type                      = "pki"
+  default_lease_ttl_seconds = 2592000  # 30 days (leaf cert default)
+  max_lease_ttl_seconds     = 63072000 # 2 years
+
+  depends_on = [null_resource.vault_health_check]
+}
+
+resource "vault_pki_secret_backend_intermediate_cert_request" "int" {
+  backend     = vault_mount.pki_int.path
+  type        = "internal"
+  common_name = "aks-lab.local Intermediate CA"
+  key_type    = "ec"
+  key_bits    = 256
+}
+
+resource "vault_pki_secret_backend_root_sign" "int" {
+  backend     = vault_mount.pki.path
+  csr         = vault_pki_secret_backend_intermediate_cert_request.int.csr
+  common_name = "aks-lab.local Intermediate CA"
+  ttl         = "63072000"
+  is_ca       = true
+}
+
+resource "vault_pki_secret_backend_intermediate_set_signed" "int" {
+  backend     = vault_mount.pki_int.path
+  # Full chain: intermediate cert + root cert so TLS clients can build the path.
+  certificate = "${vault_pki_secret_backend_root_sign.int.certificate}\n${vault_pki_secret_backend_root_cert.root.certificate}"
+}
+
+resource "vault_pki_secret_backend_config_urls" "pki_int" {
+  backend                 = vault_mount.pki_int.path
+  issuing_certificates    = ["http://vault.aks-lab.local:8200/v1/pki_int/ca"]
+  crl_distribution_points = ["http://vault.aks-lab.local:8200/v1/pki_int/crl"]
+  ocsp_servers            = ["http://vault.aks-lab.local:8200/v1/pki_int/ocsp"]
+}
+
+# ── Issuance role ─────────────────────────────────────────────────────────────
+# Azure equivalent: a Certificate Manager issuance policy that restricts which
+# CNs and SANs the CA will sign. Only *.aks-lab.local subdomains are allowed —
+# cert-manager cannot accidentally issue certs for external domains.
+resource "vault_pki_secret_backend_role" "web" {
+  backend            = vault_mount.pki_int.path
+  name               = "web"
+  allowed_domains    = ["aks-lab.local"]
+  allow_subdomains   = true
+  allow_bare_domains = false
+  max_ttl            = "2592000" # 30 days
+  key_type           = "ec"
+  key_bits           = 256
+  require_cn         = true
+}
+
+# ── cert-manager Vault policy ─────────────────────────────────────────────────
+# Azure equivalent: a Key Vault Certificates Officer role scoped to a single
+# Key Vault. cert-manager can sign certificates but cannot read other secrets
+# or administer the PKI mounts.
+resource "vault_policy" "cert_manager" {
+  name = "cert-manager"
+
+  depends_on = [null_resource.vault_health_check]
+
+  policy = <<-HCL
+    path "pki_int/sign/web" {
+      capabilities = ["create", "update"]
+    }
+    path "pki_int/issue/web" {
+      capabilities = ["create"]
+    }
+  HCL
+}
+
+# ── Kubernetes auth role for cert-manager ─────────────────────────────────────
+# cert-manager presents the service account JWT of its controller pod to Vault.
+# Vault validates it via the TokenReview API (same mechanism as azure-services)
+# and returns a short-lived token scoped to the cert-manager policy only.
+#
+# Azure equivalent: assigning the Certificates Officer role to the AKS workload
+# identity used by cert-manager, scoped to the Key Vault containing the private CA.
+resource "vault_kubernetes_auth_backend_role" "cert_manager" {
+  backend                          = vault_auth_backend.kubernetes.path
+  role_name                        = "cert-manager"
+  bound_service_account_names      = ["cert-manager"]
+  bound_service_account_namespaces = ["cert-manager"]
+  token_ttl                        = 1800 # 30 min — cert-manager renews frequently
+  token_max_ttl                    = 3600
+  token_policies                   = [vault_policy.cert_manager.name]
+}

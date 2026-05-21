@@ -154,7 +154,7 @@
   <a class="card" href="http://localhost:2746" target="_blank">
     <div class="card-name"><span class="card-dot" data-ns="argo"></span>Argo Workflows</div>
     <div class="card-url">localhost:2746</div>
-    <div class="card-open">Open &#x2197;</div>
+    <div class="card-open" style="color:var(--muted);font-size:11px">token required &#x2014; see Credentials</div>
   </a>
   <div class="card">
     <div class="card-name"><span class="card-dot" data-ns="service-bus"></span>Service Bus</div>
@@ -219,8 +219,8 @@
     <div class="row"><span class="row-label">Service Bus</span><span class="row-val" style="font-size:11px">SAS_KEY_VALUE · UseDevelopmentEmulator=true</span></div>
     <div class="row"><span class="row-label">Cosmos DB</span><span class="row-val" style="font-size:11px">well-known key · http://localhost:8081</span></div>
     <div class="row"><span class="row-label">Registry</span><span class="row-val" style="color:var(--muted)">no auth</span></div>
-    <div class="row"><span class="row-label">Argo Workflows</span><span class="row-val" style="font-size:11px;word-break:break-all">${ARGO_WORKFLOWS_TOKEN}</span></div>
-    <div class="row"><span class="row-label">K8s Dashboard</span><span class="row-val" style="font-size:11px;word-break:break-all">${K8S_DASHBOARD_TOKEN}</span></div>
+    <div class="row"><span class="row-label">Argo Workflows</span><span class="row-val" style="font-size:11px;word-break:break-all;flex:1;margin:0 8px;text-align:right">${ARGO_WORKFLOWS_TOKEN}</span><button class="copy-btn" onclick="cp(this,'${ARGO_WORKFLOWS_TOKEN}')">copy</button></div>
+    <div class="row"><span class="row-label">K8s Dashboard</span><span class="row-val" style="font-size:11px;word-break:break-all;flex:1;margin:0 8px;text-align:right">${K8S_DASHBOARD_TOKEN}</span><button class="copy-btn" onclick="cp(this,'${K8S_DASHBOARD_TOKEN}')">copy</button></div>
   </div>
   <div class="panel">
     <div class="cmd-row">ssh aks-toolbox<button class="copy-btn" onclick="cp(this,'ssh aks-toolbox')">copy</button></div>

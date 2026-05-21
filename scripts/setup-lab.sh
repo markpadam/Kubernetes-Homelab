@@ -1048,6 +1048,40 @@ else
   } >> "$LAB_LOG"
 fi
 
+# ── Step 3a: cert-manager ────────────────────────────────────────────────────
+# cert-manager is installed early so the NGINX ingress can terminate TLS for
+# all lab services. The Vault PKI ClusterIssuer is applied here but will remain
+# NotReady until the vault feature is enabled (Step 11) — cert-manager retries
+# automatically once Vault PKI is configured.
+step "Step 3a — Installing cert-manager"
+
+helm repo add jetstack https://charts.jetstack.io &>/dev/null
+helm repo update jetstack &>/dev/null
+
+if helm status cert-manager -n cert-manager &>/dev/null; then
+  warn "cert-manager already installed — skipping Helm install"
+else
+  log "Installing cert-manager v1.16.3..."
+  helm install cert-manager jetstack/cert-manager \
+    --namespace cert-manager \
+    --create-namespace \
+    --version v1.16.3 \
+    --set installCRDs=true \
+    --wait \
+    --timeout=5m
+fi
+
+log "Waiting for cert-manager webhook to be ready..."
+kubectl wait --namespace cert-manager \
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/component=webhook \
+  --timeout=120s
+
+log "Applying cert-manager ClusterIssuer (Vault PKI — becomes Ready after Step 11)..."
+kubectl apply -k "$REPO_ROOT/flux/infrastructure/base/cert-manager/"
+
+success "cert-manager ready"
+
 # ── Step 4: Persistent Storage ───────────────
 step "Step 4 — Enabling Persistent Storage"
 
@@ -1144,7 +1178,7 @@ if feature_enabled kubernetes-dashboard; then
     -n kubernetes-dashboard \
     -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || echo "")
   if [[ -n "$K8S_DASHBOARD_TOKEN" ]]; then
-    success "Kubernetes Dashboard ready — http://dashboard.aks-lab.local:9980"
+    success "Kubernetes Dashboard ready — https://dashboard.aks-lab.local:9443"
     log "  Admin token: ${K8S_DASHBOARD_TOKEN:0:40}... (full token in lab dashboard)"
   else
     warn "Dashboard installed but could not read admin token yet"
@@ -1223,7 +1257,7 @@ if feature_enabled rancher; then
     fi
   done
 
-  success "Rancher ready — http://rancher.aks-lab.local:9980  (bootstrap: ${RANCHER_BOOTSTRAP_PASSWORD})"
+  success "Rancher ready — https://rancher.aks-lab.local:9443  (bootstrap: ${RANCHER_BOOTSTRAP_PASSWORD})"
 else
   log "Skipping Step 5c — Rancher not selected"
 fi
@@ -1790,7 +1824,7 @@ PYEOF
     _DEX_RC=0
     kubectl wait deployment dex --for=condition=available --namespace=dex --timeout=120s || _DEX_RC=$?
     [[ $_DEX_RC -eq 0 ]] \
-      && success "Dex OIDC server ready — http://dex.aks-lab.local:9980" \
+      && success "Dex OIDC server ready — https://dex.aks-lab.local:9443" \
       || warn "Dex deployment did not complete within 120s — check: kubectl logs -n dex deployment/dex"
   fi
 
@@ -1815,7 +1849,7 @@ Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).saf
     _OAUTH_RC=0
     kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s || _OAUTH_RC=$?
     if [[ $_OAUTH_RC -eq 0 ]]; then
-      success "OAuth2 Proxy ready — SSO gate at oauth2-proxy.aks-lab.local:9980"
+      success "OAuth2 Proxy ready — SSO gate at https://oauth2-proxy.aks-lab.local:9443"
       log "Patching SSO annotations onto protected ingresses..."
       for _ing in "argocd argocd argocd.aks-lab.local" \
                   "kubernetes-dashboard kubernetes-dashboard dashboard.aks-lab.local" \
@@ -1828,7 +1862,7 @@ Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).saf
           kubectl annotate ingress -n "$1" "$2" --overwrite \
             "nginx.ingress.kubernetes.io/auth-url=http://oauth2-proxy.oauth2-proxy.svc.cluster.local:4180/oauth2/auth" \
             "nginx.ingress.kubernetes.io/auth-response-headers=X-Auth-Request-User,X-Auth-Request-Email" \
-            "nginx.ingress.kubernetes.io/auth-signin=http://oauth2-proxy.aks-lab.local:9980/oauth2/start?rd=http://${3}:9980/" \
+            "nginx.ingress.kubernetes.io/auth-signin=https://oauth2-proxy.aks-lab.local:9443/oauth2/start?rd=https://${3}:9443/" \
             &>/dev/null || true
       done
       success "SSO annotations applied"
@@ -2030,8 +2064,9 @@ _pf() {
   fi
 }
 
-# Web apps route through NGINX Ingress on port 9980.
+# Web apps route through NGINX Ingress: HTTP on 9980, HTTPS on 9443.
 _pf "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-portforward.log
+_pf "Ingress (HTTPS)"    9443 "kubectl port-forward svc/ingress-nginx-controller 9443:443 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-https-portforward.log
 feature_enabled toolbox            && _pf "Toolbox SSH"       2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"             /tmp/toolbox-portforward.log
 feature_enabled argo-workflows     && _pf "Argo Workflows"    2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"             /tmp/argo-workflows-portforward.log
 feature_enabled azure-sql          && _pf "Azure SQL"         1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"              /tmp/azure-sql-portforward.log

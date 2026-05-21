@@ -3,46 +3,49 @@
 ```mermaid
 graph TB
     subgraph multipass["Multipass VMs (ARM64 Ubuntu)"]
-        sambad["samba-ad\nActive Directory DC\nLDAP :389 · Kerberos :88\ncorp.internal"]
-        client["corp-client\nDomain-joined laptop\nrealmd + SSSD"]
+        sambad["samba-ad<br>Active Directory DC<br>LDAP :389 · Kerberos :88<br>corp.internal"]
+        client["corp-client<br>Domain-joined laptop<br>realmd + SSSD"]
     end
 
     subgraph host["Mac Host"]
         setup["./aks-lab (setup / resume)"]
-        tf["Terraform"] --> vault["HashiCorp Vault\nvault.aks-lab.local:8200"]
+        packer["Packer<br>IaC/packer/<br>samba-base · corp-client-base<br>~/.lab-cache/images/"]
+        tf["Terraform"] --> vault["HashiCorp Vault<br>vault.aks-lab.local:8200"]
         tf --> sambad
         tf --> client
+        packer -.->|"base image cache"| sambad
+        packer -.->|"base image cache"| client
     end
 
-    gh[("GitHub\nmarkpadam/Kubernetes-Homelab")]
+    gh["GitHub<br>markpadam/Kubernetes-Homelab"]
 
     subgraph cluster["Minikube Cluster — aks-lab  (Docker driver)"]
         subgraph auth["Identity & Auth"]
-            ingress["ingress-nginx\nlocalhost:9980 → all web apps"]
-            dex["dex\nOIDC provider\ndex.aks-lab.local:9980"]
-            proxy["oauth2-proxy\nForward auth gateway\noauth2-proxy.aks-lab.local:9980/oauth2"]
+            ingress["ingress-nginx<br>localhost:9980 → all web apps"]
+            dex["dex<br>OIDC provider<br>dex.aks-lab.local:9980"]
+            proxy["oauth2-proxy<br>Forward auth gateway<br>oauth2-proxy.aks-lab.local:9980/oauth2"]
         end
         subgraph flux["GitOps & Workflows"]
-            flux["flux-system\nFlux Controllers"]
-            argo["argocd\nargocd.aks-lab.local:9980"]
-            argowf["argo\nArgo Workflows :2746"]
+            flux["flux-system<br>Flux Controllers"]
+            argo["argocd<br>argocd.aks-lab.local:9980"]
+            argowf["argo<br>Argo Workflows :2746"]
         end
         subgraph apps["Applications"]
-            taskapp["taskapp\ntaskflow.aks-lab.local:9980\nNginx → Node.js → Postgres"]
-            blobapp["blob-explorer\nblob-explorer.aks-lab.local:9980\n.NET · Helm chart"]
+            taskapp["taskapp<br>taskflow.aks-lab.local:9980<br>Nginx → Node.js → Postgres"]
+            blobapp["blob-explorer<br>blob-explorer.aks-lab.local:9980<br>.NET · Helm chart"]
         end
         subgraph store["Storage & Shared Services"]
-            azurite["azure-storage · Azurite\nBlob :10000 · Queue :10001 · Table :10002"]
-            sql["azure-sql · Azure SQL Edge\n:1433"]
-            rabbit["service-bus · Service Bus Emulator\nAMQP :5672 · Health :5300"]
-            reg["container-registry · Registry v2\n:5000"]
-            mongo["cosmos-db · Cosmos DB Emulator\nNoSQL :8081 · Explorer :1234"]
+            azurite["azure-storage · Azurite<br>Blob :10000 · Queue :10001 · Table :10002"]
+            sql["azure-sql · Azure SQL Edge<br>:1433"]
+            rabbit["service-bus · Service Bus Emulator<br>AMQP :5672 · Health :5300"]
+            reg["container-registry · Registry v2<br>:5000"]
+            mongo["cosmos-db · Cosmos DB Emulator<br>NoSQL :8081 · Explorer :1234"]
         end
         subgraph infra["Infrastructure"]
-            mon["monitoring\ngrafana.aks-lab.local:9980\nPrometheus + Grafana"]
-            box["toolbox\nlocalhost:2222 · Ubuntu + SSH"]
-            dns["dns-lab\nbind9 · privatelink zones"]
-            coredns["kube-system\nCoreDNS · corp.internal → samba-ad"]
+            mon["monitoring<br>grafana.aks-lab.local:9980<br>Prometheus + Grafana"]
+            box["toolbox<br>localhost:2222 · Ubuntu + SSH"]
+            dns["dns-lab<br>bind9 · privatelink zones"]
+            coredns["kube-system<br>CoreDNS · corp.internal → samba-ad"]
         end
     end
 

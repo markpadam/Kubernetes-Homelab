@@ -71,7 +71,7 @@ The lab dashboard (http://localhost:9997) has a **Lab Management** section at th
 
 | Group | Components |
 |-------|-----------|
-| `infrastructure` | vault, monitoring, argocd, toolbox |
+| `infrastructure` | cert-manager, vault, monitoring, argocd, toolbox |
 | `identity` | samba-ad, dex, oauth2-proxy, corp-client |
 | `storage` | azurite, azure-sql, cosmos-db, service-bus, container-registry |
 | `apps` | taskflow, blob-explorer, argo-workflows |
@@ -82,7 +82,7 @@ The lab dashboard (http://localhost:9997) has a **Lab Management** section at th
 
 These are enabled by `--standard` and when no flag is given:
 
-- `vault`, `monitoring`, `argocd`, `toolbox`
+- `cert-manager`, `vault`, `monitoring`, `argocd`, `toolbox`
 - `azurite`, `azure-sql`, `service-bus`, `container-registry`
 - `taskflow`, `blob-explorer`
 
@@ -91,6 +91,7 @@ Optional (not on by default):
 - `samba-ad`, `dex`, `oauth2-proxy`, `corp-client` — the SSO identity stack (requires Multipass)
 - `cosmos-db` — Cosmos DB NoSQL emulator (heavier)
 - `argo-workflows` — Argo Workflows engine
+- `keda`, `keda-servicebus` — event-driven autoscaling demo
 
 ---
 
@@ -98,10 +99,13 @@ Optional (not on by default):
 
 Some components require others to be enabled first:
 
+- `cert-manager` → requires `vault`
 - `dex` → requires `samba-ad`
 - `oauth2-proxy` → requires `dex`
 - `corp-client` → requires `samba-ad`
 - `blob-explorer` → requires `azurite`
+- `service-bus` → requires `azure-sql`
+- `keda-servicebus` → requires `keda` and `service-bus`
 
 `./aks-lab feature enable` auto-enables dependencies. `./aks-lab feature disable` warns if dependents are still enabled (use `--force` to override).
 

@@ -4,10 +4,15 @@ metadata:
   name: rancher
   namespace: cattle-system
   annotations:
+    cert-manager.io/cluster-issuer: "lab-ca"
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
     nginx.ingress.kubernetes.io/ssl-passthrough: "false"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - rancher.aks-lab.local
+      secretName: rancher-tls
   rules:
     - host: rancher.aks-lab.local
       http:
