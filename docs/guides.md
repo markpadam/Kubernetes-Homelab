@@ -21,6 +21,7 @@ The guides below are sequenced so that each one builds on concepts introduced ea
 | 9 | [Service Bus Walkthrough](guides/service-bus-walkthrough.md) | AMQP 1.0 messaging with the Azure Service Bus emulator. Queues, topics, subscriptions, and how the emulator uses SQL Server for state storage. |
 | 10 | [Cosmos DB Walkthrough](guides/cosmos-db-walkthrough.md) | Azure Cosmos DB NoSQL API emulation. The Data Explorer UI, CRUD operations, SDK connection strings, and multi-region endpoint simulation. |
 | 11 | [Rancher Walkthrough](guides/rancher-walkthrough.md) | Optional. Cluster management UI with workload explorer, Helm marketplace, browser-based kubectl shell, and Fleet GitOps engine. Resource-heavy — enable only when you want the visual layer. |
+| 12 | [Postman & the Kubernetes API Walkthrough](guides/postman-kubernetes-api-walkthrough.md) | Call the Kubernetes REST API directly from Postman. ServiceAccount auth, CA certificate setup, health endpoints, API discovery, querying pods/deployments/services, reading logs, and understanding RBAC via SelfSubjectAccessReview. |
 
 ---
 

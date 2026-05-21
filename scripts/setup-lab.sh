@@ -1457,7 +1457,14 @@ fi
 step "Step 10 — Installing Flux (GitOps)"
 
 # Install Flux controllers
-if flux check --pre &>/dev/null && kubectl get namespace flux-system &>/dev/null; then
+# Skip if all four controllers are already deployed (flux check --pre fails on CLI version
+# mismatches even when the in-cluster install is healthy, so we check deployments directly).
+_flux_deployed() {
+  kubectl get deployment -n flux-system \
+    source-controller helm-controller \
+    kustomize-controller notification-controller &>/dev/null
+}
+if _flux_deployed; then
   warn "Flux already installed — skipping controller install."
 else
   log "Installing Flux controllers..."
