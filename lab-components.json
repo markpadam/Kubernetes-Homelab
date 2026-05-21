@@ -249,7 +249,7 @@
       "port_forwards": [
         {"local": 2746, "svc": "argo-server", "ns": "argo", "remote": 2746}
       ],
-      "desc": "Kubernetes-native workflow engine"
+      "desc": "Kubernetes-native workflow engine — run steps as pods, DAG pipelines, reusable WorkflowTemplates, UI at localhost:2746"
     },
     {
       "id": "azdo-agent",

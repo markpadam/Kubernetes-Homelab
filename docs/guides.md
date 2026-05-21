@@ -22,6 +22,7 @@ The guides below are sequenced so that each one builds on concepts introduced ea
 | 10 | [Cosmos DB Walkthrough](guides/cosmos-db-walkthrough.md) | Azure Cosmos DB NoSQL API emulation. The Data Explorer UI, CRUD operations, SDK connection strings, and multi-region endpoint simulation. |
 | 11 | [Rancher Walkthrough](guides/rancher-walkthrough.md) | Optional. Cluster management UI with workload explorer, Helm marketplace, browser-based kubectl shell, and Fleet GitOps engine. Resource-heavy — enable only when you want the visual layer. |
 | 12 | [Postman & the Kubernetes API Walkthrough](guides/postman-kubernetes-api-walkthrough.md) | Call the Kubernetes REST API directly from Postman. ServiceAccount auth, CA certificate setup, health endpoints, API discovery, querying pods/deployments/services, reading logs, and understanding RBAC via SelfSubjectAccessReview. |
+| 13 | [Argo Workflows Walkthrough](guides/argo-workflows-walkthrough.md) | Optional. Kubernetes-native workflow orchestration — running steps as pods, building DAG pipelines, reusing WorkflowTemplates, and the Argo Server UI. Azure equivalent of Logic Apps / Container Apps Jobs. |
 
 ---
 

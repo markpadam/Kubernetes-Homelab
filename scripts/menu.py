@@ -9,9 +9,11 @@ the menu when the action finishes.
 
 Usage: python3 scripts/menu.py <repo-root>
 """
+import json
 import os
-import sys
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 REPO_ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent
@@ -60,7 +62,6 @@ def enabled_count() -> str:
     if not state_file.exists():
         return "—"
     try:
-        import json
         data = json.loads(state_file.read_text())
         n = len(data.get("enabled", []))
         return f"{n} enabled"
@@ -68,19 +69,33 @@ def enabled_count() -> str:
         return "—"
 
 
-# (label, subcommand-args, dim-when-state, description)
-# dim-when-state filters: "running" → only enabled when cluster is running,
-# "stopped" → only when stopped, None → always enabled.
+def load_components() -> tuple[list[dict], set[str]]:
+    """Return (components, enabled_ids) from lab-components.json and .lab-state.json."""
+    registry = REPO_ROOT / "lab-components.json"
+    components = json.loads(registry.read_text())["components"]
+    state_file = REPO_ROOT / ".lab-state.json"
+    enabled: set[str] = set()
+    if state_file.exists():
+        try:
+            enabled = set(json.loads(state_file.read_text()).get("enabled", []))
+        except Exception:
+            pass
+    return components, enabled
+
+
+# (label, subcommand-args-or-None, dim-when-state, description)
+# dim-when-state: "running" → only when cluster running, "stopped" → only when stopped, None → always
+# argv=None means the action is handled inline (features sub-menu)
 ACTIONS = [
-    ("Setup",      ["setup"],            "stopped", "Build and start the lab (~15 min)"),
-    ("Resume",     ["resume"],           "stopped", "Resume after pause or Mac restart"),
-    ("Pause",      ["pause"],            "running", "minikube stop — keeps all state"),
-    ("Verify",     ["verify"],           "running", "Post-setup health check"),
-    ("Features",   ["feature", "list"],  "running", "Show / manage components"),
-    ("Refresh",    ["refresh"],          "running", "Re-apply manifests on running cluster"),
-    ("Resize",     ["resize"],           "running", "Shrink node memory after cluster settles"),
-    ("Dashboard",  ["dashboard"],        "running", "Open the web dashboard"),
-    ("Teardown",   ["teardown"],         None,      "Full wipe — cluster, VMs, hosts"),
+    ("Setup",      ["setup"],   "stopped", "Build and start the lab (~15 min)"),
+    ("Resume",     ["resume"],  "stopped", "Resume after pause or Mac restart"),
+    ("Pause",      ["pause"],   "running", "minikube stop — keeps all state"),
+    ("Verify",     ["verify"],  "running", "Post-setup health check"),
+    ("Features",   None,        "running", "Enable / disable components"),
+    ("Refresh",    ["refresh"], "running", "Re-apply manifests on running cluster"),
+    ("Resize",     ["resize"],  "running", "Shrink node memory after cluster settles"),
+    ("Dashboard",  ["dashboard"], "running", "Open the web dashboard"),
+    ("Teardown",   ["teardown"], None,      "Full wipe — cluster, VMs, hosts"),
 ]
 
 
@@ -130,6 +145,112 @@ def run_action(argv: list[str]) -> None:
         pass
 
 
+def features_menu() -> None:
+    """Interactive component enable/disable sub-menu."""
+    while True:
+        components, enabled = load_components()
+        state, state_style = cluster_state()
+
+        console.clear()
+        header = Text()
+        header.append("  cluster: ", style="dim")
+        header.append(state, style=f"bold {state_style}")
+        n_on = len(enabled)
+        n_total = len(components)
+        header.append(f"   ·   {n_on}/{n_total} components enabled", style="dim")
+        console.print(Panel(
+            header,
+            title="[bold cyan]  Features  [/]",
+            box=box.ROUNDED, border_style="cyan", padding=(0, 2),
+        ))
+
+        table = Table(show_header=False, box=None, padding=(0, 1))
+        table.add_column(width=4,  no_wrap=True)   # number
+        table.add_column(width=22, no_wrap=True)   # id
+        table.add_column(width=30, no_wrap=True)   # name
+        table.add_column(width=12, no_wrap=True)   # state badge
+        table.add_column()                         # deps / desc
+
+        items: list[dict] = []
+        cur_group: str | None = None
+
+        for comp in components:
+            grp = comp.get("group", "")
+            if grp != cur_group:
+                if cur_group is not None:
+                    table.add_row("", "", "", "", "")
+                table.add_row(
+                    "",
+                    f"[bold cyan]{grp.upper()}[/]",
+                    "", "", "",
+                )
+                cur_group = grp
+
+            n = len(items) + 1
+            items.append(comp)
+            is_on = comp["id"] in enabled
+            deps = comp.get("depends", [])
+            dep_note = f"[dim]← {', '.join(deps)}[/]" if deps else ""
+
+            if is_on:
+                table.add_row(
+                    f"[cyan bold] {n}.[/]",
+                    f"[bold]{comp['id']}[/]",
+                    comp["name"],
+                    "[green]● enabled[/]",
+                    dep_note,
+                )
+            else:
+                table.add_row(
+                    f"[dim cyan] {n}.[/]",
+                    f"[dim]{comp['id']}[/]",
+                    f"[dim]{comp['name']}[/]",
+                    "[dim]○ disabled[/]",
+                    dep_note,
+                )
+
+        console.print(table)
+        console.print()
+        console.print("[dim]  Enter a number to enable/disable · 0 or Enter to go back[/]")
+        console.print()
+
+        try:
+            choice = Prompt.ask("[bold cyan]feature[/]", default="0").strip()
+        except (KeyboardInterrupt, EOFError):
+            return
+
+        if choice in ("0", "", "q", "back", "b"):
+            return
+
+        if not choice.isdigit():
+            console.print(f"[red]  unknown: {choice!r}[/]")
+            time.sleep(1)
+            continue
+
+        idx = int(choice) - 1
+        if not (0 <= idx < len(items)):
+            console.print(f"[red]  out of range: {choice}[/]")
+            time.sleep(1)
+            continue
+
+        comp = items[idx]
+        comp_id = comp["id"]
+        is_on = comp_id in enabled
+        action = "disable" if is_on else "enable"
+
+        console.print(f"\n[dim]→ ./aks-lab feature {action} {comp_id}[/]\n")
+        try:
+            subprocess.run([str(AKS_LAB), "feature", action, comp_id], cwd=str(REPO_ROOT))
+        except KeyboardInterrupt:
+            console.print("\n[yellow]  (interrupted)[/]")
+
+        console.print("\n[dim]press Enter to continue...[/]", end="")
+        try:
+            input()
+        except EOFError:
+            pass
+
+
 def main() -> None:
     while True:
         state, state_style = cluster_state()
@@ -154,6 +275,8 @@ def main() -> None:
                     input()
                 except EOFError:
                     pass
+            elif label == "Features":
+                features_menu()
             else:
                 run_action(argv)
         else:

@@ -32,6 +32,8 @@ RESET='\033[0m'
 # ── Logging setup ─────────────────────────────
 LAB_LOG="/tmp/lab-resume-$(date +%Y%m%d-%H%M%S).log"
 exec 3>&1
+exec 5>&1
+RESUME_START=$(date +%s)
 VERBOSE=0
 [[ "${1:-}" == "--verbose" || "${1:-}" == "-v" ]] && VERBOSE=1
 
@@ -57,6 +59,93 @@ else
   error()   { echo -e "${RED}${BOLD}[✗]${RESET} $*"; exit 1; }
   step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
 fi
+
+_BANNER_PRINTED=0
+_FAILED_LINE=""
+_FAILED_CMD=""
+_HEALTH_ROWS=()
+_CHECKS_PASS=0
+_CHECKS_FAIL=0
+_CHECKS_TOTAL=0
+ELAPSED_MIN=0
+ELAPSED_SEC=0
+
+_capture_err() {
+  _FAILED_LINE="$1"
+  _FAILED_CMD="$2"
+  echo "[$(date +%T)] ERR trap: line ${_FAILED_LINE}: ${_FAILED_CMD}" >> "${LAB_LOG:-/tmp/resume-err.log}" 2>/dev/null || true
+}
+trap '_capture_err "$LINENO" "$BASH_COMMAND"' ERR
+
+_at_exit() {
+  local _ec=$?
+  if [[ "$_BANNER_PRINTED" == "1" ]]; then
+    return
+  fi
+  _BANNER_PRINTED=1
+
+  {
+    printf '\033[?1049l'
+    printf '\033[?25h'
+    printf '\033[0m'
+    printf '\033[2J'
+    printf '\033[H'
+  } >&5 2>/dev/null || true
+  stty sane < /dev/tty 2>/dev/null || true
+
+  local pass=${_CHECKS_PASS:-0}
+  local fail=${_CHECKS_FAIL:-0}
+  local total=${_CHECKS_TOTAL:-$((pass + fail))}
+  local log=${LAB_LOG:-/tmp/lab-resume-unknown.log}
+  local emin=${ELAPSED_MIN:-0} esec=${ELAPSED_SEC:-0}
+  if [[ "$emin" -eq 0 && "$esec" -eq 0 && -n "${RESUME_START:-}" ]]; then
+    local _s=$(( $(date +%s) - RESUME_START ))
+    emin=$(( _s / 60 )); esec=$(( _s % 60 ))
+  fi
+
+  {
+    echo ""
+    echo -e "  ${BOLD}════════════════════════════════════════════════════════════════════${RESET}"
+    if [[ "$_ec" -eq 0 && "$fail" -eq 0 ]]; then
+      echo -e "    ${GREEN}${BOLD}✓ Resume complete${RESET} — ${GREEN}${pass}/${total} components healthy${RESET} — ${emin}m ${esec}s"
+    elif [[ "$_ec" -eq 0 ]]; then
+      echo -e "    ${YELLOW}${BOLD}~ Resume complete${RESET} — ${YELLOW}${pass}/${total} healthy · ${fail} need attention${RESET} — ${emin}m ${esec}s"
+    else
+      echo -e "    ${RED}${BOLD}✗ Resume failed${RESET} — exit code ${_ec} — ${emin}m ${esec}s"
+      if [[ -n "$_FAILED_LINE" ]]; then
+        echo -e "    ${RED}Failed at line ${_FAILED_LINE}:${RESET} ${_FAILED_CMD}"
+      fi
+    fi
+
+    if [[ ${#_HEALTH_ROWS[@]} -gt 0 ]]; then
+      echo ""
+      local row status label detail
+      for row in "${_HEALTH_ROWS[@]}"; do
+        status="${row%%|*}"
+        if [[ "$status" == "section" ]]; then
+          label="${row#section|}"
+          echo -e "    ${BOLD}${label}${RESET}"
+        else
+          local rest="${row#*|}"
+          label="${rest%%|*}"
+          detail="${rest#*|}"
+          case "$status" in
+            ok)   echo -e "      ${GREEN}✓${RESET}  $(printf '%-22s' "$label")${DIM}${detail}${RESET}" ;;
+            warn) echo -e "      ${YELLOW}~${RESET}  $(printf '%-22s' "$label")${YELLOW}${detail}${RESET}" ;;
+            fail) echo -e "      ${RED}✗${RESET}  $(printf '%-22s' "$label")${RED}${detail}${RESET}" ;;
+          esac
+        fi
+      done
+      echo ""
+    fi
+
+    echo -e "    Dashboard: ${GREEN}http://localhost:9997/${RESET}"
+    echo -e "    Log:       ${log}"
+    echo -e "  ${BOLD}════════════════════════════════════════════════════════════════════${RESET}"
+    echo ""
+  } >&5 2>/dev/null || true
+}
+trap _at_exit EXIT
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -95,10 +184,13 @@ fi
 # ── Start cluster ─────────────────────────────
 step "Starting Cluster"
 
-minikube status -p "$PROFILE" | grep -q "Running" && warn "Cluster already running — skipping start." || {
+_mk_status=$(minikube status -p "$PROFILE" 2>/dev/null || true)
+if [[ "$_mk_status" == *"Running"* ]]; then
+  warn "Cluster already running — skipping start."
+else
   log "Starting minikube profile '$PROFILE'..."
   minikube start -p "$PROFILE"
-}
+fi
 
 log "Waiting for nodes to be Ready..."
 kubectl wait --for=condition=Ready nodes --all --timeout=120s
@@ -238,35 +330,207 @@ else
   open "$DASHBOARD_URL"
 fi
 
-# ── Done ─────────────────────────────────────
-step "Lab Resumed"
+# ── Health check helpers ──────────────────────
+_chk_ok() {
+  _CHECKS_PASS=$(( _CHECKS_PASS + 1 ))
+  _HEALTH_ROWS+=("ok|$1|$2")
+}
+_chk_warn() {
+  _CHECKS_FAIL=$(( _CHECKS_FAIL + 1 ))
+  _HEALTH_ROWS+=("warn|$1|$2")
+}
+_chk_fail() {
+  _CHECKS_FAIL=$(( _CHECKS_FAIL + 1 ))
+  _HEALTH_ROWS+=("fail|$1|$2")
+}
+_chk_section() {
+  _HEALTH_ROWS+=("section|$1")
+  return 0
+}
 
-echo -e "
-${BOLD}  Active features:${RESET} ${ENABLED_FEATURES:-all (no state file)}
+_check_ns() {
+  local label="$1" ns="$2"
+  if ! kubectl get namespace "$ns" &>/dev/null; then
+    _chk_fail "$label" "namespace '$ns' not found"
+    return
+  fi
+  local running total
+  running=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
+            | awk '/ Running /{c++}END{print c+0}')
+  total=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
+          | awk '!/Completed/{c++}END{print c+0}')
+  if [[ "$total" -eq 0 ]]; then
+    _chk_fail "$label" "no pods deployed"
+  elif [[ "$running" -eq "$total" ]]; then
+    _chk_ok "$label" "$running/$total pods running"
+  else
+    _chk_warn "$label" "$running/$total pods running (some not ready)"
+  fi
+}
 
-${BOLD}  Web Apps (via NGINX Ingress — port 9980)${RESET}"
-feature_enabled taskflow       && echo -e "  TaskFlow:      ${GREEN}http://taskflow.aks-lab.local:9980${RESET}"
-feature_enabled monitoring     && echo -e "  Grafana:       ${GREEN}http://grafana.aks-lab.local:9980${RESET}   login: admin / $GRAFANA_PASSWORD"
-feature_enabled argocd         && echo -e "  ArgoCD:        ${GREEN}http://argocd.aks-lab.local:9980${RESET}   login: admin / $ARGOCD_PASSWORD"
-feature_enabled blob-explorer  && echo -e "  Blob Explorer: ${GREEN}http://blob-explorer.aks-lab.local:9980${RESET}"
-feature_enabled dex            && echo -e "  Dex (OIDC):    ${GREEN}http://dex.aks-lab.local:9980/.well-known/openid-configuration${RESET}"
+_run_health_checks() {
+  _CHECKS_PASS=0
+  _CHECKS_FAIL=0
+  _HEALTH_ROWS=()
 
-echo -e ""
-echo -e "${BOLD}  Direct port-forwards${RESET}"
-feature_enabled vault          && echo -e "  Vault UI:      ${GREEN}${VAULT_ADDR}/ui${RESET}   token: ${VAULT_TOKEN}"
-feature_enabled azure-sql      && echo -e "  Azure SQL:     ${GREEN}localhost:1433${RESET}   login: sa / AksLab!SqlDev1"
-feature_enabled service-bus    && echo -e "  Service Bus:   ${GREEN}localhost:5672${RESET} (AMQP), ${GREEN}localhost:5300${RESET} (Mgmt)"
-feature_enabled container-registry && echo -e "  Registry:      ${GREEN}localhost:5000${RESET}"
-feature_enabled cosmos-db      && echo -e "  Cosmos DB:     ${GREEN}http://localhost:8081${RESET}  Explorer: ${GREEN}http://localhost:1234${RESET}"
-feature_enabled argo-workflows && echo -e "  Argo Workflows:${GREEN}http://localhost:2746${RESET}"
-feature_enabled toolbox        && echo -e "  Toolbox SSH:   ${GREEN}ssh aks-toolbox${RESET}  (or: ssh -p 2222 root@localhost)"
+  _chk_section "Core"
+  _check_ns "ingress-nginx" ingress-nginx
+  _check_ns "flux"          flux-system
+  _check_ns "dns-lab"       dns-lab
 
-echo -e ""
-echo -e "${BOLD}  Manage features${RESET}"
-echo -e "  List:    ./aks-lab feature list"
-echo -e "  Enable:  ./aks-lab feature enable <id>"
-echo -e "  Disable: ./aks-lab feature disable <id>"
-echo -e ""
-echo -e "${DIM}  Full resume log: ${LAB_LOG}${RESET}"
-echo -e "${DIM}  Re-run with --verbose to stream all output to the terminal${RESET}"
-echo ""
+  _chk_section "Infrastructure"
+  if feature_enabled vault; then
+    if curl -sf http://127.0.0.1:8200/v1/sys/health 2>/dev/null \
+        | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if not d.get('sealed') else 1)" 2>/dev/null; then
+      _chk_ok "vault" "dev server unsealed at :8200"
+    else
+      _chk_fail "vault" "not reachable at http://127.0.0.1:8200"
+    fi
+  fi
+  feature_enabled monitoring           && _check_ns "monitoring"    monitoring
+  feature_enabled kubernetes-dashboard && _check_ns "k8s-dashboard" kubernetes-dashboard
+  feature_enabled rancher              && _check_ns "rancher"        cattle-system
+  feature_enabled argocd               && _check_ns "argocd"         argocd
+  feature_enabled toolbox              && _check_ns "toolbox"        toolbox
+
+  _chk_section "Identity"
+  if feature_enabled samba-ad; then
+    _SAMBA_STATE=$(multipass info samba-ad --format json 2>/dev/null \
+      | python3 -c "import sys,json; d=json.load(sys.stdin); i=d['info']['samba-ad']; print(i['state']+'|'+i['ipv4'][0])" \
+      2>/dev/null || echo "Error|")
+    if [[ "$_SAMBA_STATE" == Running* ]]; then
+      _chk_ok "samba-ad" "VM running — ${_SAMBA_STATE#*|}"
+    else
+      _chk_fail "samba-ad" "VM not running (state: ${_SAMBA_STATE%|*})"
+    fi
+  fi
+  feature_enabled dex          && _check_ns "dex"          dex
+  feature_enabled oauth2-proxy && _check_ns "oauth2-proxy" oauth2-proxy
+  if feature_enabled corp-client; then
+    _CLIENT_STATE=$(multipass info corp-client --format json 2>/dev/null \
+      | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['state'])" \
+      2>/dev/null || echo "Error")
+    if [[ "$_CLIENT_STATE" == "Running" ]]; then
+      _chk_ok "corp-client" "VM running"
+    else
+      _chk_fail "corp-client" "VM not running (state: $_CLIENT_STATE)"
+    fi
+  fi
+
+  _chk_section "Storage"
+  feature_enabled azurite            && _check_ns "azurite"            azure-storage
+  feature_enabled azure-sql          && _check_ns "azure-sql"          azure-sql
+  feature_enabled cosmos-db          && _check_ns "cosmos-db"          cosmos-db
+  feature_enabled service-bus        && _check_ns "service-bus"        service-bus
+  feature_enabled container-registry && _check_ns "container-registry" container-registry
+
+  _chk_section "Apps"
+  feature_enabled taskflow       && _check_ns "taskflow"       taskapp
+  feature_enabled blob-explorer  && _check_ns "blob-explorer"  blob-explorer
+  feature_enabled argo-workflows && _check_ns "argo-workflows" argo
+  feature_enabled azdo-agent     && _check_ns "azdo-agent"     azdo-agent
+
+  _CHECKS_TOTAL=$(( _CHECKS_PASS + _CHECKS_FAIL ))
+  return 0
+}
+
+_render_live_dashboard() {
+  local elapsed=$1 state=$2
+  local emin=$(( elapsed / 60 )) esec=$(( elapsed % 60 ))
+  local pass=${_CHECKS_PASS:-0} fail=${_CHECKS_FAIL:-0} total=${_CHECKS_TOTAL:-0}
+  local pct=0
+  [[ $total -gt 0 ]] && pct=$(( pass * 100 / total ))
+
+  local bar="" filled=$(( pct * 30 / 100 )) i
+  for (( i=0; i<30; i++ )); do
+    if (( i < filled )); then bar+="▓"; else bar+="░"; fi
+  done
+
+  local title_color="$CYAN" title_icon="⟳" title_text="Waiting for services"
+  case "$state" in
+    ready)   title_color="$GREEN";  title_icon="✓"; title_text="All services ready" ;;
+    timeout) title_color="$YELLOW"; title_icon="!"; title_text="Timed out — some services still pending" ;;
+  esac
+
+  {
+    printf '\033[H\033[2J\033[?25l'
+
+    echo ""
+    echo -e "  ${title_color}${BOLD}━━━ AKS Homelab ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    printf  "    %b ${BOLD}%s${RESET}   ${DIM}%d/%d ready · %dm %02ds${RESET}\n" \
+            "${title_color}${title_icon}${RESET}" "$title_text" "$pass" "$total" "$emin" "$esec"
+    printf  "    %s ${DIM}%d%%${RESET}\n" "$bar" "$pct"
+    echo -e "  ${title_color}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo ""
+
+    local row status label detail rest
+    for row in "${_HEALTH_ROWS[@]}"; do
+      status="${row%%|*}"
+      if [[ "$status" == "section" ]]; then
+        label="${row#section|}"
+        echo -e "    ${BOLD}${label}${RESET}"
+      else
+        rest="${row#*|}"
+        label="${rest%%|*}"
+        detail="${rest#*|}"
+        case "$status" in
+          ok)   echo -e "      ${GREEN}✓${RESET}  $(printf '%-22s' "$label")${DIM}${detail}${RESET}" ;;
+          warn) echo -e "      ${YELLOW}⟳${RESET}  $(printf '%-22s' "$label")${YELLOW}${detail}${RESET}" ;;
+          fail) echo -e "      ${RED}✗${RESET}  $(printf '%-22s' "$label")${RED}${detail}${RESET}" ;;
+        esac
+      fi
+    done
+
+    echo ""
+    if [[ "$state" == "waiting" ]]; then
+      echo -e "  ${DIM}Dashboard → http://localhost:9997/    ·    Press Ctrl-C to skip wait${RESET}"
+    else
+      if [[ "$fail" -eq 0 ]]; then
+        echo -e "  ${GREEN}${BOLD}✓  Resume complete${RESET} — ${GREEN}${pass}/${total} components healthy${RESET} — ${emin}m ${esec}s"
+      else
+        echo -e "  ${YELLOW}${BOLD}~  Resume complete${RESET} — ${YELLOW}${pass}/${total} healthy · ${fail} need attention${RESET} — ${emin}m ${esec}s"
+      fi
+      echo ""
+      echo -e "  ${DIM}Dashboard → http://localhost:9997/  ·  Log: ${LAB_LOG:-/tmp/lab-resume.log}${RESET}"
+    fi
+
+    printf '\033[?25h'
+  } >&5 2>/dev/null || true
+}
+
+_wait_until_ready() {
+  local interval=${1:-5} max=${2:-900} start=${3:-$RESUME_START}
+  local _skip=0
+  trap '_skip=1' INT
+  local state="waiting" elapsed
+  while true; do
+    _run_health_checks
+    elapsed=$(( $(date +%s) - start ))
+
+    if (( _CHECKS_FAIL == 0 && _CHECKS_TOTAL > 0 )); then
+      state="ready"
+    elif (( elapsed >= max )); then
+      state="timeout"
+    elif (( _skip == 1 )); then
+      state="timeout"
+    fi
+
+    _render_live_dashboard "$elapsed" "$state"
+
+    [[ "$state" != "waiting" ]] && break
+    sleep "$interval"
+  done
+  trap - INT
+  return 0
+}
+
+# ── Live readiness watcher ────────────────────
+RESUME_END=$(date +%s)
+echo "[$(date +%T)] entering live readiness watcher" >> "$LAB_LOG"
+_wait_until_ready 5 900 "$RESUME_END"
+_BANNER_PRINTED=1
+
+ELAPSED=$(( $(date +%s) - RESUME_START ))
+ELAPSED_MIN=$(( ELAPSED / 60 ))
+ELAPSED_SEC=$(( ELAPSED % 60 ))
+echo "[$(date +%T)] reached end of script normally" >> "$LAB_LOG"
