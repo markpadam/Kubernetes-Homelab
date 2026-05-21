@@ -2,7 +2,7 @@
 
 **Namespace:** `container-registry`  
 **Azure equivalent:** Azure Container Registry  
-**Managed by:** Flux (`gitops/apps/base/container-registry/`)
+**Managed by:** Flux (`flux/apps/base/container-registry/`)
 
 ## Overview
 

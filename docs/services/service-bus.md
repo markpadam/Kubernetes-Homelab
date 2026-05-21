@@ -2,7 +2,7 @@
 
 **Namespace:** `service-bus`  
 **Azure equivalent:** Azure Service Bus  
-**Managed by:** Flux (`gitops/apps/base/service-bus/`)
+**Managed by:** Flux (`flux/apps/base/service-bus/`)
 
 ## Overview
 
@@ -46,7 +46,7 @@ Configured via the `servicebus-config` ConfigMap (`Config.json`):
 | `topic.1` | Topic | TTL 1h |
 | `topic.1` / `subscription.1` | Subscription | TTL 1h, lock 1m, max delivery 3 |
 
-To add queues or topics, edit `gitops/apps/base/service-bus/config.yaml` and commit — Flux will apply the change and the emulator will reload on pod restart.
+To add queues or topics, edit `flux/apps/base/service-bus/config.yaml` and commit — Flux will apply the change and the emulator will reload on pod restart.
 
 ## DNS
 

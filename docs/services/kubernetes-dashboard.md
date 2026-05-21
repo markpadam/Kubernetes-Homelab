@@ -24,7 +24,7 @@ Open `http://dashboard.aks-lab.local:9980` in your browser. If OAuth2 Proxy is e
 
 ## Deployment
 
-The Dashboard is deployed via the `gitops/infrastructure/base/kubernetes-dashboard/` manifests. The ingress resource is configured to route `dashboard.aks-lab.local` through NGINX to the dashboard service.
+The Dashboard is deployed via the `flux/infrastructure/base/kubernetes-dashboard/` manifests. The ingress resource is configured to route `dashboard.aks-lab.local` through NGINX to the dashboard service.
 
 ## Notes
 

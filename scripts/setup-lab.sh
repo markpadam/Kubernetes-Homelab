@@ -19,9 +19,9 @@ PROFILE="${LAB_PROFILE:-aks-lab}"
 K8S_VERSION="v1.32.0"
 NODES=3
 # CPUS / MEMORY / SAMBA_* / CLIENT_* are set by the resource tier prompt below
-APP_DIR="gitops/apps/base/taskflow"
-DNS_DIR="gitops/infrastructure/base/dns"
-TOOLBOX_DIR="gitops/infrastructure/base/toolbox"
+APP_DIR="flux/apps/base/taskflow"
+DNS_DIR="flux/infrastructure/base/dns"
+TOOLBOX_DIR="flux/infrastructure/base/toolbox"
 GRAFANA_PASSWORD="admin123"
 # ── Fork note ─────────────────────────────────────────────────────────────────
 # Forks/PR branches: override GITHUB_REPO / GITHUB_BRANCH via env so Flux
@@ -30,11 +30,11 @@ GRAFANA_PASSWORD="admin123"
 # ──────────────────────────────────────────────────────────────────────────────
 GITHUB_REPO="${GITHUB_REPO:-https://github.com/markpadam/Kubernetes-Homelab.git}"
 GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
-# LAB_ENV selects which overlay Flux watches: gitops/clusters/<env>/{apps,infrastructure}.yaml.
+# LAB_ENV selects which overlay Flux watches: flux/clusters/<env>/{apps,infrastructure}.yaml.
 # Defaults to dev; set LAB_ENV=prd to deploy the production overlay instead.
 LAB_ENV="${LAB_ENV:-dev}"
 case "$LAB_ENV" in dev|prd) ;; *) echo "Invalid LAB_ENV='$LAB_ENV' (expected: dev|prd)" >&2; exit 1 ;; esac
-FLUX_APPS_PATH="${FLUX_APPS_PATH:-./gitops/clusters/${LAB_ENV}}"
+FLUX_APPS_PATH="${FLUX_APPS_PATH:-./flux/clusters/${LAB_ENV}}"
 
 # ── Colours ──────────────────────────────────
 RED='\033[0;31m'
@@ -210,7 +210,7 @@ _REPO_ROOT="$(cd "$_LIB_DIR/.." && pwd)"
 source "$_LIB_DIR/lib-common.sh"
 
 # Run from repo root so the many relative paths in this script
-# (gitops/infrastructure/base/..., IaC/terraform, dashboard-template.html, etc.)
+# (flux/infrastructure/base/..., IaC/terraform, dashboard-template.html, etc.)
 # resolve correctly regardless of where the caller invoked us from.
 cd "$_REPO_ROOT"
 
@@ -1085,7 +1085,7 @@ if feature_enabled monitoring; then
   fi
 
   log "Applying Grafana ingress..."
-  kubectl apply -k gitops/infrastructure/base/monitoring/ || warn "Grafana ingress apply failed"
+  kubectl apply -k flux/infrastructure/base/monitoring/ || warn "Grafana ingress apply failed"
   success "Monitoring stack installed"
 else
   log "Skipping Step 5 — Monitoring not selected"
@@ -1110,7 +1110,7 @@ if feature_enabled kubernetes-dashboard; then
   fi
 
   log "Applying dashboard RBAC and ingress..."
-  kubectl apply -k gitops/infrastructure/base/kubernetes-dashboard/ \
+  kubectl apply -k flux/infrastructure/base/kubernetes-dashboard/ \
     || warn "Dashboard RBAC/ingress apply failed"
 
   K8S_DASHBOARD_TOKEN=$(kubectl get secret admin-user-token \
@@ -1170,7 +1170,7 @@ if feature_enabled rancher; then
   fi
 
   log "Applying Rancher ingress..."
-  kubectl apply -k gitops/infrastructure/base/rancher/ \
+  kubectl apply -k flux/infrastructure/base/rancher/ \
     || warn "Rancher ingress apply failed"
 
   log "Waiting for Rancher to be ready (may take several minutes)..."
@@ -1447,7 +1447,7 @@ if feature_enabled argocd; then
     | kubectl apply -f -
 
   log "Applying ArgoCD ingress..."
-  kubectl apply -k gitops/infrastructure/base/argocd/ || warn "ArgoCD ingress apply failed"
+  kubectl apply -k flux/infrastructure/base/argocd/ || warn "ArgoCD ingress apply failed"
   success "ArgoCD ready — https://localhost:8080  (admin / $ARGOCD_PASSWORD)"
 else
   log "Skipping Step 9 — ArgoCD not selected"
@@ -1489,7 +1489,7 @@ spec:
     name: flux-system
 EOF
 
-# Apply the Kustomization that watches gitops/clusters/<env>/
+# Apply the Kustomization that watches flux/clusters/<env>/
 log "Applying Kustomization for ${FLUX_APPS_PATH}/..."
 kubectl apply -f - <<EOF
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -1730,13 +1730,13 @@ if feature_enabled dex || feature_enabled oauth2-proxy; then
     else
       log "Applying Dex ConfigMap (static admin only — samba-ad not enabled)..."
     fi
-    kubectl apply -f gitops/infrastructure/base/identity/dex/namespace.yaml
+    kubectl apply -f flux/infrastructure/base/identity/dex/namespace.yaml
     # Render config.yaml: substitute env vars, and strip the LDAP connector block
     # when SAMBA_IP is empty/sentinel so Dex doesn't try to dial a non-existent host.
     python3 - <<'PYEOF'
 import os, re, string
 from pathlib import Path
-t = Path('gitops/infrastructure/base/identity/dex/config.yaml').read_text()
+t = Path('flux/infrastructure/base/identity/dex/config.yaml').read_text()
 samba_ip = os.environ.get('SAMBA_IP', '').strip()
 if not samba_ip or samba_ip == '<samba-ad-ip>':
     t = re.sub(
@@ -1749,10 +1749,10 @@ Path('/tmp/dex-config-rendered.yaml').write_text(
 PYEOF
     kubectl apply -f /tmp/dex-config-rendered.yaml
     log "Deploying Dex OIDC server..."
-    kubectl apply -f gitops/infrastructure/base/identity/dex/deployment.yaml
-    kubectl apply -f gitops/infrastructure/base/identity/dex/service.yaml
-    _kubectl_apply_retry -f gitops/infrastructure/base/identity/dex/ingress.yaml \
-      || warn "Dex ingress apply failed after retries — run: kubectl apply -f gitops/infrastructure/base/identity/dex/ingress.yaml"
+    kubectl apply -f flux/infrastructure/base/identity/dex/deployment.yaml
+    kubectl apply -f flux/infrastructure/base/identity/dex/service.yaml
+    _kubectl_apply_retry -f flux/infrastructure/base/identity/dex/ingress.yaml \
+      || warn "Dex ingress apply failed after retries — run: kubectl apply -f flux/infrastructure/base/identity/dex/ingress.yaml"
     _DEX_RC=0
     kubectl wait deployment dex --for=condition=available --namespace=dex --timeout=120s || _DEX_RC=$?
     [[ $_DEX_RC -eq 0 ]] \
@@ -1765,19 +1765,19 @@ PYEOF
       "python3 -c 'import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())'")
     export COOKIE_SECRET
     log "Applying OAuth2 Proxy secret..."
-    kubectl apply -f gitops/infrastructure/base/identity/oauth2-proxy/namespace.yaml
+    kubectl apply -f flux/infrastructure/base/identity/oauth2-proxy/namespace.yaml
     python3 -c "
 import os, string
 from pathlib import Path
-t = Path('gitops/infrastructure/base/identity/oauth2-proxy/secret.yaml').read_text()
+t = Path('flux/infrastructure/base/identity/oauth2-proxy/secret.yaml').read_text()
 Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
 "
     kubectl apply -f /tmp/oauth2-proxy-secret-rendered.yaml
     log "Deploying OAuth2 Proxy..."
-    kubectl apply -f gitops/infrastructure/base/identity/oauth2-proxy/deployment.yaml
-    kubectl apply -f gitops/infrastructure/base/identity/oauth2-proxy/service.yaml
-    _kubectl_apply_retry -f gitops/infrastructure/base/identity/oauth2-proxy/ingress.yaml \
-      || warn "OAuth2 Proxy ingress apply failed after retries — run: kubectl apply -f gitops/infrastructure/base/identity/oauth2-proxy/ingress.yaml"
+    kubectl apply -f flux/infrastructure/base/identity/oauth2-proxy/deployment.yaml
+    kubectl apply -f flux/infrastructure/base/identity/oauth2-proxy/service.yaml
+    _kubectl_apply_retry -f flux/infrastructure/base/identity/oauth2-proxy/ingress.yaml \
+      || warn "OAuth2 Proxy ingress apply failed after retries — run: kubectl apply -f flux/infrastructure/base/identity/oauth2-proxy/ingress.yaml"
     _OAUTH_RC=0
     kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s || _OAUTH_RC=$?
     if [[ $_OAUTH_RC -eq 0 ]]; then
@@ -1934,11 +1934,11 @@ if feature_enabled azdo-agent; then
     --dry-run=client -o yaml | kubectl apply --validate=false -f -
 
   log "Building azdo-agent image (arm64-compatible)..."
-  docker build -t azdo-agent:local gitops/apps/base/azdo-agent/ >/dev/null
+  docker build -t azdo-agent:local flux/apps/base/azdo-agent/ >/dev/null
   minikube -p "$PROFILE" image load azdo-agent:local
 
   log "Applying agent manifests..."
-  kubectl apply --validate=false -k gitops/apps/base/azdo-agent/
+  kubectl apply --validate=false -k flux/apps/base/azdo-agent/
   _AZDO_RC=0
   kubectl rollout status deployment/azdo-agent -n azdo-agent --timeout=180s || _AZDO_RC=$?
   if [[ $_AZDO_RC -ne 0 ]]; then
@@ -1965,7 +1965,7 @@ if [[ ${#_ENABLED_STORAGE[@]} -gt 0 ]]; then
   for _svc in "${_ENABLED_STORAGE[@]}"; do
     log "Deploying $_svc..."
     _SVC_RC=0
-    kubectl apply -k "gitops/apps/base/${_svc}/" || _SVC_RC=$?
+    kubectl apply -k "flux/apps/base/${_svc}/" || _SVC_RC=$?
     [[ $_SVC_RC -eq 0 ]] || warn "$_svc manifest apply failed (exit $_SVC_RC) — use 'lab-feature.sh enable $_svc' to retry"
   done
   feature_enabled cosmos-db && warn "cosmos-db emulator takes 5-8 minutes to pass readiness — it will show ~ in the health check and become healthy on its own"
@@ -1978,7 +1978,7 @@ fi
 if feature_enabled blob-explorer; then
   log "Applying blob-explorer HelmRelease for Flux..."
   _BE_RC=0
-  kubectl apply -k gitops/apps/base/blob-explorer/ || _BE_RC=$?
+  kubectl apply -k flux/apps/base/blob-explorer/ || _BE_RC=$?
   [[ $_BE_RC -eq 0 ]] || warn "blob-explorer apply failed — use 'lab-feature.sh enable blob-explorer' to retry"
 fi
 

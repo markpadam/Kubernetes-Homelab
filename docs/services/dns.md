@@ -82,12 +82,12 @@ Bind9 has a fixed ClusterIP of `10.96.0.200` so the CoreDNS Corefile doesn't nee
 
 ## Managing DNS Records
 
-All zones and records are defined in a single source-of-truth file: `gitops/infrastructure/base/dns/dns-config.yaml`.
+All zones and records are defined in a single source-of-truth file: `flux/infrastructure/base/dns/dns-config.yaml`.
 
 Values prefixed with `svc:name/namespace` are resolved to ClusterIPs at apply time — you don't need to look up IPs manually.
 
 To add or change a record:
-1. Edit `gitops/infrastructure/base/dns/dns-config.yaml`
+1. Edit `flux/infrastructure/base/dns/dns-config.yaml`
 2. Run `./IaC/dns/apply-dns-config.sh` (or click **Apply DNS** in the dashboard)
 3. Commit the change
 

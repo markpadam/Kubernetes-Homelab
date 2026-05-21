@@ -14,7 +14,7 @@ GITHUB_REPO="${GITHUB_REPO:-https://github.com/markpadam/Kubernetes-Homelab.git}
 GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
 LAB_ENV="${LAB_ENV:-dev}"
 case "$LAB_ENV" in dev|prd) ;; *) echo "Invalid LAB_ENV='$LAB_ENV' (expected: dev|prd)" >&2; exit 1 ;; esac
-FLUX_APPS_PATH="${FLUX_APPS_PATH:-./gitops/clusters/${LAB_ENV}}"
+FLUX_APPS_PATH="${FLUX_APPS_PATH:-./flux/clusters/${LAB_ENV}}"
 VAULT_ADDR="http://127.0.0.1:8200"
 VAULT_TOKEN="root"
 VAULT_KV_PATH="kv"
@@ -64,7 +64,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/lib-common.sh"
 
 # Run from repo root so relative paths (IaC/terraform, dashboard-template.html,
-# gitops/infrastructure/base/...) resolve correctly regardless of where the caller is.
+# flux/infrastructure/base/...) resolve correctly regardless of where the caller is.
 cd "$REPO_ROOT"
 
 # ── Load enabled features from state file ────

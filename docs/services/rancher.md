@@ -41,15 +41,15 @@ helm install rancher rancher-stable/rancher \
   --set ingress.enabled=false
 ```
 
-`ingress.enabled=false` skips Rancher's own Ingress resource so that our `gitops/infrastructure/base/rancher/ingress.yaml` (applied via Kustomize) is the sole ingress routing `rancher.aks-lab.local` traffic.
+`ingress.enabled=false` skips Rancher's own Ingress resource so that our `flux/infrastructure/base/rancher/ingress.yaml` (applied via Kustomize) is the sole ingress routing `rancher.aks-lab.local` traffic.
 
 ## Manifests
 
 | Path | Purpose |
 |------|---------|
-| `gitops/infrastructure/base/rancher/namespace.yaml` | Ensures `cattle-system` namespace exists before Helm install |
-| `gitops/infrastructure/base/rancher/ingress.yaml` | NGINX Ingress routing HTTP→HTTPS to `rancher:443` |
-| `gitops/infrastructure/base/rancher/kustomization.yaml` | Kustomize entry point |
+| `flux/infrastructure/base/rancher/namespace.yaml` | Ensures `cattle-system` namespace exists before Helm install |
+| `flux/infrastructure/base/rancher/ingress.yaml` | NGINX Ingress routing HTTP→HTTPS to `rancher:443` |
+| `flux/infrastructure/base/rancher/kustomization.yaml` | Kustomize entry point |
 
 ## Key Features in the Lab
 

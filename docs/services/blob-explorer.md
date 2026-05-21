@@ -3,7 +3,7 @@
 **Namespace:** `blob-explorer`  
 **URL:** `http://blob-explorer.aks-lab.local:8082` (via Minikube tunnel)  
 **Source:** `src/blob-explorer/`, `helm/blob-explorer/`  
-**Managed by:** Flux via HelmRelease (`gitops/apps/base/blob-explorer/`)
+**Managed by:** Flux via HelmRelease (`flux/apps/base/blob-explorer/`)
 
 ## Overview
 

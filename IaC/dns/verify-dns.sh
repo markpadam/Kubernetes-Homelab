@@ -21,7 +21,7 @@ step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━�
 # ── Deploy bind9 ─────────────────────────────────────────────
 step "Deploying bind9 (simulated ADDS DNS)"
 
-kubectl apply -f gitops/infrastructure/base/dns/01-bind9.yaml
+kubectl apply -f flux/infrastructure/base/dns/01-bind9.yaml
 
 log "Waiting for bind9 to be ready..."
 kubectl wait deployment bind9 \
@@ -34,7 +34,7 @@ success "bind9 is running"
 # ── Apply CoreDNS custom config ───────────────────────────────
 step "Applying CoreDNS custom forwarding rules"
 
-kubectl apply -f gitops/infrastructure/base/dns/02-coredns-custom.yaml
+kubectl apply -f flux/infrastructure/base/dns/02-coredns-custom.yaml
 
 log "Restarting CoreDNS to pick up changes..."
 kubectl rollout restart deployment coredns -n kube-system

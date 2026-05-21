@@ -1,5 +1,5 @@
 # OAuth2 Proxy SSO annotations are added at runtime by lab-feature.sh when
-# the oauth2-proxy component is enabled. See gitops/infrastructure/base/argocd/ingress.yaml.
+# the oauth2-proxy component is enabled. See flux/infrastructure/base/argocd/ingress.yaml.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

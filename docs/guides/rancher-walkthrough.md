@@ -40,7 +40,7 @@ kubectl logs -n cattle-system -l app=rancher --tail=30
 
 **Why NGINX proxies HTTP→HTTPS:** Rancher requires HTTPS between itself and cluster agents. The ingress terminates the external HTTP connection and makes an in-cluster HTTPS connection to the Rancher service. The browser sees plain HTTP for simplicity.
 
-**What you learn:** Rancher is deployed via `helm install` rather than Flux, because it requires imperative setup steps (bootstrap password, hostname registration) that do not fit neatly into a GitOps manifests-only workflow. The Flux Kustomization for the `gitops/infrastructure/base/rancher/` path manages only the ingress and namespace objects.
+**What you learn:** Rancher is deployed via `helm install` rather than Flux, because it requires imperative setup steps (bootstrap password, hostname registration) that do not fit neatly into a GitOps manifests-only workflow. The Flux Kustomization for the `flux/infrastructure/base/rancher/` path manages only the ingress and namespace objects.
 
 ---
 
@@ -219,7 +219,7 @@ In the Rancher UI:
 2. Click **Git Repos** → **Add Repository**
 3. Enter the repo URL: `https://github.com/markpadam/Kubernetes-Homelab`
 4. Set the branch: `main`
-5. Set paths to watch: `gitops/apps/dev/` (or `gitops/apps/prd/`) or leave blank for all
+5. Set paths to watch: `flux/apps/dev/` (or `flux/apps/prd/`) or leave blank for all
 6. Click **Create**
 
 Fleet will begin reconciling the repository alongside Flux. Because both would apply the same manifests, this is for exploration only — in production you would choose one GitOps engine.

@@ -22,7 +22,7 @@ graph TB
             dex["dex\nOIDC provider\ndex.aks-lab.local:9980"]
             proxy["oauth2-proxy\nForward auth gateway\noauth2-proxy.aks-lab.local:9980/oauth2"]
         end
-        subgraph gitops["GitOps & Workflows"]
+        subgraph flux["GitOps & Workflows"]
             flux["flux-system\nFlux Controllers"]
             argo["argocd\nargocd.aks-lab.local:9980"]
             argowf["argo\nArgo Workflows :2746"]

@@ -22,7 +22,7 @@ step "Getting bind9 ClusterIP"
 BIND9_IP=$(kubectl get svc bind9 -n dns-lab -o jsonpath='{.spec.clusterIP}')
 
 if [[ -z "$BIND9_IP" ]]; then
-  echo "ERROR: bind9 service not found. Deploy gitops/infrastructure/base/dns/01-bind9.yaml first."
+  echo "ERROR: bind9 service not found. Deploy flux/infrastructure/base/dns/01-bind9.yaml first."
   exit 1
 fi
 

@@ -2,7 +2,7 @@
 
 **Namespace:** `azure-sql`  
 **Azure equivalent:** Azure SQL Database / Azure SQL Managed Instance  
-**Managed by:** Flux (`gitops/apps/base/azure-sql/`)
+**Managed by:** Flux (`flux/apps/base/azure-sql/`)
 
 ## Overview
 

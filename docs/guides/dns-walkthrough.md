@@ -344,11 +344,11 @@ kubectl exec -n toolbox deploy/toolbox -- \
 
 **Goal:** understand how a single config file drives the entire DNS setup.
 
-All zone records are defined in one place: [gitops/infrastructure/base/dns/dns-config.yaml](../../gitops/infrastructure/base/dns/dns-config.yaml). You never edit Bind9 ConfigMaps directly — the `apply-dns-config.sh` script generates and applies them from this file.
+All zone records are defined in one place: [flux/infrastructure/base/dns/dns-config.yaml](../../flux/infrastructure/base/dns/dns-config.yaml). You never edit Bind9 ConfigMaps directly — the `apply-dns-config.sh` script generates and applies them from this file.
 
 ```bash
 # Read the source-of-truth file
-cat gitops/infrastructure/base/dns/dns-config.yaml
+cat flux/infrastructure/base/dns/dns-config.yaml
 ```
 
 The file has two top-level sections:
@@ -404,7 +404,7 @@ cat /tmp/dns-apply/coredns.json | python3 -m json.tool
 
 ### Add a new internal record
 
-Open [gitops/infrastructure/base/dns/dns-config.yaml](../../gitops/infrastructure/base/dns/dns-config.yaml) and add a record under the `corp.internal` zone:
+Open [flux/infrastructure/base/dns/dns-config.yaml](../../flux/infrastructure/base/dns/dns-config.yaml) and add a record under the `corp.internal` zone:
 
 ```yaml
 internal_zones:
@@ -506,6 +506,6 @@ kubectl get configmap coredns -n kube-system \
 | Run full DNS tests | `./IaC/dns/verify-dns.sh` |
 | CoreDNS logs | `kubectl logs -n kube-system -l k8s-app=kube-dns -f` |
 | Bind9 logs | `kubectl logs -n dns-lab -l app=bind9 -f` |
-| Source of truth | [gitops/infrastructure/base/dns/dns-config.yaml](../../gitops/infrastructure/base/dns/dns-config.yaml) |
+| Source of truth | [flux/infrastructure/base/dns/dns-config.yaml](../../flux/infrastructure/base/dns/dns-config.yaml) |
 
 See also: [dns.md](../services/dns.md), [vault-walkthrough.md](vault-walkthrough.md), [auth-walkthrough.md](auth-walkthrough.md)
