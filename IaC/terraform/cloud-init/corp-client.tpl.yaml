@@ -132,7 +132,7 @@ write_files:
       echo "[k8s-tools] Installing argocd CLI..."
       ARGOCD_VERSION=$(curl -fsSL https://api.github.com/repos/argoproj/argo-cd/releases/latest \
         | grep '"tag_name"' | head -1 | cut -d'"' -f4)
-      curl -fsSL "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-${GH_ARCH}" \
+      curl -fsSL "https://github.com/argoproj/argo-cd/releases/download/$${ARGOCD_VERSION}/argocd-linux-$${GH_ARCH}" \
         -o /usr/local/bin/argocd
       chmod +x /usr/local/bin/argocd
 
@@ -140,14 +140,14 @@ write_files:
       echo "[k8s-tools] Installing k9s..."
       K9S_VERSION=$(curl -fsSL https://api.github.com/repos/derailed/k9s/releases/latest \
         | grep '"tag_name"' | head -1 | cut -d'"' -f4)
-      curl -fsSL "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_linux_${GH_ARCH}.deb" \
+      curl -fsSL "https://github.com/derailed/k9s/releases/download/$${K9S_VERSION}/k9s_linux_$${GH_ARCH}.deb" \
         -o /tmp/k9s.deb
       DEBIAN_FRONTEND=noninteractive dpkg -i /tmp/k9s.deb || apt-get -f install -y
       rm -f /tmp/k9s.deb
 
       # ── yq (GitHub release binary) ────────────────────────────────
       echo "[k8s-tools] Installing yq..."
-      curl -fsSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${GH_ARCH}" \
+      curl -fsSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_$${GH_ARCH}" \
         -o /usr/local/bin/yq
       chmod +x /usr/local/bin/yq
 

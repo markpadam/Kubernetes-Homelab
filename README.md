@@ -142,6 +142,10 @@ cd Kubernetes-Homelab
 
 The setup script prompts for a component preset, then builds everything. The **dashboard opens automatically** at `http://localhost:9997` when done.
 
+Watch the setup flow: [installer.mov](docs/media/installer.mov)
+
+<video src="docs/media/installer.mov" controls title="AKS Homelab setup walkthrough"></video>
+
 | Preset | What you get | Time |
 |--------|-------------|------|
 | Standard | Cluster + monitoring + GitOps + SSO + storage emulators + demo app | ~15 min |
@@ -173,27 +177,7 @@ See [QUICKSTART.md](QUICKSTART.md) for the full reference including all flags, c
 
 A browser dashboard is auto-generated at **`http://localhost:9997`** on every setup and resume. It shows live service links, credentials, quick-copy commands, and a component toggle panel to enable/disable lab features on the fly.
 
-```text
-┌────────────────────────────────────────────────────────────┐
-│  ● AKS Lab    [aks-lab]                                     │
-├────────────────────────────────────────────────────────────┤
-│  SERVICES                                                   │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
-│  │TaskFlow  │ │ Grafana  │ │ ArgoCD   │ │Dashboard │      │
-│  │:9980     │ │:9980     │ │:9980     │ │:9980     │      │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
-├────────────────────────────────────────────────────────────┤
-│  LAB SCRIPTS          TERMINAL OUTPUT                       │
-│  [▶ Resume]  [■ Pause]  ┌───────────────────────────────┐  │
-│  [Apply DNS] [Flux Sync]│ > flux-sync                   │  │
-│  [Pod Status]           │ ► Reconciling...               │  │
-│                         │ ✓ Applied in 3.2s              │  │
-├─────────────────────────┴───────────────────────────────┤  │
-│  LAB MANAGEMENT                                              │
-│  vault       ●───  monitoring  ●───  argocd    ●───         │
-│  toolbox     ●───  samba-ad    ○───  cosmos-db ○───         │
-└────────────────────────────────────────────────────────────┘
-```
+![AKS Homelab dashboard showing service links, credentials, script controls, terminal output, and feature toggles](docs/media/dashboard.png)
 
 ---
 
