@@ -142,9 +142,9 @@ cd Kubernetes-Homelab
 
 The setup script prompts for a component preset, then builds everything. The **dashboard opens automatically** at `http://localhost:9997` when done.
 
-Watch the setup flow: [installer.mov](docs/media/installer.mov)
+Watch the setup flow: [installer.mov](https://github.com/markpadam/Kubernetes-Homelab/releases/download/v1.0.0/installer.mov)
 
-<video src="docs/media/installer.mov" controls title="AKS Homelab setup walkthrough"></video>
+<video src="https://github.com/markpadam/Kubernetes-Homelab/releases/download/v1.0.0/installer.mov" controls title="AKS Homelab setup walkthrough"></video>
 
 | Preset | What you get | Time |
 |--------|-------------|------|
