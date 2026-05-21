@@ -143,7 +143,19 @@ def main() -> None:
             continue
         idx = int(choice) - 1
         if 0 <= idx < len(ACTIONS):
-            run_action(ACTIONS[idx][1])
+            label, argv, gate, _ = ACTIONS[idx]
+            blocked = (gate == "running" and state != "running") or \
+                      (gate == "stopped" and state == "running")
+            if blocked:
+                reason = "cluster must be running" if gate == "running" else "cluster must be stopped"
+                console.print(f"[yellow]  {label} is not available right now ({reason})[/]")
+                console.print("[dim]press Enter to continue...[/]", end="")
+                try:
+                    input()
+                except EOFError:
+                    pass
+            else:
+                run_action(argv)
         else:
             console.print(f"[red]  out of range: {choice}[/]")
 

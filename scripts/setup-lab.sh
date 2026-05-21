@@ -435,7 +435,7 @@ feature_enabled() { [[ " $ENABLED_FEATURES " =~ (^|[[:space:]])"$1"([[:space:]]|
 _render_live_dashboard() {
   local elapsed=$1 state=$2
   local emin=$(( elapsed / 60 )) esec=$(( elapsed % 60 ))
-  local pass=${_CHECKS_PASS:-0} total=${_CHECKS_TOTAL:-0}
+  local pass=${_CHECKS_PASS:-0} fail=${_CHECKS_FAIL:-0} total=${_CHECKS_TOTAL:-0}
   local pct=0
   [[ $total -gt 0 ]] && pct=$(( pass * 100 / total ))
 
@@ -488,7 +488,13 @@ _render_live_dashboard() {
     if [[ "$state" == "waiting" ]]; then
       echo -e "  ${DIM}Dashboard → http://localhost:9997/    ·    Press Ctrl-C to skip wait${RESET}"
     else
-      echo -e "  ${DIM}Dashboard → http://localhost:9997/${RESET}"
+      if [[ "$fail" -eq 0 ]]; then
+        echo -e "  ${GREEN}${BOLD}✓  Setup complete${RESET} — ${GREEN}${pass}/${total} components healthy${RESET} — ${emin}m ${esec}s"
+      else
+        echo -e "  ${YELLOW}${BOLD}~  Setup complete${RESET} — ${YELLOW}${pass}/${total} healthy · ${fail} need attention${RESET} — ${emin}m ${esec}s"
+      fi
+      echo ""
+      echo -e "  ${DIM}Dashboard → http://localhost:9997/  ·  Log: ${LAB_LOG:-/tmp/setup-lab.log}${RESET}"
     fi
 
     # Re-show cursor
@@ -885,7 +891,28 @@ if [[ -d "$HOME/.minikube/profiles/$PROFILE" ]]; then
   fi
 fi
 
+_ensure_kicbase_cached() {
+  # minikube hardcodes its required base image as tag@sha256 in --help output.
+  # If the local :vX.Y.Z tag points to a different digest, minikube re-downloads
+  # the full ~500 MB image on every start. Fix: if the correct digest is already
+  # in Docker (just untagged/mistagged), re-tag it so the check passes.
+  local ref tag want_digest have_id
+  ref=$(minikube start --help 2>/dev/null \
+        | grep -o 'gcr.io/k8s-minikube/kicbase[^'"'"']*' | head -1)
+  [[ -z "$ref" ]] && return 0
+  tag="${ref%%@*}"                             # e.g. gcr.io/.../kicbase:v0.0.49
+  want_digest="${ref##*@}"                     # e.g. sha256:e6daddbb...
+  have_id=$(docker inspect --format='{{.Id}}' "$tag" 2>/dev/null || true)
+  [[ "$have_id" == "$want_digest" ]] && return 0   # already correct, nothing to do
+  if docker inspect --format='{{.Id}}' "gcr.io/k8s-minikube/kicbase@${want_digest}" &>/dev/null 2>&1; then
+    log "kicbase: re-tagging cached image to match minikube $(minikube version --short 2>/dev/null)..."
+    docker tag "gcr.io/k8s-minikube/kicbase@${want_digest}" "$tag"
+  fi
+  # If the image isn't in Docker at all, let minikube pull it normally.
+}
+
 if $CLUSTER_NEEDS_START; then
+  _ensure_kicbase_cached
   log "Starting $NODES-node cluster (this may take a few minutes)..."
   _start_progress "$LAB_LOG" \
     "Pulling node image:Pulling base image" \
@@ -2355,7 +2382,10 @@ fi
 # print the final snapshot. After this returns, ELAPSED reflects the time
 # spent waiting too, so the banner shows real total time.
 echo "[$(date +%T)] entering live readiness watcher" >> "$LAB_LOG"
-_wait_until_ready 5 900 "$SETUP_START"
+_wait_until_ready 5 900 "$SETUP_END"
+# Live dashboard has just rendered the final summary (with log path + status
+# in the footer) — suppress the _at_exit banner so it isn't printed twice.
+_BANNER_PRINTED=1
 
 # Recompute elapsed to include the wait phase
 SETUP_END=$(date +%s)

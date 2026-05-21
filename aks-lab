@@ -55,7 +55,9 @@ _usage() {
 }
 
 _cluster_running() {
-  minikube status -p "$PROFILE" 2>/dev/null | grep -q "host: Running"
+  local out
+  out=$(minikube status -p "$PROFILE" 2>/dev/null || true)
+  [[ "$out" == *"host: Running"* ]]
 }
 
 # ── Subcommand dispatch ──────────────────────
