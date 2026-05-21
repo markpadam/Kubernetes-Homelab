@@ -14,7 +14,7 @@ The toolbox is an Ubuntu pod that runs inside the cluster and exposes SSH on `lo
 ssh aks-toolbox
 ```
 
-The `aks-toolbox` SSH alias is configured in `~/.ssh/config` by `setup-lab.sh`:
+The `aks-toolbox` SSH alias is configured in `~/.ssh/config` by `./aks-lab setup`:
 
 ```
 Host aks-toolbox
@@ -31,7 +31,7 @@ ssh root@localhost -p 2222
 
 ## SSH Key
 
-The toolbox accepts connections with your local SSH public key (`~/.ssh/id_ed25519.pub` or `id_rsa.pub`). `setup-lab.sh` injects the key into the `toolbox-ssh-keys` ConfigMap at cluster setup time, replacing the `REPLACE_WITH_YOUR_PUBLIC_KEY` placeholder.
+The toolbox accepts connections with your local SSH public key (`~/.ssh/id_ed25519.pub` or `id_rsa.pub`). `./aks-lab setup` injects the key into the `toolbox-ssh-keys` ConfigMap at cluster setup time, replacing the `REPLACE_WITH_YOUR_PUBLIC_KEY` placeholder.
 
 ## Networking
 
@@ -60,7 +60,7 @@ The toolbox service is a `NodePort` that Minikube port-forwards to `localhost:22
 
 ## Image
 
-The `aks-lab/toolbox:latest` image is built from `toolbox/Dockerfile` and loaded into Minikube's Docker daemon by `setup-lab.sh`. It is based on Ubuntu and includes common debugging tools (curl, nslookup, etc.).
+The `aks-lab/toolbox:latest` image is built from `toolbox/Dockerfile` and loaded into Minikube's Docker daemon by `./aks-lab setup`. It is based on Ubuntu and includes common debugging tools (curl, nslookup, etc.).
 
 ## Configuration
 

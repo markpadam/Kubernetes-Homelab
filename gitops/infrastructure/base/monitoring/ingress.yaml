@@ -1,20 +1,20 @@
 # OAuth2 Proxy SSO annotations are added at runtime by lab-feature.sh when
-# the oauth2-proxy component is enabled. See infrastructure/base/argocd/ingress.yaml.
+# the oauth2-proxy component is enabled. See gitops/infrastructure/base/argocd/ingress.yaml.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: blob-explorer
-  namespace: blob-explorer
+  name: grafana
+  namespace: monitoring
 spec:
   ingressClassName: nginx
   rules:
-    - host: blob-explorer.aks-lab.local
+    - host: grafana.aks-lab.local
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: blob-explorer
+                name: monitoring-grafana
                 port:
                   number: 80

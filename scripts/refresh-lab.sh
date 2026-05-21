@@ -25,7 +25,7 @@ GITHUB_REPO="${GITHUB_REPO:-https://github.com/markpadam/Kubernetes-Homelab.git}
 GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
 LAB_ENV="${LAB_ENV:-dev}"
 case "$LAB_ENV" in dev|prd) ;; *) echo "Invalid LAB_ENV='$LAB_ENV' (expected: dev|prd)" >&2; exit 1 ;; esac
-FLUX_APPS_PATH="${FLUX_APPS_PATH:-./clusters/${LAB_ENV}}"
+FLUX_APPS_PATH="${FLUX_APPS_PATH:-./gitops/clusters/${LAB_ENV}}"
 VAULT_ADDR="http://127.0.0.1:8200"
 VAULT_TOKEN="root"
 VAULT_KV_PATH="kv"
@@ -146,7 +146,7 @@ if [[ "$REFRESH_IMAGES" == "1" ]]; then
 
   if component_enabled azdo-agent; then
     log "Building azdo-agent image (arm64)..."
-    docker build -t azdo-agent:local apps/base/azdo-agent/ >/dev/null
+    docker build -t azdo-agent:local gitops/apps/base/azdo-agent/ >/dev/null
     minikube -p "$PROFILE" image load azdo-agent:local
     success "azdo-agent image built and loaded"
   fi
@@ -170,7 +170,7 @@ step "Re-applying Manifests"
 # DNS (bind9) — always deployed, not behind a feature flag
 if [[ -z "$ONLY_COMPONENT" ]]; then
   log "Applying DNS (bind9)..."
-  kubectl apply -f infrastructure/base/dns/01-bind9.yaml
+  kubectl apply -f gitops/infrastructure/base/dns/01-bind9.yaml
   kubectl wait deployment bind9 --for=condition=available -n dns-lab --timeout=60s
   success "DNS (bind9) applied"
 fi
@@ -178,14 +178,14 @@ fi
 # TaskFlow — applied directly (not via Flux)
 if component_enabled taskflow; then
   log "Applying taskflow manifests..."
-  kubectl apply -k apps/base/taskflow/
+  kubectl apply -k gitops/apps/base/taskflow/
   success "taskflow applied"
 fi
 
 # Azure DevOps Agent — applied directly
 if component_enabled azdo-agent; then
   log "Applying azdo-agent manifests..."
-  kubectl apply --validate=false -k apps/base/azdo-agent/
+  kubectl apply --validate=false -k gitops/apps/base/azdo-agent/
   success "azdo-agent applied"
 fi
 

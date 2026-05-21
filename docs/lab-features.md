@@ -7,8 +7,8 @@ The lab uses a modular component system. Each component can be enabled or disabl
 ## How it works
 
 - **`lab-components.json`** — registry of every available component with its namespace, manifests, dependencies, and port-forwards.
-- **`.lab-state.json`** — runtime state file (git-ignored) that records which components are currently enabled. Written by `lab-feature.sh` and read by `setup-lab.sh` / `resume-lab.sh`.
-- **`lab-feature.sh`** — the CLI for managing components. Call it from the repo root.
+- **`.lab-state.json`** — runtime state file (git-ignored) that records which components are currently enabled. Written by `./aks-lab feature` (via `scripts/lab-feature.sh`) and read by `./aks-lab setup` / `./aks-lab resume`.
+- **`./aks-lab feature ...`** — the user-facing interface for enabling, disabling, and inspecting components. It dispatches to `scripts/lab-feature.sh` under the hood.
 
 ---
 
@@ -16,16 +16,16 @@ The lab uses a modular component system. Each component can be enabled or disabl
 
 ```bash
 # Standard defaults (most components — recommended for first run)
-./setup-lab.sh --standard
+./aks-lab setup --standard
 
 # Everything, including SambaAD, Corp Client, Cosmos DB, Argo Workflows
-./setup-lab.sh --all
+./aks-lab setup --all
 
 # Minimal: cluster only, no optional components
-./setup-lab.sh --minimal
+./aks-lab setup --minimal
 
 # Interactive checkbox menu — choose exactly what you want
-./setup-lab.sh
+./aks-lab setup
 ```
 
 ---
@@ -34,25 +34,25 @@ The lab uses a modular component system. Each component can be enabled or disabl
 
 ```bash
 # List all components with their enabled/disabled status
-./lab-feature.sh list
+./aks-lab feature list
 
 # Show full status (group, type, port-forwards, dependencies)
-./lab-feature.sh status
+./aks-lab feature status
 
 # Enable a single component
-./lab-feature.sh enable cosmos-db
+./aks-lab feature enable cosmos-db
 
 # Enable an entire group
-./lab-feature.sh enable storage
+./aks-lab feature enable storage
 
 # Disable a component (deletes its namespace)
-./lab-feature.sh disable cosmos-db
+./aks-lab feature disable cosmos-db
 
 # Disable with dependents (skips dependency warning)
-./lab-feature.sh disable samba-ad --force
+./aks-lab feature disable samba-ad --force
 
 # Check if a component is enabled (exit 0 = yes, 1 = no)
-./lab-feature.sh is-enabled vault
+./aks-lab feature is-enabled vault
 ```
 
 ---
@@ -103,13 +103,13 @@ Some components require others to be enabled first:
 - `corp-client` → requires `samba-ad`
 - `blob-explorer` → requires `azurite`
 
-`lab-feature.sh enable` auto-enables dependencies. `lab-feature.sh disable` warns if dependents are still enabled (use `--force` to override).
+`./aks-lab feature enable` auto-enables dependencies. `./aks-lab feature disable` warns if dependents are still enabled (use `--force` to override).
 
 ---
 
 ## State file
 
-`.lab-state.json` is created in the repo root by `lab-feature.sh init` and updated on every enable/disable. It is git-ignored — each developer has their own feature selection.
+`.lab-state.json` is created in the repo root by `./aks-lab feature init` and updated on every enable/disable. It is git-ignored — each developer has their own feature selection.
 
 Example:
 ```json

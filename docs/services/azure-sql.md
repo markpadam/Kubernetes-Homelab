@@ -2,7 +2,7 @@
 
 **Namespace:** `azure-sql`  
 **Azure equivalent:** Azure SQL Database / Azure SQL Managed Instance  
-**Managed by:** Flux (`apps/base/azure-sql/`)
+**Managed by:** Flux (`gitops/apps/base/azure-sql/`)
 
 ## Overview
 
@@ -16,7 +16,7 @@ It also serves as the required SQL backend for the [Service Bus emulator](servic
 |------|----------|---------|
 | 1433 | TCP | TDS (SQL Server wire protocol) |
 
-Port-forwarded to `localhost:1433` by `resume-lab.sh` / `setup-lab.sh`.
+Port-forwarded to `localhost:1433` by `./aks-lab resume` / `./aks-lab setup`.
 
 ## Credentials
 

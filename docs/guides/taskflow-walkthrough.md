@@ -304,7 +304,7 @@ curl -v http://taskflow.aks-lab.local:9980 2>&1 | grep -E "< HTTP|< Location"
 # Without SSO: 200 OK (HTML served directly)
 # With SSO:    302 → /oauth2/start → Dex login
 
-# See the ingress annotations (SSO annotations are added by lab-feature.sh)
+# See the ingress annotations (SSO annotations are added by the lab feature system via `./aks-lab feature`)
 kubectl describe ingress taskapp-ingress -n taskapp
 # nginx.ingress.kubernetes.io/auth-url         (if SSO enabled)
 # nginx.ingress.kubernetes.io/auth-signin      (if SSO enabled)

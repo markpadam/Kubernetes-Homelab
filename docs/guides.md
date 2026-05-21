@@ -12,7 +12,7 @@ The guides below are sequenced so that each one builds on concepts introduced ea
 |---|-------|----------------|
 | 1 | [TaskFlow Walkthrough](guides/taskflow-walkthrough.md) | Core Kubernetes patterns: deployments, services, ingress, PostgreSQL persistence, and the three-tier web app model. Start here to get something running and visible before diving into infrastructure. |
 | 2 | [DNS Walkthrough](guides/dns-walkthrough.md) | How CoreDNS and Bind9 create a split-brain DNS architecture that mirrors Azure enterprise DNS. Foundation for everything else — private link names, service discovery, and ADDS simulation all depend on this. |
-| 3 | [Flux Walkthrough](guides/flux-walkthrough.md) | How GitOps keeps the cluster in sync with this repository. Covers the reconciliation loop, Kustomization layering, pruning, and how `lab-feature.sh` enables optional components by committing to git. |
+| 3 | [Flux Walkthrough](guides/flux-walkthrough.md) | How GitOps keeps the cluster in sync with this repository. Covers the reconciliation loop, Kustomization layering, pruning, and how `./aks-lab feature` enables optional components by committing to git. |
 | 4 | [Container Registry Walkthrough](guides/container-registry-walkthrough.md) | The in-cluster OCI registry — pushing and pulling images, the registry REST API, private link DNS simulation, and how Flux pulls images from it during deployment. |
 | 5 | [Vault Walkthrough](guides/vault-walkthrough.md) | HashiCorp Vault as a secret store. KV v2 secrets, policies, Kubernetes auth backend, and the zero-static-credential pattern where pods authenticate with their service account token. |
 | 6 | [Authentication Walkthrough](guides/auth-walkthrough.md) | The full SSO chain: SambaAD LDAP → Dex OIDC → OAuth2 Proxy → NGINX ingress. Includes Active Directory basics, Kerberos tickets, domain join, and JWT decoding. |
@@ -38,7 +38,7 @@ Every guide follows the same structure:
 
 ## Prerequisites
 
-Before starting, the lab must be running (`./scripts/setup-lab.sh`). The [TaskFlow Walkthrough](guides/taskflow-walkthrough.md) is the best first check that everything is up.
+Before starting, the lab must be running (`./aks-lab setup`). The [TaskFlow Walkthrough](guides/taskflow-walkthrough.md) is the best first check that everything is up.
 
 The `toolbox` pod is used in many guides as a network debugging base:
 
@@ -49,5 +49,5 @@ kubectl exec -it -n toolbox deploy/toolbox -- bash
 Enable it if not already running:
 
 ```bash
-./scripts/lab-feature.sh enable toolbox
+./aks-lab feature enable toolbox
 ```

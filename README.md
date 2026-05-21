@@ -183,13 +183,13 @@ A browser dashboard is auto-generated at **`http://localhost:9997`** on every se
 
 ## GitOps
 
-Anything committed to `apps/base/` or `infrastructure/base/` is automatically deployed by **Flux** within 1 minute of a push — and restored on every `./aks-lab setup` run. Use this for apps you want to survive teardown.
+Anything committed to `gitops/apps/base/` or `gitops/infrastructure/base/` is automatically deployed by **Flux** within 1 minute of a push — and restored on every `./aks-lab setup` run. Use this for apps you want to survive teardown.
 
 **ArgoCD** is also installed for visual, point-and-click GitOps — good for experimenting. Apps deployed via the ArgoCD UI are ephemeral (wiped on teardown).
 
 ```bash
 # Deploy an app via GitOps
-cp my-app.yaml apps/base/my-app.yaml
+cp my-app.yaml gitops/apps/base/my-app.yaml
 git add . && git commit -m "add my-app" && git push
 # Flux reconciles within 60 seconds
 
@@ -199,14 +199,14 @@ flux reconcile kustomization flux-apps -n flux-system  # force sync
 
 ### Environment overlays (`dev` / `prd`)
 
-Flux watches `clusters/<env>/` where `<env>` is `dev` (default) or `prd`. Switch with the `LAB_ENV` env var:
+Flux watches `gitops/clusters/<env>/` where `<env>` is `dev` (default) or `prd`. Switch with the `LAB_ENV` env var:
 
 ```bash
-./aks-lab setup           # uses clusters/dev — the default
-LAB_ENV=prd ./aks-lab setup   # uses clusters/prd instead
+./aks-lab setup           # uses gitops/clusters/dev — the default
+LAB_ENV=prd ./aks-lab setup   # uses gitops/clusters/prd instead
 ```
 
-`prd` starts as a copy of `dev`. Edit `apps/prd/` and `infrastructure/prd/` when you want production to drop dev-only emulators or pin different image digests. `apps/base/` and `infrastructure/base/` remain shared between both overlays.
+`prd` starts as a copy of `dev`. Edit `gitops/apps/prd/` and `gitops/infrastructure/prd/` when you want production to drop dev-only emulators or pin different image digests. `gitops/apps/base/` and `gitops/infrastructure/base/` remain shared between both overlays.
 
 ---
 
@@ -230,7 +230,7 @@ Pod query  →  CoreDNS  →  upstream                                →  publi
 
 ```bash
 # Edit zones and records
-vim infrastructure/base/dns/dns-config.yaml
+vim gitops/infrastructure/base/dns/dns-config.yaml
 ./IaC/dns/apply-dns-config.sh
 ```
 
@@ -339,14 +339,18 @@ The agent pod has network access to all in-cluster services — Vault, Azurite, 
 │   ├── blob-explorer/    # ASP.NET Core
 │   └── toolbox/          # Ubuntu SSH pod
 │
-├── apps/base/            # Flux-managed application manifests
-├── apps/dev/             # Dev overlay (default for LAB_ENV=dev)
-├── apps/prd/             # Prd overlay (starts as a copy of dev)
-├── infrastructure/base/  # Flux-managed infrastructure manifests
-├── infrastructure/dev/   # Dev infra overlay
-├── infrastructure/prd/   # Prd infra overlay
-├── clusters/dev/         # Flux entry point for dev (GitRepository + Kustomization)
-├── clusters/prd/         # Flux entry point for prd
+├── gitops/               # Flux/GitOps-managed manifests
+│   ├── apps/
+│   │   ├── base/         # Flux-managed application manifests
+│   │   ├── dev/          # Dev overlay (default for LAB_ENV=dev)
+│   │   └── prd/          # Prd overlay (starts as a copy of dev)
+│   ├── infrastructure/
+│   │   ├── base/         # Flux-managed infrastructure manifests
+│   │   ├── dev/          # Dev infra overlay
+│   │   └── prd/          # Prd infra overlay
+│   └── clusters/
+│       ├── dev/          # Flux entry point for dev
+│       └── prd/          # Flux entry point for prd
 ├── helm/                 # Helm charts
 │
 ├── IaC/
@@ -367,7 +371,7 @@ This project spans two repos linked by a git submodule.
 | `Kubernetes-Homelab` (this repo) | GitHub | K8s manifests, Flux config, Helm charts, lab scripts, app source | Flux requires a public git source for reconciliation |
 | `ado/` (submodule) | Azure DevOps | Bicep templates, YAML pipeline definitions | ADO pipeline triggers, service connections, and RBAC are native to ADO |
 
-**Flux** watches this GitHub repo and reconciles `apps/base/` and `infrastructure/base/` automatically. **ADO pipelines** in `ado/` deploy real Azure infrastructure via Bicep and can target the lab cluster via the self-hosted agent.
+**Flux** watches this GitHub repo from `gitops/clusters/<env>/`, then reconciles the matching `gitops/apps/<env>/` and `gitops/infrastructure/<env>/` overlays automatically. **ADO pipelines** in `ado/` deploy real Azure infrastructure via Bicep and can target the lab cluster via the self-hosted agent.
 
 ### Working with the submodule
 

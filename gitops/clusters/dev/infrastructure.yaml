@@ -5,7 +5,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 10m
-  path: ./infrastructure/prd
+  path: ./gitops/infrastructure/dev
   prune: true
   sourceRef:
     kind: GitRepository

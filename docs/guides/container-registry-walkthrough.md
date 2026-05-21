@@ -46,7 +46,7 @@ kubectl describe pod -n container-registry -l app=registry | grep -A5 "Readiness
 
 **Goal:** build (or re-tag) an image and push it to the in-cluster registry via the port-forward.
 
-The registry is port-forwarded to `localhost:5000` by `setup-lab.sh` / `resume-lab.sh`. Docker on the Mac treats `localhost:5000` as an insecure registry (HTTP, no TLS), which is allowed by default for `localhost`.
+The registry is port-forwarded to `localhost:5000` by `./aks-lab setup` / `./aks-lab resume`. Docker on the Mac treats `localhost:5000` as an insecure registry (HTTP, no TLS), which is allowed by default for `localhost`.
 
 ```bash
 # --- On the Mac ---
@@ -113,7 +113,7 @@ kubectl run pull-demo --image=registry.container-registry.svc.cluster.local:5000
 # image: registry.container-registry.svc.cluster.local:5000/my-alpine:latest
 ```
 
-**Insecure registry in containerd:** Minikube's containerd is configured to allow HTTP for `registry.container-registry.svc.cluster.local:5000`. This is set up by `setup-lab.sh`. Without this, containerd would refuse to pull from an HTTP registry.
+**Insecure registry in containerd:** Minikube's containerd is configured to allow HTTP for `registry.container-registry.svc.cluster.local:5000`. This is set up by `./aks-lab setup`. Without this, containerd would refuse to pull from an HTTP registry.
 
 ```bash
 # Verify containerd allows this registry (inspect Minikube's config)

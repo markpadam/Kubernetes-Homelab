@@ -2,7 +2,7 @@
 
 **Namespace:** `cosmos-db`  
 **Azure equivalent:** Azure Cosmos DB (NoSQL API)  
-**Managed by:** Flux (`apps/base/cosmos-db/`)
+**Managed by:** Flux (`gitops/apps/base/cosmos-db/`)
 
 ## Overview
 
@@ -18,7 +18,7 @@ The official Microsoft Cosmos DB Emulator (`vnext-preview` tag) is a native ARM6
 | 8080 | HTTP | Health and readiness probes |
 | 1234 | HTTP | Data Explorer UI |
 
-All ports are forwarded to `localhost` by `resume-lab.sh` / `setup-lab.sh`. The Data Explorer is accessible at [http://localhost:1234](http://localhost:1234).
+All ports are forwarded to `localhost` by `./aks-lab resume` / `./aks-lab setup`. The Data Explorer is accessible at [http://localhost:1234](http://localhost:1234).
 
 ## Credentials
 

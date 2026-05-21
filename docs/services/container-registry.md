@@ -2,7 +2,7 @@
 
 **Namespace:** `container-registry`  
 **Azure equivalent:** Azure Container Registry  
-**Managed by:** Flux (`apps/base/container-registry/`)
+**Managed by:** Flux (`gitops/apps/base/container-registry/`)
 
 ## Overview
 
@@ -14,7 +14,7 @@ Docker Registry v2 provides an OCI-compliant image registry inside the cluster. 
 |------|----------|---------|
 | 5000 | HTTP | Registry API (OCI Distribution Spec v1) |
 
-Port-forwarded to `localhost:5000` by `resume-lab.sh` / `setup-lab.sh`.
+Port-forwarded to `localhost:5000` by `./aks-lab resume` / `./aks-lab setup`.
 
 ## Authentication
 

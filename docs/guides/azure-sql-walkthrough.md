@@ -95,7 +95,7 @@ kubectl exec -n azure-sql deploy/mssql -- \
 **From the Mac host (via port-forward):**
 
 ```bash
-# The port-forward is started by setup-lab.sh / resume-lab.sh on localhost:1433
+# The port-forward is started by ./aks-lab setup / ./aks-lab resume on localhost:1433
 # Connect with any SQL client using:
 #   Server:   localhost,1433
 #   Username: sa

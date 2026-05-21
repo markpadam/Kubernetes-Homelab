@@ -58,7 +58,7 @@ kubectl get deployment cosmosdb -n cosmos-db \
 The Data Explorer is a browser-based GUI for managing Cosmos DB resources — equivalent to the Azure Portal's Data Explorer blade.
 
 ```bash
-# The Data Explorer is port-forwarded by setup-lab.sh / resume-lab.sh
+# The Data Explorer is port-forwarded by ./aks-lab setup / ./aks-lab resume
 # Open in browser: http://localhost:1234
 
 # Or access directly from inside the cluster

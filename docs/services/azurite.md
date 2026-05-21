@@ -2,7 +2,7 @@
 
 **Namespace:** `azure-storage`  
 **Azure equivalent:** Azure Blob Storage, Azure Queue Storage, Azure Table Storage  
-**Managed by:** Flux (`apps/base/azurite/`)
+**Managed by:** Flux (`gitops/apps/base/azurite/`)
 
 ## Overview
 
@@ -16,7 +16,7 @@ Azurite is the official Microsoft emulator for Azure Storage. It exposes the sam
 | 10001 | HTTP | Queue Storage API |
 | 10002 | HTTP | Table Storage API |
 
-Port-forwarded to `localhost` by `resume-lab.sh` / `setup-lab.sh`.
+Port-forwarded to `localhost` by `./aks-lab resume` / `./aks-lab setup`.
 
 ## Connection Strings
 

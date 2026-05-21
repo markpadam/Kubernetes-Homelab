@@ -2,7 +2,7 @@
 
 **Namespace:** `service-bus`  
 **Azure equivalent:** Azure Service Bus  
-**Managed by:** Flux (`apps/base/service-bus/`)
+**Managed by:** Flux (`gitops/apps/base/service-bus/`)
 
 ## Overview
 
@@ -17,7 +17,7 @@ The official Microsoft Service Bus emulator (`mcr.microsoft.com/azure-messaging/
 | 5672 | TCP | AMQP 1.0 |
 | 5300 | HTTP | Management / health endpoint |
 
-Both ports are forwarded to `localhost` by `resume-lab.sh` / `setup-lab.sh`.
+Both ports are forwarded to `localhost` by `./aks-lab resume` / `./aks-lab setup`.
 
 ## Connection Strings
 
@@ -46,7 +46,7 @@ Configured via the `servicebus-config` ConfigMap (`Config.json`):
 | `topic.1` | Topic | TTL 1h |
 | `topic.1` / `subscription.1` | Subscription | TTL 1h, lock 1m, max delivery 3 |
 
-To add queues or topics, edit `apps/base/service-bus/config.yaml` and commit — Flux will apply the change and the emulator will reload on pod restart.
+To add queues or topics, edit `gitops/apps/base/service-bus/config.yaml` and commit — Flux will apply the change and the emulator will reload on pod restart.
 
 ## DNS
 

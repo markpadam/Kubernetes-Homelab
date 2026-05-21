@@ -294,8 +294,8 @@ _enable_monitoring() {
       --set grafana.adminPassword="admin123" \
       --wait --timeout=5m
   fi
-  [[ -f "$REPO_ROOT/infrastructure/base/monitoring/ingress.yaml" ]] && \
-    kubectl apply -f "$REPO_ROOT/infrastructure/base/monitoring/ingress.yaml"
+  [[ -f "$REPO_ROOT/gitops/infrastructure/base/monitoring/ingress.yaml" ]] && \
+    kubectl apply -f "$REPO_ROOT/gitops/infrastructure/base/monitoring/ingress.yaml"
   success "Monitoring ready — http://grafana.aks-lab.local:9980  (admin/admin123)"
 }
 
@@ -327,8 +327,8 @@ _enable_argocd() {
       | kubectl label --local -f - 'argocd.argoproj.io/secret-type=repository' -o yaml \
       | kubectl apply -f - 2>/dev/null || true
   fi
-  [[ -f "$REPO_ROOT/infrastructure/base/argocd/ingress.yaml" ]] && \
-    kubectl apply -f "$REPO_ROOT/infrastructure/base/argocd/ingress.yaml"
+  [[ -f "$REPO_ROOT/gitops/infrastructure/base/argocd/ingress.yaml" ]] && \
+    kubectl apply -f "$REPO_ROOT/gitops/infrastructure/base/argocd/ingress.yaml"
   local pw; pw=$(kubectl -n argocd get secret argocd-initial-admin-secret \
     -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<password-already-changed>")
   success "ArgoCD ready — http://argocd.aks-lab.local:9980  (admin / $pw)"
@@ -353,7 +353,7 @@ _enable_toolbox() {
   local PUBLIC_KEY; PUBLIC_KEY=$(cat "$SSH_KEY_PATH")
   local TEMP; TEMP=$(mktemp /tmp/toolbox-XXXXXX.yaml)
   sed "s|REPLACE_WITH_YOUR_PUBLIC_KEY|${PUBLIC_KEY}|g" \
-    "$REPO_ROOT/infrastructure/base/toolbox/toolbox.yaml" > "$TEMP"
+    "$REPO_ROOT/gitops/infrastructure/base/toolbox/toolbox.yaml" > "$TEMP"
   kubectl apply -f "$TEMP"
   rm "$TEMP"
   log "Waiting for toolbox pod (2–3 min first run)..."
@@ -433,11 +433,11 @@ _enable_dex() {
   python3 -c "
 import os, string
 from pathlib import Path
-t = Path('$REPO_ROOT/infrastructure/base/identity/dex/config.yaml').read_text()
+t = Path('$REPO_ROOT/gitops/infrastructure/base/identity/dex/config.yaml').read_text()
 Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
 "
   # Apply the kustomization first (creates the namespace), then overlay the rendered config.
-  kubectl apply -k "$REPO_ROOT/infrastructure/base/identity/dex/"
+  kubectl apply -k "$REPO_ROOT/gitops/infrastructure/base/identity/dex/"
   kubectl apply -f /tmp/dex-config-rendered.yaml
   kubectl wait deployment dex --for=condition=available --namespace=dex --timeout=120s
   success "Dex ready — http://dex.aks-lab.local:9980"
@@ -503,11 +503,11 @@ _enable_oauth2_proxy() {
   python3 -c "
 import os, string
 from pathlib import Path
-t = Path('$REPO_ROOT/infrastructure/base/identity/oauth2-proxy/secret.yaml').read_text()
+t = Path('$REPO_ROOT/gitops/infrastructure/base/identity/oauth2-proxy/secret.yaml').read_text()
 Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
 "
   # Apply the kustomization first (creates the namespace), then overlay the rendered secret.
-  kubectl apply -k "$REPO_ROOT/infrastructure/base/identity/oauth2-proxy/"
+  kubectl apply -k "$REPO_ROOT/gitops/infrastructure/base/identity/oauth2-proxy/"
   kubectl apply -f /tmp/oauth2-proxy-secret-rendered.yaml
   kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s
   log "Patching SSO annotations onto protected ingresses..."
@@ -674,7 +674,7 @@ _enable_azdo_agent() {
     --namespace azdo-agent \
     --dry-run=client -o yaml | kubectl apply --validate=false -f -
 
-  kubectl apply --validate=false -k "$REPO_ROOT/apps/base/azdo-agent/"
+  kubectl apply --validate=false -k "$REPO_ROOT/gitops/apps/base/azdo-agent/"
   _AZDO_RC=0
   kubectl rollout status deployment/azdo-agent -n azdo-agent --timeout=120s || _AZDO_RC=$?
   if [[ $_AZDO_RC -ne 0 ]]; then
@@ -718,7 +718,7 @@ do_enable() {
   add_to_state "$id"
   # If this component has an SSO-protected ingress and oauth2-proxy is
   # running, re-apply the auth annotations now (the ingress yaml doesn't
-  # include them — see infrastructure/base/argocd/ingress.yaml).
+  # include them — see gitops/infrastructure/base/argocd/ingress.yaml).
   if is_enabled "oauth2-proxy"; then
     case "$id" in
       argocd|kubernetes-dashboard|monitoring|blob-explorer|taskflow)

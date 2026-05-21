@@ -429,7 +429,7 @@ for k, v in cm['data'].items():
 
 ### Add a new simulated vault name
 
-New names are managed in [infrastructure/base/dns/dns-config.yaml](../../infrastructure/base/dns/dns-config.yaml) under `privatelink_zones → privatelink.vaultcore.azure.net`. After editing, apply with:
+New names are managed in [gitops/infrastructure/base/dns/dns-config.yaml](../../gitops/infrastructure/base/dns/dns-config.yaml) under `privatelink_zones → privatelink.vaultcore.azure.net`. After editing, apply with:
 
 ```bash
 ./IaC/dns/apply-dns-config.sh

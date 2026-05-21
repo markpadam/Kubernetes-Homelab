@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────
 #  apply-dns-config.sh
-#  Reads infrastructure/base/dns/dns-config.yaml and applies all zones and
+#  Reads gitops/infrastructure/base/dns/dns-config.yaml and applies all zones and
 #  records to bind9 and CoreDNS in the cluster.
 #
 #  Usage: ./IaC/dns/apply-dns-config.sh
@@ -22,7 +22,7 @@ warn()    { echo -e "${YELLOW}${BOLD}[!]${RESET} $*"; }
 error()   { echo -e "${RED}${BOLD}[✗]${RESET} $*"; exit 1; }
 step()    { echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
 
-CONFIG_FILE="infrastructure/base/dns/dns-config.yaml"
+CONFIG_FILE="gitops/infrastructure/base/dns/dns-config.yaml"
 BIND9_NS="dns-lab"
 COREDNS_NS="kube-system"
 SERIAL=$(date +%Y%m%d%H%M)   # Use date+minute as serial so it increments on each apply
@@ -392,7 +392,7 @@ kubectl delete pod dnstest -n default --ignore-not-found=true 2>/dev/null || tru
 
 echo -e "
 ${BOLD}  Done. To add/change DNS records:${RESET}
-  1. Edit   infrastructure/base/dns/dns-config.yaml
+  1. Edit   gitops/infrastructure/base/dns/dns-config.yaml
   2. Run    ./IaC/dns/apply-dns-config.sh
   3. Commit the change to git
 "

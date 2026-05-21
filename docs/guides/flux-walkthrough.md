@@ -17,7 +17,7 @@ The alternative is imperative delivery: someone runs `kubectl apply` manually. T
 - Any change to the cluster goes through a pull request
 - Deleting a file from git deletes the corresponding resource from the cluster (pruning)
 - If someone manually patches a resource, Flux overwrites it on the next reconciliation cycle
-- Cluster state is fully reproducible — `setup-lab.sh` + the git repo is enough to rebuild everything
+- Cluster state is fully reproducible — `./aks-lab setup` + the git repo is enough to rebuild everything
 
 ```bash
 # Check the Flux controllers are running
@@ -64,7 +64,7 @@ spec:
 ```
 
 ```bash
-# The secret contains the GitHub PAT set during setup-lab.sh
+# The secret contains the GitHub PAT set during ./aks-lab setup
 kubectl get secret flux-system -n flux-system -o yaml | grep -E "username|password"
 # Values are base64-encoded
 
@@ -100,9 +100,9 @@ The kustomize controller reads `Kustomization` objects (a Flux CRD, not a `kusto
 # List all Flux Kustomizations
 kubectl get kustomization -n flux-system
 # Expect:
-#   flux-apps      — reconciles clusters/dev/
-#   infrastructure — reconciles infrastructure/dev/
-#   apps           — reconciles apps/dev/
+#   flux-apps      — reconciles gitops/clusters/dev/
+#   infrastructure — reconciles gitops/infrastructure/dev/
+#   apps           — reconciles gitops/apps/dev/
 ```
 
 Inspect the root Kustomization that Flux was bootstrapped with:
@@ -116,7 +116,7 @@ Key fields:
 ```yaml
 spec:
   interval: 10m            # re-apply every 10 minutes even if nothing changed
-  path: ./clusters/dev     # render from this path in the fetched repo
+  path: ./gitops/clusters/dev     # render from this path in the fetched repo
   prune: true              # delete resources removed from git
   sourceRef:
     kind: GitRepository
@@ -124,7 +124,7 @@ spec:
 ```
 
 ```bash
-# See the apps and infrastructure Kustomizations that clusters/dev/ creates
+# See the apps and infrastructure Kustomizations that gitops/clusters/dev/ creates
 kubectl describe kustomization apps -n flux-system
 kubectl describe kustomization infrastructure -n flux-system
 
@@ -152,15 +152,15 @@ flux reconcile kustomization apps
 The repository has three layers:
 
 ```
-clusters/dev/
-├── apps.yaml               ← Flux Kustomization: watches apps/dev/
-└── infrastructure.yaml     ← Flux Kustomization: watches infrastructure/dev/
+gitops/clusters/dev/
+├── apps.yaml               ← Flux Kustomization: watches gitops/apps/dev/
+└── infrastructure.yaml     ← Flux Kustomization: watches gitops/infrastructure/dev/
 
-infrastructure/dev/
-└── kustomization.yaml      ← standard Kustomize file; lists what from infrastructure/base/ is active
+gitops/infrastructure/dev/
+└── kustomization.yaml      ← standard Kustomize file; lists what from gitops/infrastructure/base/ is active
     (references ../base/dns/ by default)
 
-infrastructure/base/
+gitops/infrastructure/base/
 ├── dns/                    ← always-on: CoreDNS + Bind9 configuration
 ├── identity/               ← optional: Dex + OAuth2 Proxy
 ├── monitoring/             ← optional: Prometheus + Grafana
@@ -168,10 +168,10 @@ infrastructure/base/
 ├── toolbox/                ← optional: in-cluster debug pod
 └── ...
 
-apps/dev/
-└── kustomization.yaml      ← managed by lab-feature.sh; lists optional apps
+gitops/apps/dev/
+└── kustomization.yaml      ← managed by the lab feature system (`./aks-lab feature`); lists optional apps
 
-apps/base/
+gitops/apps/base/
 ├── taskflow/               ← three-tier demo app
 ├── azurite/                ← Azure Storage emulator
 ├── azure-sql/              ← SQL Server emulator
@@ -183,22 +183,22 @@ apps/base/
 
 ```bash
 # See the current infrastructure overlay
-cat infrastructure/dev/kustomization.yaml
+cat gitops/infrastructure/dev/kustomization.yaml
 
-# See the current apps overlay (managed by lab-feature.sh)
-cat apps/dev/kustomization.yaml
+# See the current apps overlay (managed by the lab feature system via `./aks-lab feature`)
+cat gitops/apps/dev/kustomization.yaml
 
 # The base directories contain the actual manifests
-ls apps/base/taskflow/
+ls gitops/apps/base/taskflow/
 # deployment.yaml, service.yaml, ingress.yaml, etc.
 
 # Kustomize renders a base by merging base + overlay
 # You can preview what Flux will apply without applying it
-kubectl kustomize apps/dev/
-kubectl kustomize infrastructure/dev/
+kubectl kustomize gitops/apps/dev/
+kubectl kustomize gitops/infrastructure/dev/
 ```
 
-**What you learn:** the `clusters/dev/` path is the entrypoint Flux was pointed at. It contains two files that create the child Kustomizations. Those child Kustomizations render their respective overlays (`apps/dev/`, `infrastructure/dev/`), which in turn reference the base directories where the actual manifests live. Editing a base YAML, committing, and pushing is enough — Flux propagates the change automatically.
+**What you learn:** the `gitops/clusters/dev/` path is the entrypoint Flux was pointed at. It contains two files that create the child Kustomizations. Those child Kustomizations render their respective overlays (`gitops/apps/dev/`, `gitops/infrastructure/dev/`), which in turn reference the base directories where the actual manifests live. Editing a base YAML, committing, and pushing is enough — Flux propagates the change automatically.
 
 ---
 
@@ -212,14 +212,14 @@ This stage demonstrates the full GitOps loop from editor to cluster.
 
 ```bash
 # Find the backend deployment manifest
-cat apps/base/taskflow/02-backend.yaml | grep replicas
+cat gitops/apps/base/taskflow/02-backend.yaml | grep replicas
 ```
 
 Edit the replica count, commit, and push:
 
 ```bash
 # After editing:
-git add apps/base/taskflow/02-backend.yaml
+git add gitops/apps/base/taskflow/02-backend.yaml
 git commit -m "chore: increase backend replicas to 2"
 git push
 ```
@@ -266,7 +266,7 @@ With `prune: true` on a Flux Kustomization, any Kubernetes resource that Flux pr
 # Check current resources in the taskapp namespace
 kubectl get all -n taskapp
 
-# Suppose you removed 02-backend.yaml from apps/base/taskflow/kustomization.yaml
+# Suppose you removed 02-backend.yaml from gitops/apps/base/taskflow/kustomization.yaml
 # and pushed the change. After the next reconciliation:
 # - The backend Deployment would be deleted
 # - The backend Service would be deleted
@@ -297,44 +297,44 @@ kubectl get all -n taskapp -l kustomize.toolkit.fluxcd.io/name
 
 ## Stage 7 — Lab components and optional features
 
-**Goal:** understand how `lab-feature.sh` interacts with Flux.
+**Goal:** understand how `./aks-lab feature` interacts with Flux.
 
-Optional lab components (monitoring, toolbox, ArgoCD, Azure emulators) are not always-on. `lab-feature.sh` enables and disables them. Some are managed directly via `kubectl apply -k`, others via updates to the Kustomization overlay files.
+Optional lab components (monitoring, toolbox, ArgoCD, Azure emulators) are not always-on. `./aks-lab feature` enables and disables them. Some are managed directly via `kubectl apply -k`, others via updates to the Kustomization overlay files.
 
 ```bash
 # See the full list of available components and their status
-./scripts/lab-feature.sh list
+./aks-lab feature list
 
 # Enable a component (example: toolbox)
-./scripts/lab-feature.sh enable toolbox
+./aks-lab feature enable toolbox
 
 # Disable it
-./scripts/lab-feature.sh disable toolbox
+./aks-lab feature disable toolbox
 ```
 
-For components that go through Flux (defined in `apps/dev/kustomization.yaml`), enabling one adds a reference to `apps/base/<component>/` in the overlay. The next Flux reconciliation picks that up and applies the manifests. Disabling removes the reference and pruning deletes the cluster resources.
+For components that go through Flux (defined in `gitops/apps/dev/kustomization.yaml`), enabling one adds a reference to `gitops/apps/base/<component>/` in the overlay. The next Flux reconciliation picks that up and applies the manifests. Disabling removes the reference and pruning deletes the cluster resources.
 
 ```bash
 # Watch the overlay file before and after enabling taskflow
-cat apps/dev/kustomization.yaml
+cat gitops/apps/dev/kustomization.yaml
 
-./scripts/lab-feature.sh enable taskflow
+./aks-lab feature enable taskflow
 
-cat apps/dev/kustomization.yaml
+cat gitops/apps/dev/kustomization.yaml
 # taskflow now appears under resources:
 ```
 
-For components with secrets or runtime configuration (Vault, Dex, OAuth2 Proxy, SambaAD), `lab-feature.sh` applies them directly via `kubectl apply -k` rather than routing through Flux. This lets secrets be injected at runtime without committing them to git.
+For components with secrets or runtime configuration (Vault, Dex, OAuth2 Proxy, SambaAD), `./aks-lab feature` applies them directly via `kubectl apply -k` rather than routing them through Flux. This lets secrets be injected at runtime without committing them to git.
 
 ```bash
 # Check if a component is enabled
-./scripts/lab-feature.sh status
+./aks-lab feature status
 
 # Enable multiple components at once
-./scripts/lab-feature.sh enable taskflow azurite azure-sql
+./aks-lab feature enable taskflow azurite azure-sql
 ```
 
-**What you learn:** `lab-feature.sh` is the lab's interface for toggling optional components. It abstracts the difference between Flux-managed resources (via the overlay file) and imperatively-applied resources (secrets, runtime config). The Flux loop handles the former; `kubectl apply` handles the latter.
+**What you learn:** `./aks-lab feature` is the lab's interface for toggling optional components. It abstracts the difference between Flux-managed resources (via the overlay file) and imperatively-applied resources (secrets, runtime config). The Flux loop handles the former; `kubectl apply` handles the latter.
 
 ---
 
@@ -362,11 +362,11 @@ kubectl get gitrepository -n flux-system
 kubectl describe kustomization apps -n flux-system | grep -A5 "Message:"
 
 # Common causes:
-# 1. A manifest has a syntax error (check kubectl kustomize apps/dev/ locally)
+# 1. A manifest has a syntax error (check kubectl kustomize gitops/apps/dev/ locally)
 # 2. A dependsOn target is not Ready (check infrastructure Kustomization first)
 # 3. A resource is stuck in a terminal state (ImagePullBackOff, CrashLoopBackOff)
 
-kubectl kustomize apps/dev/    # render locally to catch syntax errors
+kubectl kustomize gitops/apps/dev/    # render locally to catch syntax errors
 ```
 
 ### The source controller is not fetching new commits
@@ -430,10 +430,10 @@ kubectl logs -n flux-system deploy/kustomize-controller -f | grep "kustomization
 
 ### Rebuild from scratch
 
-If the cluster is recreated, `setup-lab.sh` re-bootstraps Flux:
+If the cluster is recreated, `./aks-lab setup` re-bootstraps Flux:
 
 ```bash
-# setup-lab.sh runs these steps automatically:
+# The ./aks-lab setup flow runs these steps automatically:
 flux install --namespace=flux-system --network-policy=false
 kubectl apply -f -  # the GitRepository and root Kustomization
 # Within minutes Flux re-applies all resources from git
@@ -454,11 +454,11 @@ kubectl apply -f -  # the GitRepository and root Kustomization
 | Watch reconciliation | `flux get kustomization --watch` |
 | Suspend reconciliation | `flux suspend kustomization apps` |
 | Resume reconciliation | `flux resume kustomization apps` |
-| Preview rendered manifests | `kubectl kustomize apps/dev/` |
+| Preview rendered manifests | `kubectl kustomize gitops/apps/dev/` |
 | Source controller logs | `kubectl logs -n flux-system deploy/source-controller -f` |
 | Kustomize controller logs | `kubectl logs -n flux-system deploy/kustomize-controller -f` |
-| Enable a component | `./scripts/lab-feature.sh enable <id>` |
-| Disable a component | `./scripts/lab-feature.sh disable <id>` |
-| List all components | `./scripts/lab-feature.sh list` |
+| Enable a component | `./aks-lab feature enable <id>` |
+| Disable a component | `./aks-lab feature disable <id>` |
+| List all components | `./aks-lab feature list` |
 
 See also: [taskflow-walkthrough.md](taskflow-walkthrough.md), [container-registry-walkthrough.md](container-registry-walkthrough.md)

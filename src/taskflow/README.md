@@ -30,10 +30,10 @@ Browser
 
 ## Deploy
 
-TaskFlow is deployed automatically by `setup-lab.sh` from `Apps/taskflow/`. To deploy manually:
+TaskFlow is deployed automatically by `./aks-lab setup` from `gitops/apps/base/taskflow/`. To deploy manually:
 
 ```bash
-kubectl apply -f Apps/taskflow/
+kubectl apply -k gitops/apps/base/taskflow/
 kubectl get pods -n taskapp -w
 ```
 

@@ -12,7 +12,7 @@ Rancher is a multi-cluster Kubernetes management platform. In the lab it provide
 It is an optional component (`default: false`) because it is resource-heavy — expect 1–2 GB extra RAM consumption. Enable it with:
 
 ```bash
-./lab-feature.sh enable rancher
+./aks-lab feature enable rancher
 ```
 
 ## Authentication
@@ -30,7 +30,7 @@ Rancher is exposed via NGINX Ingress at `http://rancher.aks-lab.local:9980`. NGI
 
 ## Installation
 
-Installed in `setup-lab.sh` Step 5c using the `rancher-stable` Helm chart:
+Installed by `./aks-lab setup` in step 5c using the `rancher-stable` Helm chart:
 
 ```bash
 helm install rancher rancher-stable/rancher \
@@ -41,15 +41,15 @@ helm install rancher rancher-stable/rancher \
   --set ingress.enabled=false
 ```
 
-`ingress.enabled=false` skips Rancher's own Ingress resource so that our `infrastructure/base/rancher/ingress.yaml` (applied via Kustomize) is the sole ingress routing `rancher.aks-lab.local` traffic.
+`ingress.enabled=false` skips Rancher's own Ingress resource so that our `gitops/infrastructure/base/rancher/ingress.yaml` (applied via Kustomize) is the sole ingress routing `rancher.aks-lab.local` traffic.
 
 ## Manifests
 
 | Path | Purpose |
 |------|---------|
-| `infrastructure/base/rancher/namespace.yaml` | Ensures `cattle-system` namespace exists before Helm install |
-| `infrastructure/base/rancher/ingress.yaml` | NGINX Ingress routing HTTP→HTTPS to `rancher:443` |
-| `infrastructure/base/rancher/kustomization.yaml` | Kustomize entry point |
+| `gitops/infrastructure/base/rancher/namespace.yaml` | Ensures `cattle-system` namespace exists before Helm install |
+| `gitops/infrastructure/base/rancher/ingress.yaml` | NGINX Ingress routing HTTP→HTTPS to `rancher:443` |
+| `gitops/infrastructure/base/rancher/kustomization.yaml` | Kustomize entry point |
 
 ## Key Features in the Lab
 

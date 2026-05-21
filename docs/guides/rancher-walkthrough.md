@@ -16,7 +16,7 @@ Rancher is a multi-cluster Kubernetes management platform. In this lab it manage
 
 ```bash
 # Enable Rancher (if not already enabled)
-./lab-feature.sh enable rancher
+./aks-lab feature enable rancher
 
 # Check Rancher pods are running
 kubectl get pods -n cattle-system
@@ -24,7 +24,7 @@ kubectl get pods -n cattle-system
 # rancher-<hash>            1/1     Running
 # cattle-cluster-agent-...  1/1     Running  (appears after initial setup)
 
-# Rancher is installed via Helm (managed by setup-lab.sh, not Flux)
+# Rancher is installed via Helm (managed by `./aks-lab setup`, not Flux)
 helm list -n cattle-system
 # NAME     NAMESPACE      CHART
 # rancher  cattle-system  rancher-stable/rancher
@@ -40,7 +40,7 @@ kubectl logs -n cattle-system -l app=rancher --tail=30
 
 **Why NGINX proxies HTTP→HTTPS:** Rancher requires HTTPS between itself and cluster agents. The ingress terminates the external HTTP connection and makes an in-cluster HTTPS connection to the Rancher service. The browser sees plain HTTP for simplicity.
 
-**What you learn:** Rancher is deployed via `helm install` rather than Flux, because it requires imperative setup steps (bootstrap password, hostname registration) that do not fit neatly into a GitOps manifests-only workflow. The Flux Kustomization for the `infrastructure/base/rancher/` path manages only the ingress and namespace objects.
+**What you learn:** Rancher is deployed via `helm install` rather than Flux, because it requires imperative setup steps (bootstrap password, hostname registration) that do not fit neatly into a GitOps manifests-only workflow. The Flux Kustomization for the `gitops/infrastructure/base/rancher/` path manages only the ingress and namespace objects.
 
 ---
 
@@ -219,7 +219,7 @@ In the Rancher UI:
 2. Click **Git Repos** → **Add Repository**
 3. Enter the repo URL: `https://github.com/markpadam/Kubernetes-Homelab`
 4. Set the branch: `main`
-5. Set paths to watch: `apps/dev/` (or `apps/prd/`) or leave blank for all
+5. Set paths to watch: `gitops/apps/dev/` (or `gitops/apps/prd/`) or leave blank for all
 6. Click **Create**
 
 Fleet will begin reconciling the repository alongside Flux. Because both would apply the same manifests, this is for exploration only — in production you would choose one GitOps engine.
@@ -234,8 +234,8 @@ Fleet will begin reconciling the repository alongside Flux. Because both would a
 |------|--------------|
 | Open Rancher | `http://rancher.aks-lab.local:9980` |
 | Bootstrap password | `AksLabRancher1` |
-| Enable Rancher | `./lab-feature.sh enable rancher` |
-| Disable Rancher | `./lab-feature.sh disable rancher` |
+| Enable Rancher | `./aks-lab feature enable rancher` |
+| Disable Rancher | `./aks-lab feature disable rancher` |
 | Rancher logs | `kubectl logs -n cattle-system -l app=rancher --tail=50` |
 | Helm release info | `helm list -n cattle-system` |
 | kubectl Shell | Cluster → top-right terminal icon |
