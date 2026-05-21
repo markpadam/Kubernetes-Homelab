@@ -188,12 +188,12 @@
       "ns": "service-bus",
       "flux_dir": "apps/base/service-bus",
       "manifest": "",
-      "depends": [],
+      "depends": ["azure-sql"],
       "port_forwards": [
         {"local": 5672, "svc": "servicebus", "ns": "service-bus", "remote": 5672},
         {"local": 5300, "svc": "servicebus", "ns": "service-bus", "remote": 5300}
       ],
-      "desc": "Azure Service Bus emulator — AMQP :5672, Management :5300"
+      "desc": "Azure Service Bus emulator — AMQP :5672, Management :5300 (requires azure-sql backend)"
     },
     {
       "id": "container-registry",

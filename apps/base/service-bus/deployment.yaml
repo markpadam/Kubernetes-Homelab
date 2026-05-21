@@ -17,9 +17,12 @@ spec:
     spec:
       containers:
         - name: servicebus
-          image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+          # Pinned by digest — the servicebus-emulator MCR tag floats and the
+          # vendor has not published a stable semver tag set. Digest matches
+          # the build currently running in this lab.
+          image: mcr.microsoft.com/azure-messaging/servicebus-emulator@sha256:a00c9626c8960f6b9be6178aa91a7ac8f1a102c0d9deda7603a1ba0ac9d9ab51
           # AMD64-only image — runs via Rosetta on Apple Silicon
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5672
               name: amqp

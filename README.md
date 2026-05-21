@@ -213,6 +213,17 @@ flux get all -n flux-system                        # check sync status
 flux reconcile kustomization flux-apps -n flux-system  # force sync
 ```
 
+### Environment overlays (`dev` / `prd`)
+
+Flux watches `clusters/<env>/` where `<env>` is `dev` (default) or `prd`. Switch with the `LAB_ENV` env var:
+
+```bash
+./aks-lab setup           # uses clusters/dev — the default
+LAB_ENV=prd ./aks-lab setup   # uses clusters/prd instead
+```
+
+`prd` starts as a copy of `dev`. Edit `apps/prd/` and `infrastructure/prd/` when you want production to drop dev-only emulators or pin different image digests. `apps/base/` and `infrastructure/base/` remain shared between both overlays.
+
 ---
 
 ## DNS Lab
@@ -345,8 +356,13 @@ The agent pod has network access to all in-cluster services — Vault, Azurite, 
 │   └── toolbox/          # Ubuntu SSH pod
 │
 ├── apps/base/            # Flux-managed application manifests
+├── apps/dev/             # Dev overlay (default for LAB_ENV=dev)
+├── apps/prd/             # Prd overlay (starts as a copy of dev)
 ├── infrastructure/base/  # Flux-managed infrastructure manifests
-├── clusters/lab/         # Flux entry point (GitRepository + Kustomization)
+├── infrastructure/dev/   # Dev infra overlay
+├── infrastructure/prd/   # Prd infra overlay
+├── clusters/dev/         # Flux entry point for dev (GitRepository + Kustomization)
+├── clusters/prd/         # Flux entry point for prd
 ├── helm/                 # Helm charts
 │
 ├── IaC/

@@ -117,13 +117,15 @@ The lab uses a deliberately **non-pure** GitOps setup. Read this section before 
 
 ### What Flux manages
 
-Flux watches three Kustomizations in `clusters/lab/`:
+Flux watches three Kustomizations in `clusters/<env>/` — `dev` by default, or `prd` when `LAB_ENV=prd`:
 
 | Kustomization | Path | Resources |
 | --- | --- | --- |
-| `infrastructure` | `./infrastructure/lab` | `../base/dns/` *(only — see below)* |
-| `apps` | `./apps/lab` | *(empty — `resources: []`)* |
-| `flux-apps` | `./clusters/lab` | the three Kustomization CRDs themselves |
+| `infrastructure` | `./infrastructure/<env>` | `../base/dns/` *(only — see below)* |
+| `apps` | `./apps/<env>` | *(empty — `resources: []`)* |
+| `flux-apps` | `./clusters/<env>` | the three Kustomization CRDs themselves |
+
+The `dev` overlay is the default homelab target. The `prd` overlay starts as a copy of `dev`; diverge it (drop dev-only emulators, tighten image pins, change resource limits) when you're ready to model a production-style deploy.
 
 In other words: **Flux reconciles the cluster baseline (DNS) and its own bootstrap manifests, and nothing else.** All optional components — ArgoCD, monitoring, identity, storage emulators, demo apps — are applied directly by `scripts/lab-feature.sh` (invoked via `./aks-lab feature`) via `kubectl apply -k <path>` and tracked in `.lab-state.json` rather than via Flux.
 
@@ -146,4 +148,4 @@ The feature toggle pattern fits this constraint: the manifests in `infrastructur
 
 ### Could it be made pure GitOps?
 
-Yes — by moving every component into `infrastructure/lab/kustomization.yaml` as conditional `patches`, and having the feature toggle edit-commit-push to enable/disable them. The cost is that every toggle would round-trip through git, Flux would have to be running and reconciling for the toggle to take effect, and the lab's offline ergonomics would degrade. The current hybrid model is the right trade-off for this scope.
+Yes — by moving every component into `infrastructure/<env>/kustomization.yaml` as conditional `patches`, and having the feature toggle edit-commit-push to enable/disable them. The cost is that every toggle would round-trip through git, Flux would have to be running and reconciling for the toggle to take effect, and the lab's offline ergonomics would degrade. The current hybrid model is the right trade-off for this scope.

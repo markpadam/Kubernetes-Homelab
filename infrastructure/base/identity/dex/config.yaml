@@ -2,6 +2,10 @@
 # Python string.Template substitution — ${SAMBA_IP} is replaced at apply time
 # with the actual Multipass VM IP. Do not edit the generated version in /tmp;
 # edit this source file and re-run setup-lab.sh.
+#
+# The block between # LDAP-CONNECTOR-BEGIN and # LDAP-CONNECTOR-END is stripped
+# by the renderer when SAMBA_IP is empty (i.e. samba-ad is not enabled), so Dex
+# falls back to the static admin user only.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -33,6 +37,7 @@ data:
         username: "admin"
         userID: "a8b9c0d1-e2f3-4a5b-6c7d-8e9f0a1b2c3d"
 
+    # LDAP-CONNECTOR-BEGIN
     connectors:
       - type: ldap
         id: corp-ad
@@ -65,6 +70,7 @@ data:
             userAttr: DN
             groupAttr: member
             nameAttr: cn
+    # LDAP-CONNECTOR-END
 
     oauth2:
       skipApprovalScreen: true   # skip the "Grant access?" consent screen in the lab

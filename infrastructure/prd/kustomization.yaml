@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Prd environment overlay — references base infrastructure.
+# Starts as a copy of dev. Diverge here when you want prd to drop dev-only
+# components, tighten resource limits, or pin different image digests.
+# Optional components are still managed by lab-feature.sh enable/disable.
+resources:
+  - ../base/dns/

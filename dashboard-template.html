@@ -325,6 +325,26 @@
 </div>
 
 <script>
+  // dashboard-server.py substitutes %LAB_TOKEN% with a per-session token
+  // when serving this page. The cookie set alongside is HttpOnly + SameSite=Strict
+  // and gates state-changing endpoints; we still need this JS-visible copy so
+  // EventSource (which can't read cookies on all browsers and can't set headers)
+  // can pass ?token= in its URL.
+  window.LAB_TOKEN = "%LAB_TOKEN%";
+  function _withToken(url) {
+    if (!window.LAB_TOKEN || window.LAB_TOKEN.indexOf("%") === 0) return url;
+    return url + (url.indexOf("?") >= 0 ? "&" : "?") + "token=" + encodeURIComponent(window.LAB_TOKEN);
+  }
+  function _authFetch(url, opts) {
+    opts = opts || {};
+    opts.headers = opts.headers || {};
+    if (window.LAB_TOKEN && window.LAB_TOKEN.indexOf("%") !== 0) {
+      opts.headers["X-Lab-Token"] = window.LAB_TOKEN;
+    }
+    opts.credentials = opts.credentials || "same-origin";
+    return fetch(url, opts);
+  }
+
   function cp(btn, text) {
     navigator.clipboard.writeText(text).then(function() {
       btn.textContent = 'copied';
@@ -343,7 +363,7 @@
     hdr.className = 'term-done';
     hdr.textContent = '> ' + name + '\n\n';
     term.appendChild(hdr);
-    _es = new EventSource('/exec/' + name);
+    _es = new EventSource(_withToken('/exec/' + name));
     _es.onmessage = function(e) {
       var msg = e.data;
       if (msg.indexOf('__DONE__') === 0) {
@@ -377,7 +397,7 @@
   var _pendingToggle = null;
 
   function loadFeatures() {
-    fetch('/api/features')
+    _authFetch('/api/features')
       .then(function(r) { return r.json(); })
       .then(function(items) {
         var status = document.getElementById('feat-status');
@@ -456,7 +476,7 @@
     hdr.textContent = '> ' + action + ' ' + id + '\n\n';
     term.appendChild(hdr);
 
-    var es = new EventSource('/api/feature/' + action + '/' + id);
+    var es = new EventSource(_withToken('/api/feature/' + action + '/' + id));
     es.onmessage = function(e) {
       var msg = e.data;
       if (msg.indexOf('__DONE__') === 0) {
@@ -504,7 +524,7 @@
     _inFlight[key] = true;
     var ctl = new AbortController();
     var t = setTimeout(function() { ctl.abort(); }, timeoutMs);
-    return fetch(url, { signal: ctl.signal, cache: 'no-store' })
+    return _authFetch(url, { signal: ctl.signal, cache: 'no-store' })
       .then(function(r) {
         if (!r.ok) { throw new Error('HTTP ' + r.status); }
         return r.json();
@@ -594,7 +614,7 @@
     var btn = document.getElementById('corp-connect-btn');
     btn.disabled = true;
     btn.textContent = 'Connecting...';
-    fetch('/api/corp-client/connect')
+    _authFetch('/api/corp-client/connect', { method: 'POST' })
       .then(function(r) {
         if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
         return r.text();

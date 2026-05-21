@@ -17,20 +17,23 @@ jobs:
       LAB_PROFILE: ci-lab
       LAB_RESOURCE_TIER: "1"
       GITHUB_TOKEN: ${{ secrets.FLUX_GITHUB_TOKEN }}
+      # Point Flux at the PR's head ref so we validate the PR, not upstream main.
+      GITHUB_REPO: ${{ github.event.pull_request.head.repo.clone_url }}
+      GITHUB_BRANCH: ${{ github.event.pull_request.head.ref }}
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Teardown any existing CI lab
-        run: ./teardown-lab.sh
+        run: ./aks-lab teardown
         continue-on-error: true
 
       - name: Deploy lab (minimal preset)
-        run: ./setup-lab.sh --minimal --ci
+        run: ./aks-lab setup --minimal --ci
 
       - name: Smoke tests
         run: .github/scripts/smoke-test.sh
 
       - name: Teardown CI lab
         if: always()
-        run: ./teardown-lab.sh
+        run: ./aks-lab teardown

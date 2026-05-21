@@ -902,9 +902,23 @@ cmd_init() {
       ;;
   esac
 
+  # Resolve transitive dependencies — selecting a component implicitly pulls
+  # in everything in its depends[] chain (e.g. service-bus → azure-sql).
   local selected_json; selected_json=$(python3 -c "
+import json
 ids = '''${selected[*]:-}'''.split()
-print(str(ids).replace(\"'\", '\"'))
+cs = json.load(open('${REGISTRY}'))['components']
+by_id = {c['id']: c for c in cs}
+seen = set()
+def walk(i):
+    if i in seen or i not in by_id: return
+    seen.add(i)
+    for d in by_id[i].get('depends', []):
+        walk(d)
+for i in ids: walk(i)
+# Preserve registry order so the final list is stable
+ordered = [c['id'] for c in cs if c['id'] in seen]
+print(json.dumps(ordered))
 ")
   write_state "$selected_json"
   echo ""

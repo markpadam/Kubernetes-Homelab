@@ -24,12 +24,17 @@ DNS_DIR="infrastructure/base/dns"
 TOOLBOX_DIR="infrastructure/base/toolbox"
 GRAFANA_PASSWORD="admin123"
 # ── Fork note ─────────────────────────────────────────────────────────────────
-# If you forked this repo, update GITHUB_REPO to point at your fork so that
-# Flux pulls from the right place. Questions / issues: markpadam@hotmail.com
+# Forks/PR branches: override GITHUB_REPO / GITHUB_BRANCH via env so Flux
+# validates the right source. CI in particular wants this — the PR's branch,
+# not main upstream. Defaults below point at the canonical upstream repo.
 # ──────────────────────────────────────────────────────────────────────────────
-GITHUB_REPO="https://github.com/markpadam/Kubernetes-Homelab.git"
-GITHUB_BRANCH="main"
-FLUX_APPS_PATH="./clusters/lab"
+GITHUB_REPO="${GITHUB_REPO:-https://github.com/markpadam/Kubernetes-Homelab.git}"
+GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
+# LAB_ENV selects which overlay Flux watches: clusters/<env>/{apps,infrastructure}.yaml.
+# Defaults to dev; set LAB_ENV=prd to deploy the production overlay instead.
+LAB_ENV="${LAB_ENV:-dev}"
+case "$LAB_ENV" in dev|prd) ;; *) echo "Invalid LAB_ENV='$LAB_ENV' (expected: dev|prd)" >&2; exit 1 ;; esac
+FLUX_APPS_PATH="${FLUX_APPS_PATH:-./clusters/${LAB_ENV}}"
 
 # ── Colours ──────────────────────────────────
 RED='\033[0;31m'
@@ -1484,8 +1489,8 @@ spec:
     name: flux-system
 EOF
 
-# Apply the Kustomization that watches clusters/lab/
-log "Applying Kustomization for clusters/lab/..."
+# Apply the Kustomization that watches clusters/<env>/
+log "Applying Kustomization for ${FLUX_APPS_PATH}/..."
 kubectl apply -f - <<EOF
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -1554,6 +1559,7 @@ if feature_enabled vault; then
     VAULT_REPLACE_FLAGS="-replace=null_resource.k8s_vault_reviewer"
   fi
   { terraform -chdir=IaC/terraform apply -auto-approve -input=false $VAULT_REPLACE_FLAGS \
+      -var="minikube_profile=${PROFILE}" \
       -target=null_resource.vault_dev_server \
       -target=null_resource.vault_health_check \
       -target=null_resource.k8s_vault_reviewer \
@@ -1640,6 +1646,7 @@ except Exception:
       -target=null_resource.multipass_check \
       -target=null_resource.samba_vm \
       -target=time_sleep.samba_stabilise \
+      -var="minikube_profile=${PROFILE}" \
       -var="samba_vm_cpus=${SAMBA_CPUS}" \
       -var="samba_vm_memory=${SAMBA_MEM}" \
       -var="samba_vm_disk=${SAMBA_DISK}" \
@@ -1703,24 +1710,45 @@ except Exception:
   else
     warn "Multipass bridge IP not detected — skipping aks-lab.local SambaAD DNS registration"
   fi
+else
+  log "Skipping Step 11b — SambaAD not selected"
+fi
+
+# ── Step 11b-2: Dex + OAuth2 Proxy (SSO stack) ──
+# Dex and OAuth2 Proxy run independently of SambaAD. When samba-ad is enabled
+# the LDAP connector is wired into Dex; otherwise Dex uses the static admin
+# fallback (admin@corp.internal / AksLabAdmin1!).
+if feature_enabled dex || feature_enabled oauth2-proxy; then
+  step "Step 11b-2 — Dex + OAuth2 Proxy"
 
   if feature_enabled dex; then
-    # Both Dex and OAuth2 Proxy use this secret — must match between them.
-    # Persisted to ~/.aks-lab-secrets so it's stable across setup/resume.
     DEX_CLIENT_SECRET=$(lab_secret_get_or_create DEX_CLIENT_SECRET \
       "python3 -c 'import secrets; print(secrets.token_urlsafe(32))'")
     export DEX_CLIENT_SECRET AD_ADMIN_PASSWORD="AksLab!AdDev1"
-    log "Applying Dex ConfigMap (SambaAD IP: $SAMBA_IP)..."
+    if [[ -n "$SAMBA_IP" && "$SAMBA_IP" != "<samba-ad-ip>" ]]; then
+      log "Applying Dex ConfigMap with LDAP connector (SambaAD IP: $SAMBA_IP)..."
+    else
+      log "Applying Dex ConfigMap (static admin only — samba-ad not enabled)..."
+    fi
     kubectl apply -f infrastructure/base/identity/dex/namespace.yaml
-    python3 -c "
-import os, string
+    # Render config.yaml: substitute env vars, and strip the LDAP connector block
+    # when SAMBA_IP is empty/sentinel so Dex doesn't try to dial a non-existent host.
+    python3 - <<'PYEOF'
+import os, re, string
 from pathlib import Path
 t = Path('infrastructure/base/identity/dex/config.yaml').read_text()
-Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
-"
+samba_ip = os.environ.get('SAMBA_IP', '').strip()
+if not samba_ip or samba_ip == '<samba-ad-ip>':
+    t = re.sub(
+        r'^[ \t]*# LDAP-CONNECTOR-BEGIN.*?# LDAP-CONNECTOR-END[ \t]*\n?',
+        '', t, flags=re.DOTALL | re.MULTILINE,
+    )
+Path('/tmp/dex-config-rendered.yaml').write_text(
+    string.Template(t).safe_substitute(os.environ)
+)
+PYEOF
     kubectl apply -f /tmp/dex-config-rendered.yaml
     log "Deploying Dex OIDC server..."
-    # Apply non-templated resources individually so the rendered config.yaml is not overwritten
     kubectl apply -f infrastructure/base/identity/dex/deployment.yaml
     kubectl apply -f infrastructure/base/identity/dex/service.yaml
     _kubectl_apply_retry -f infrastructure/base/identity/dex/ingress.yaml \
@@ -1733,9 +1761,6 @@ Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substit
   fi
 
   if feature_enabled oauth2-proxy; then
-    # Persisting COOKIE_SECRET means SSO sessions survive oauth2-proxy
-    # restarts. A new random one each run logged everyone out every time
-    # the script ran.
     COOKIE_SECRET=$(lab_secret_get_or_create COOKIE_SECRET \
       "python3 -c 'import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())'")
     export COOKIE_SECRET
@@ -1749,7 +1774,6 @@ Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).saf
 "
     kubectl apply -f /tmp/oauth2-proxy-secret-rendered.yaml
     log "Deploying OAuth2 Proxy..."
-    # Apply non-templated resources individually so the rendered secret.yaml is not overwritten
     kubectl apply -f infrastructure/base/identity/oauth2-proxy/deployment.yaml
     kubectl apply -f infrastructure/base/identity/oauth2-proxy/service.yaml
     _kubectl_apply_retry -f infrastructure/base/identity/oauth2-proxy/ingress.yaml \
@@ -1758,9 +1782,6 @@ Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).saf
     kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s || _OAUTH_RC=$?
     if [[ $_OAUTH_RC -eq 0 ]]; then
       success "OAuth2 Proxy ready — SSO gate at oauth2-proxy.aks-lab.local:9980"
-      # Patch SSO annotations onto every protected ingress that already exists.
-      # The ingress YAMLs are SSO-free by default so the lab is usable without
-      # oauth2-proxy; this patch is what activates the SSO gate.
       log "Patching SSO annotations onto protected ingresses..."
       for _ing in "argocd argocd argocd.aks-lab.local" \
                   "kubernetes-dashboard kubernetes-dashboard dashboard.aks-lab.local" \
@@ -1781,8 +1802,6 @@ Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).saf
       warn "OAuth2 Proxy deployment did not complete within 120s — check: kubectl logs -n oauth2-proxy deployment/oauth2-proxy"
     fi
   fi
-else
-  log "Skipping Step 11b — SambaAD not selected"
 fi
 
 if feature_enabled corp-client; then
@@ -1799,6 +1818,7 @@ if feature_enabled corp-client; then
   _CLIENT_RC=0
   { terraform -chdir=IaC/terraform apply -auto-approve -input=false \
       -target=null_resource.corp_client_vm \
+      -var="minikube_profile=${PROFILE}" \
       -var="client_vm_cpus=${CLIENT_CPUS}" \
       -var="client_vm_memory=${CLIENT_MEM}" \
       -var="client_vm_disk=${CLIENT_DISK}" \
@@ -2086,7 +2106,7 @@ GRAFANA_PASSWORD="${GRAFANA_PASSWORD:-}"
 K8S_DASHBOARD_TOKEN="${K8S_DASHBOARD_TOKEN:-}"
 export PROFILE GRAFANA_PASSWORD ARGOCD_PASSWORD RANCHER_BOOTSTRAP_PASSWORD VAULT_TOKEN \
        ARGO_WORKFLOWS_TOKEN K8S_DASHBOARD_TOKEN BIND9_IP GITHUB_REPO GITHUB_BRANCH \
-       FLUX_APPS_PATH VAULT_KV_PATH VAULT_ADDR VAULT_AUTH_PATH SAMBA_IP
+       LAB_ENV FLUX_APPS_PATH VAULT_KV_PATH VAULT_ADDR VAULT_AUTH_PATH SAMBA_IP
 python3 -c "
 import os, string
 from pathlib import Path

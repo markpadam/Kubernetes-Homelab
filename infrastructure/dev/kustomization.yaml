@@ -1,6 +1,6 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# Lab environment — references base infrastructure.
+# Dev environment overlay — references base infrastructure.
 # Optional components (monitoring, argocd, toolbox, identity)
 # are managed by lab-feature.sh enable/disable.
 resources:

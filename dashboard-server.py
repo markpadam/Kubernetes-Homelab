@@ -7,7 +7,8 @@ line-by-line back to the browser.
 Usage (called by setup-lab.sh / resume-lab.sh):
   python3 dashboard-server.py <repo-root>
 """
-import http.server, subprocess, os, re, threading, sys, json, time
+import http.server, subprocess, os, re, secrets, threading, sys, json, time
+from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
@@ -15,6 +16,40 @@ PORT = 9997
 REPO_ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).parent.resolve()
 DASHBOARD = Path("/tmp/lab-dashboard.html")
 ANSI      = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+# Per-process auth token. The browser receives it both as a cookie (set when
+# the HTML is served) and as a JS constant (injected into the page), so the
+# UI's fetch() and EventSource() calls can both authenticate.
+#
+# Threat: a malicious page in another browser tab can hit http://localhost:9997
+# even though the server is bound to loopback (browsers happily make requests to
+# localhost). Without auth, that page could trigger /exec/teardown via <img src>.
+# With the token check, the malicious page can't read or guess it, and the
+# SameSite=Strict cookie prevents the browser from sending it cross-site.
+TOKEN_FILE = Path("/tmp/lab-dashboard-token")
+ALLOWED_ORIGINS = {f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}"}
+
+
+def _load_or_create_token() -> str:
+    # Reuse token across server restarts so existing browser tabs keep working
+    # after a resume-lab. File mode 0600 — only the local user can read it.
+    if TOKEN_FILE.exists():
+        try:
+            existing = TOKEN_FILE.read_text().strip()
+            if existing and len(existing) >= 32:
+                return existing
+        except Exception:
+            pass
+    token = secrets.token_urlsafe(32)
+    TOKEN_FILE.write_text(token)
+    try:
+        os.chmod(TOKEN_FILE, 0o600)
+    except Exception:
+        pass
+    return token
+
+
+LAB_TOKEN = _load_or_create_token()
 
 # In-memory TTL cache so concurrent clients (e.g. multiple browser tabs)
 # share a single kubectl invocation per endpoint. Cache key → (expires_at, data, status_code).
@@ -78,8 +113,63 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # suppress per-request noise
 
+    # ── Auth helpers ────────────────────────────────────────────
+    def _request_token(self) -> str:
+        """Pick up the token from cookie, X-Lab-Token header, or ?token= URL param.
+        Browser cookies are the primary path (HttpOnly, SameSite=Strict, set when
+        the HTML is served). The URL param is the SSE fallback because EventSource
+        cannot set custom headers."""
+        cookies = SimpleCookie(self.headers.get("Cookie", ""))
+        if "lab_token" in cookies:
+            return cookies["lab_token"].value
+        hdr = self.headers.get("X-Lab-Token", "")
+        if hdr:
+            return hdr
+        qs = parse_qs(urlparse(self.path).query)
+        return (qs.get("token", [""]) or [""])[0]
+
+    def _check_auth(self) -> bool:
+        """Verify the request carries our token AND (if Origin header is set)
+        comes from a trusted origin. Returns True if allowed; otherwise sends a
+        401 and returns False."""
+        if not secrets.compare_digest(self._request_token(), LAB_TOKEN):
+            self._text(401, "Unauthorized")
+            return False
+        origin = self.headers.get("Origin")
+        # Same-origin GET/SSE often omit Origin; only enforce when the browser
+        # explicitly states a cross-origin context.
+        if origin and origin not in ALLOWED_ORIGINS:
+            self._text(403, "Forbidden origin")
+            return False
+        return True
+
+    # ── Verb dispatch ───────────────────────────────────────────
     def do_GET(self):
         path = urlparse(self.path).path
+
+        # ── Dashboard HTML (public, sets the auth cookie) ──────────
+        if path == "/" or path == "/index.html":
+            if not DASHBOARD.exists():
+                self._text(404, "Dashboard not found. Run setup-lab.sh or resume-lab.sh first.")
+                return
+            data = self._render_dashboard()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            # HttpOnly so page JS can't read the cookie; SameSite=Strict so the
+            # browser refuses to send it from any other site (this is what blocks
+            # the <img src="http://localhost:9997/exec/teardown"> CSRF vector).
+            self.send_header(
+                "Set-Cookie",
+                f"lab_token={LAB_TOKEN}; Path=/; HttpOnly; SameSite=Strict",
+            )
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
+        # Every other GET endpoint needs auth.
+        if not self._check_auth():
+            return
 
         # ── Node metrics (JSON) ────────────────────────────────────
         # Cached for 10s — kubectl top nodes can take 1-5s on a slow cluster,
@@ -106,13 +196,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 except Exception as e:
                     return json.dumps({"error": str(e)}).encode(), 500
             data, code = _cache_get_or_fetch("node-metrics", 10.0, fetch_node_metrics)
-            self.send_response(code)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-cache")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(data)
+            self._send_json(code, data)
             return
 
         # ── Pod status by namespace (JSON) ──────────────────────────
@@ -145,13 +229,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 except Exception:
                     return b"{}", 500
             data, code = _cache_get_or_fetch("pod-status", 15.0, fetch_pod_status)
-            self.send_response(code)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-cache")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(data)
+            self._send_json(code, data)
             return
 
         # ── Feature list (JSON) ─────────────────────────────────────
@@ -162,15 +240,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 data = out.strip().encode()
             except Exception:
                 data = b"[]"
-            self.send_response(200 if rc == 0 else 500)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(data)
+            self._send_json(200 if rc == 0 else 500, data)
             return
 
         # ── Script execution (SSE) ──────────────────────────────────
+        # SSE stays GET because EventSource cannot do POST. Token check above
+        # has already gated it; SameSite=Strict on the cookie prevents the
+        # browser from attaching it to cross-site requests.
         if path.startswith("/exec/"):
             name = path[len("/exec/"):]
             if name not in COMMANDS:
@@ -201,7 +277,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._stream(key, ["bash", LAB_FEATURE, action, comp_id])
             return
 
+        self._text(404, "Not found")
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        if not self._check_auth():
+            return
+
         # ── Corp Client VNC connect ────────────────────────────────
+        # POST instead of GET — opens an external app, so it's a state change.
         if path == "/api/corp-client/connect":
             try:
                 info = subprocess.run(
@@ -215,22 +299,38 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._text(500, str(e))
             return
 
-        # ── Dashboard HTML ──────────────────────────────────────────
-        if not DASHBOARD.exists():
-            self._text(404, "Dashboard not found. Run setup-lab.sh or resume-lab.sh first.")
-            return
-        data = DASHBOARD.read_bytes()
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        self._text(404, "Not found")
 
     def do_OPTIONS(self):
+        # No wildcard CORS — we don't want any other origin reading our
+        # responses. Only same-origin preflights need a positive answer.
+        origin = self.headers.get("Origin", "")
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        if origin in ALLOWED_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Credentials", "true")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "X-Lab-Token, Content-Type")
         self.end_headers()
+
+    # ── Response helpers ────────────────────────────────────────
+    def _render_dashboard(self) -> bytes:
+        """Inject the auth token into the HTML so the page's JS can attach it
+        to API calls. We use a placeholder that setup-lab.sh's template
+        emits — if it's not present we just serve the file unchanged."""
+        raw = DASHBOARD.read_bytes()
+        # The HTML carries window.LAB_TOKEN as the literal string %LAB_TOKEN%
+        # before the server sees it; swap in the real value here.
+        return raw.replace(b"%LAB_TOKEN%", LAB_TOKEN.encode())
+
+    def _send_json(self, code, data):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-cache")
+        # No CORS header — same-origin reads only.
+        self.end_headers()
+        self.wfile.write(data)
 
     def _text(self, code, msg):
         b = msg.encode()
@@ -245,7 +345,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control",    "no-cache")
         self.send_header("X-Accel-Buffering", "no")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
 
         def emit(line):

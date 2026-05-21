@@ -21,9 +21,11 @@ cd "$REPO_ROOT"
 
 PROFILE="${LAB_PROFILE:-aks-lab}"
 GRAFANA_PASSWORD="admin123"
-GITHUB_REPO="https://github.com/markpadam/Kubernetes-Homelab.git"
-GITHUB_BRANCH="main"
-FLUX_APPS_PATH="./clusters/lab"
+GITHUB_REPO="${GITHUB_REPO:-https://github.com/markpadam/Kubernetes-Homelab.git}"
+GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
+LAB_ENV="${LAB_ENV:-dev}"
+case "$LAB_ENV" in dev|prd) ;; *) echo "Invalid LAB_ENV='$LAB_ENV' (expected: dev|prd)" >&2; exit 1 ;; esac
+FLUX_APPS_PATH="${FLUX_APPS_PATH:-./clusters/${LAB_ENV}}"
 VAULT_ADDR="http://127.0.0.1:8200"
 VAULT_TOKEN="root"
 VAULT_KV_PATH="kv"
@@ -350,7 +352,7 @@ if [[ -z "$ONLY_COMPONENT" ]]; then
 
   export PROFILE GRAFANA_PASSWORD ARGOCD_PASSWORD VAULT_TOKEN \
          ARGO_WORKFLOWS_TOKEN BIND9_IP GITHUB_REPO GITHUB_BRANCH \
-         FLUX_APPS_PATH VAULT_KV_PATH VAULT_ADDR VAULT_AUTH_PATH SAMBA_IP
+         LAB_ENV FLUX_APPS_PATH VAULT_KV_PATH VAULT_ADDR VAULT_AUTH_PATH SAMBA_IP
 
   python3 -c "
 import os, string

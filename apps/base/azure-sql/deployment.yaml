@@ -20,7 +20,11 @@ spec:
         runAsGroup: 0
       containers:
         - name: mssql
-          image: mcr.microsoft.com/azure-sql-edge:latest
+          # Pinned by digest — azure-sql-edge is EOL'd by Microsoft so the
+          # `:latest` tag may drift or disappear. Digest is the version
+          # currently running in this lab; bump after testing a known-good
+          # replacement.
+          image: mcr.microsoft.com/azure-sql-edge@sha256:902628a8be89e35dfb7895ca31d602974c7bafde4d583a0d0873844feb1c42cf
           ports:
             - containerPort: 1433
           env:

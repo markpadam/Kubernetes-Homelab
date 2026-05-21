@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: dex
-          image: ghcr.io/dexidp/dex:latest
+          image: ghcr.io/dexidp/dex:v2.45.0
           command: ["/usr/local/bin/dex", "serve", "/etc/dex/config.yaml"]
           ports:
             - containerPort: 5556
