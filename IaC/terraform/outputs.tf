@@ -8,7 +8,7 @@ output "vault_address" {
     Azure equivalent: azurerm_key_vault.vault_uri
     ("https://<name>.vault.azure.net")
   DESC
-  value = var.vault_address
+  value       = var.vault_address
 }
 
 output "vault_root_token" {
@@ -18,8 +18,8 @@ output "vault_root_token" {
     Azure equivalent: a Key Vault Administrator service principal credential.
     In normal operation pods authenticate via the Kubernetes auth method instead.
   DESC
-  value     = var.vault_root_token
-  sensitive = true
+  value       = var.vault_root_token
+  sensitive   = true
 }
 
 output "kv_mount_path" {
@@ -29,7 +29,7 @@ output "kv_mount_path" {
       <kv_mount_path>/metadata/<secret-name> — list versions
     Azure equivalent: the secrets container within a Key Vault (implicit in the URI).
   DESC
-  value = vault_mount.kv_v2.path
+  value       = vault_mount.kv_v2.path
 }
 
 output "kubernetes_auth_path" {
@@ -39,7 +39,7 @@ output "kubernetes_auth_path" {
     with their service account JWT and the role name.
     Azure equivalent: the OIDC token endpoint used by Azure workload identity.
   DESC
-  value = vault_auth_backend.kubernetes.path
+  value       = vault_auth_backend.kubernetes.path
 }
 
 output "azure_services_policy" {
@@ -48,7 +48,7 @@ output "azure_services_policy" {
     Azure equivalent: the name of a Key Vault access policy or RBAC role assignment
     that grants Secret Get + List to a managed identity.
   DESC
-  value = vault_policy.azure_services.name
+  value       = vault_policy.azure_services.name
 }
 
 output "azure_services_role" {
@@ -58,7 +58,7 @@ output "azure_services_role" {
     Azure equivalent: the managed identity client ID used in DefaultAzureCredential
     when a pod calls the Azure Key Vault REST API.
   DESC
-  value = vault_kubernetes_auth_backend_role.azure_services.role_name
+  value       = vault_kubernetes_auth_backend_role.azure_services.role_name
 }
 
 output "vault_log_file" {
@@ -73,18 +73,37 @@ output "azure_services_secret_path" {
     Read a secret:  vault kv get <path>/my-secret
     Azure equivalent: https://<keyvault>.vault.azure.net/secrets/<secret-name>
   DESC
-  value = "${vault_mount.kv_v2.path}/azure-services"
+  value       = "${vault_mount.kv_v2.path}/azure-services"
 }
 
 # ── SambaAD / Active Directory outputs ────────────────────────────────────────
 
+# multipass returns a list of IPs (one per interface). The first is the
+# primary VM IP. We use `external` data sources so the IP is captured at
+# apply time rather than baked in as a hint string.
+data "external" "samba_ad_ip" {
+  depends_on = [null_resource.samba_vm]
+  program = ["bash", "-c", <<-EOT
+    ip=$(multipass info samba-ad --format json 2>/dev/null \
+      | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" 2>/dev/null) || ip=""
+    printf '{"ip": "%s"}' "$ip"
+  EOT
+  ]
+}
+
+data "external" "corp_client_ip" {
+  depends_on = [null_resource.corp_client_vm]
+  program = ["bash", "-c", <<-EOT
+    ip=$(multipass info corp-client --format json 2>/dev/null \
+      | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['ipv4'][0])" 2>/dev/null) || ip=""
+    printf '{"ip": "%s"}' "$ip"
+  EOT
+  ]
+}
+
 output "samba_ad_ip" {
-  description = <<-DESC
-    IP address of the samba-ad Multipass VM.
-    Captured at apply time — use this to configure CoreDNS and Dex.
-    Run: multipass info samba-ad --format json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])"
-  DESC
-  value = "run: multipass info samba-ad --format json | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])\""
+  description = "IP address of the samba-ad Multipass VM, captured at apply time."
+  value       = data.external.samba_ad_ip.result.ip
 }
 
 output "ad_domain" {
@@ -96,9 +115,8 @@ output "ldap_url" {
   description = <<-DESC
     LDAP URL for the SambaAD VM. Used by Dex's LDAP connector.
     Azure equivalent: ldap://<domain-controller>:389 behind a private endpoint.
-    Substitute the actual IP from samba_ad_ip.
   DESC
-  value = "ldap://<samba_ad_ip>:389"
+  value       = "ldap://${data.external.samba_ad_ip.result.ip}:389"
 }
 
 output "ad_admin_password" {
@@ -108,9 +126,6 @@ output "ad_admin_password" {
 }
 
 output "corp_client_ip" {
-  description = <<-DESC
-    IP address of the corp-client Multipass VM.
-    Run: multipass info corp-client --format json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['ipv4'][0])"
-  DESC
-  value = "run: multipass info corp-client --format json | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['ipv4'][0])\""
+  description = "IP address of the corp-client Multipass VM, captured at apply time."
+  value       = data.external.corp_client_ip.result.ip
 }

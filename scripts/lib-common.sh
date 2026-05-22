@@ -120,8 +120,24 @@ lab_serve_dashboard() {
 # get invalidated and dex/oauth2-proxy stay in sync.
 #
 # Format: one KEY=VALUE per line, file is chmod 600.
-# Usage:  secret=$(lab_secret_get_or_create COOKIE_SECRET "command-that-generates-one")
+# Usage:  secret=$(lab_secret_get_or_create COOKIE_SECRET <generator-name>)
+#   where <generator-name> is one of the allow-listed names in
+#   _lab_generate_secret below. Adding a new generator means adding it
+#   there — we don't accept arbitrary shell command strings.
 LAB_SECRETS_FILE="${LAB_SECRETS_FILE:-$HOME/.aks-lab-secrets}"
+
+# Allow-listed secret generators. Centralising them here means callers can't
+# pass arbitrary shell — they pick a name and get a known-safe implementation.
+_lab_generate_secret() {
+  case "$1" in
+    token_urlsafe_32)
+      python3 -c 'import secrets; print(secrets.token_urlsafe(32))' ;;
+    cookie_secret_32)
+      python3 -c 'import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())' ;;
+    *)
+      return 1 ;;
+  esac
+}
 
 lab_secret_get_or_create() {
   local key="$1" generator="$2"
@@ -134,7 +150,7 @@ lab_secret_get_or_create() {
     fi
   fi
   local value
-  value=$(eval "$generator")
+  value=$(_lab_generate_secret "$generator") || return 1
   [[ -z "$value" ]] && return 1
   touch "$LAB_SECRETS_FILE"
   chmod 600 "$LAB_SECRETS_FILE"

@@ -70,10 +70,10 @@ resource "null_resource" "samba_vm" {
       # Use the Packer-built base image if it exists — packages are already
       # installed so cloud-init only needs to run the domain provisioning step.
       # Fall back to plain Ubuntu 24.04 if the cache is missing.
-      _SAMBA_BASE="${HOME}/.lab-cache/images/samba-base.tar.gz"
+      _SAMBA_BASE="$${HOME}/.lab-cache/images/samba-base.tar.gz"
       if [[ -f "$_SAMBA_BASE" ]]; then
         _LAUNCH_IMAGE="file://$_SAMBA_BASE"
-        echo "[samba] Using Packer base image — packages pre-installed (${_SAMBA_BASE})"
+        echo "[samba] Using Packer base image — packages pre-installed ($${_SAMBA_BASE})"
       else
         _LAUNCH_IMAGE="24.04"
         echo "[samba] No Packer cache found — packages will install via cloud-init"
@@ -199,10 +199,10 @@ resource "null_resource" "corp_client_vm" {
 
       # Use the Packer-built base image if cached — saves 15-20 min on first run
       # (XFCE4, Firefox, k8s tools, Azure CLI are all pre-installed).
-      _CLIENT_BASE="${HOME}/.lab-cache/images/corp-client-base.tar.gz"
+      _CLIENT_BASE="$${HOME}/.lab-cache/images/corp-client-base.tar.gz"
       if [[ -f "$_CLIENT_BASE" ]]; then
         _LAUNCH_IMAGE="file://$_CLIENT_BASE"
-        echo "[client] Using Packer base image — packages pre-installed (${_CLIENT_BASE})"
+        echo "[client] Using Packer base image — packages pre-installed ($${_CLIENT_BASE})"
       else
         _LAUNCH_IMAGE="24.04"
         echo "[client] No Packer cache found — packages will install via cloud-init (~15-20 min)"

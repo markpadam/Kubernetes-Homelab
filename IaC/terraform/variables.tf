@@ -5,8 +5,8 @@ variable "vault_address" {
     Address Vault listens on.
     Azure equivalent: the Key Vault URI — https://<name>.vault.azure.net
   DESC
-  type    = string
-  default = "http://127.0.0.1:8200"
+  type        = string
+  default     = "http://127.0.0.1:8200"
 }
 
 variable "vault_root_token" {
@@ -16,9 +16,9 @@ variable "vault_root_token" {
     Azure equivalent: a service principal with the Key Vault Administrator role.
     In production, use short-lived tokens issued via the Kubernetes auth method instead.
   DESC
-  type      = string
-  default   = "root"
-  sensitive = true
+  type        = string
+  default     = "root"
+  sensitive   = true
 }
 
 variable "vault_dev_listen_address" {
@@ -34,8 +34,8 @@ variable "minikube_profile" {
     Minikube profile name — used as the kubectl context when creating the
     Vault reviewer service account and extracting cluster credentials.
   DESC
-  type    = string
-  default = "aks-lab"
+  type        = string
+  default     = "aks-lab"
 }
 
 variable "minikube_k8s_host" {
@@ -47,8 +47,8 @@ variable "minikube_k8s_host" {
       kubectl config view --context=aks-lab \
         -o jsonpath='{.clusters[?(@.name=="aks-lab")].cluster.server}'
   DESC
-  type    = string
-  default = "https://192.168.49.2:8443"
+  type        = string
+  default     = "https://192.168.49.2:8443"
 }
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
@@ -59,8 +59,8 @@ variable "kv_mount_path" {
     Azure equivalent: the name component of the Key Vault URI
     (https://<kv_mount_path>.vault.azure.net).
   DESC
-  type    = string
-  default = "kv"
+  type        = string
+  default     = "kv"
 }
 
 variable "azure_services_namespaces" {
@@ -71,6 +71,6 @@ variable "azure_services_namespaces" {
     access via Key Vault access policies or RBAC role assignments.
     Restrict per-namespace in production — never use ["*"].
   DESC
-  type    = list(string)
-  default = ["taskapp", "blob-explorer", "azure-storage"]
+  type        = list(string)
+  default     = ["taskapp", "blob-explorer", "azure-storage"]
 }

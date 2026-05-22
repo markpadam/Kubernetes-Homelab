@@ -1,0 +1,54 @@
+# Toolbox SSH Pod
+
+**Runs in:** `toolbox` namespace
+**SSH port:** `2222` (port-forwarded from pod port 22)
+**Azure equivalent:** Azure Cloud Shell, jump-box VM, or Azure Bastion
+**Installed by:** `scripts/setup-lab.sh` Step 8 / `scripts/lab-feature.sh` `_enable_toolbox` — applies `flux/infrastructure/base/toolbox/toolbox.yaml`
+**Default:** yes — enabled on every `./aks-lab setup` run
+
+## Overview
+
+The toolbox is an in-cluster Ubuntu pod that you can SSH into for debugging. It has the standard suite of network and Kubernetes tools preinstalled — `kubectl`, `curl`, `dig`, `nc`, `tcpdump`, `psql`, `redis-cli`, etc. — and runs as a Deployment with its public key authentication wired to your local SSH key, so guides can use it as a consistent debugging base without juggling kubeconfigs.
+
+Most lab walkthroughs use the toolbox to test DNS resolution, hit private-link emulator endpoints, and verify connectivity from inside the cluster network.
+
+## Access
+
+```bash
+# SSH (port-forward must be active — restored by ./aks-lab resume)
+ssh -p 2222 root@localhost
+
+# Or just exec into the pod
+kubectl exec -it -n toolbox deploy/toolbox -- bash
+```
+
+## SSH key setup
+
+On first enable the script looks for `~/.ssh/id_ed25519.pub`, `~/.ssh/id_rsa.pub`, or `~/.ssh/id_ecdsa.pub` and embeds the matching public key in the pod's `authorized_keys`. If none of those exist, it generates an ed25519 key at `~/.ssh/id_ed25519` and uses that.
+
+## Useful patterns
+
+```bash
+# Resolve internal DNS from inside the cluster
+ssh -p 2222 root@localhost dig vault.aks-lab.local
+
+# Connect to the in-cluster Postgres directly
+ssh -p 2222 root@localhost \
+  'psql postgres://taskapp:taskapp@postgres.taskapp:5432/taskapp'
+
+# Inspect Azurite blob storage from inside the cluster network
+ssh -p 2222 root@localhost \
+  'curl -s http://azurite.azure-storage:10000/devstoreaccount1?comp=list'
+```
+
+## Disabling
+
+```bash
+./aks-lab feature disable toolbox
+```
+
+Deletes the namespace and the deployment. The SSH key on your Mac is left untouched — re-enabling re-uses it.
+
+## Azure equivalent
+
+Azure Cloud Shell is the closest match — a managed shell environment with Azure tooling preinstalled. For network debugging into a private cluster, the in-AKS equivalent is to deploy a jump-box pod or use the AKS Run Command (`az aks command invoke`).

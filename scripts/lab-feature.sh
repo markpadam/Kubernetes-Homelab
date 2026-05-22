@@ -384,6 +384,108 @@ _disable_argocd() {
   success "ArgoCD disabled"
 }
 
+# ── Special: Kubernetes Dashboard ─────────────────────────────────
+_enable_kubernetes_dashboard() {
+  helm repo add kubernetes-dashboard https://raw.githubusercontent.com/kubernetes/dashboard/gh-pages/ &>/dev/null || true
+  helm repo update &>/dev/null
+  if helm status kubernetes-dashboard -n kubernetes-dashboard &>/dev/null; then
+    warn "Helm release 'kubernetes-dashboard' already exists — skipping install."
+  else
+    log "Installing Kubernetes Dashboard via Helm..."
+    helm install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard \
+      --namespace kubernetes-dashboard --create-namespace \
+      --wait --timeout=3m
+  fi
+  log "Applying dashboard RBAC and ingress..."
+  kubectl apply -k "$REPO_ROOT/flux/infrastructure/base/kubernetes-dashboard/" \
+    || warn "Dashboard RBAC/ingress apply failed"
+  local token
+  token=$(kubectl get secret admin-user-token -n kubernetes-dashboard \
+    -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || echo "")
+  if [[ -n "$token" ]]; then
+    success "Kubernetes Dashboard ready — https://dashboard.aks-lab.local:9443"
+  else
+    warn "Dashboard installed but could not read admin token yet"
+  fi
+}
+
+_disable_kubernetes_dashboard() {
+  helm uninstall kubernetes-dashboard -n kubernetes-dashboard 2>/dev/null || true
+  _kubectl_delete_ns kubernetes-dashboard
+  success "Kubernetes Dashboard disabled"
+}
+
+# ── Special: Rancher ──────────────────────────────────────────────
+_enable_rancher() {
+  local bootstrap_pw="${RANCHER_BOOTSTRAP_PASSWORD:-AksLabRancher1}"
+  helm repo add jetstack https://charts.jetstack.io &>/dev/null || true
+  helm repo add rancher-stable https://releases.rancher.com/server-charts/stable &>/dev/null || true
+  log "Updating Helm repos for cert-manager and Rancher..."
+  helm repo update jetstack rancher-stable \
+    || warn "Helm repo update failed — using cached chart index"
+
+  if helm status cert-manager -n cert-manager &>/dev/null; then
+    warn "cert-manager already installed — skipping."
+  else
+    log "Installing cert-manager (Rancher prerequisite)..."
+    helm install cert-manager jetstack/cert-manager \
+      --namespace cert-manager --create-namespace \
+      --set crds.enabled=true \
+      --wait --timeout=3m
+  fi
+
+  if helm status rancher -n cattle-system &>/dev/null; then
+    warn "Helm release 'rancher' already exists — skipping install."
+  else
+    log "Installing Rancher via Helm (this may take several minutes)..."
+    helm install rancher rancher-stable/rancher \
+      --namespace cattle-system --create-namespace \
+      --set hostname=rancher.aks-lab.local \
+      --set bootstrapPassword="${bootstrap_pw}" \
+      --set replicas=1 \
+      --set ingress.enabled=false \
+      --set resources.requests.memory=256Mi \
+      --set resources.requests.cpu=250m \
+      --set resources.limits.memory=2Gi \
+      --set auditLog.level=0 \
+      --wait --timeout=10m
+  fi
+
+  log "Applying Rancher ingress..."
+  kubectl apply -k "$REPO_ROOT/flux/infrastructure/base/rancher/" \
+    || warn "Rancher ingress apply failed"
+
+  log "Waiting for Rancher to be ready (may take several minutes)..."
+  kubectl wait deployment rancher \
+    --for=condition=available --namespace=cattle-system --timeout=300s \
+    || warn "Rancher not yet ready — it may still be initialising"
+
+  # Fleet and CAPI are redundant in this single-cluster lab — Flux already
+  # covers GitOps. Scale to 0 to reclaim ~350–450 MB RAM.
+  log "Scaling down redundant Rancher controllers (Fleet, provisioning-capi)..."
+  local _ns_dep _ns _dep
+  for _ns_dep in \
+    "cattle-fleet-system/fleet-controller" \
+    "cattle-fleet-local-system/fleet-agent" \
+    "cattle-provisioning-capi-system/capi-controller-manager"; do
+    _ns="${_ns_dep%%/*}"
+    _dep="${_ns_dep##*/}"
+    if kubectl get deployment "$_dep" -n "$_ns" &>/dev/null; then
+      kubectl scale deployment "$_dep" -n "$_ns" --replicas=0 &>/dev/null \
+        && log "  Scaled down $_dep in $_ns" \
+        || warn "  Could not scale $_dep in $_ns"
+    fi
+  done
+
+  success "Rancher ready — https://rancher.aks-lab.local:9443  (bootstrap: ${bootstrap_pw})"
+}
+
+_disable_rancher() {
+  helm uninstall rancher -n cattle-system 2>/dev/null || true
+  _kubectl_delete_ns cattle-system
+  success "Rancher disabled"
+}
+
 # ── Special: Toolbox ──────────────────────────────────────────────
 _enable_toolbox() {
   local SSH_KEY_PATH=""
@@ -471,8 +573,7 @@ _enable_dex() {
   # DEX_CLIENT_SECRET persists in ~/.aks-lab-secrets so it stays in sync
   # with the value oauth2-proxy uses (both render from $DEX_CLIENT_SECRET).
   local DEX_CLIENT_SECRET
-  DEX_CLIENT_SECRET=$(lab_secret_get_or_create DEX_CLIENT_SECRET \
-    "python3 -c 'import secrets; print(secrets.token_urlsafe(32))'")
+  DEX_CLIENT_SECRET=$(lab_secret_get_or_create DEX_CLIENT_SECRET token_urlsafe_32)
   export SAMBA_IP DEX_CLIENT_SECRET AD_ADMIN_PASSWORD="AksLab!AdDev1"
   log "Rendering Dex config (SambaAD: $SAMBA_IP)..."
   python3 -c "
@@ -539,10 +640,8 @@ _enable_oauth2_proxy() {
   # client_secret stays in sync between dex and oauth2-proxy, and SSO
   # cookies remain valid across oauth2-proxy restarts.
   local COOKIE_SECRET DEX_CLIENT_SECRET
-  COOKIE_SECRET=$(lab_secret_get_or_create COOKIE_SECRET \
-    "python3 -c 'import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())'")
-  DEX_CLIENT_SECRET=$(lab_secret_get_or_create DEX_CLIENT_SECRET \
-    "python3 -c 'import secrets; print(secrets.token_urlsafe(32))'")
+  COOKIE_SECRET=$(lab_secret_get_or_create COOKIE_SECRET cookie_secret_32)
+  DEX_CLIENT_SECRET=$(lab_secret_get_or_create DEX_CLIENT_SECRET token_urlsafe_32)
   export COOKIE_SECRET DEX_CLIENT_SECRET
   log "Applying OAuth2 Proxy secret..."
   python3 -c "
@@ -749,17 +848,19 @@ do_enable() {
   if is_enabled "$id"; then warn "$id is already enabled"; return; fi
   log "Enabling: $name"
   case "$id" in
-    vault)          _enable_vault ;;
-    monitoring)     _enable_monitoring ;;
-    keda)           _enable_keda ;;
-    argocd)         _enable_argocd ;;
-    toolbox)        _enable_toolbox ;;
-    samba-ad)       _enable_samba_ad ;;
-    dex)            _enable_dex ;;
-    oauth2-proxy)   _enable_oauth2_proxy ;;
-    corp-client)    _enable_corp_client ;;
-    argo-workflows) _enable_argo_workflows ;;
-    azdo-agent)     _enable_azdo_agent ;;
+    vault)                _enable_vault ;;
+    monitoring)           _enable_monitoring ;;
+    keda)                 _enable_keda ;;
+    argocd)               _enable_argocd ;;
+    kubernetes-dashboard) _enable_kubernetes_dashboard ;;
+    rancher)              _enable_rancher ;;
+    toolbox)              _enable_toolbox ;;
+    samba-ad)             _enable_samba_ad ;;
+    dex)                  _enable_dex ;;
+    oauth2-proxy)         _enable_oauth2_proxy ;;
+    corp-client)          _enable_corp_client ;;
+    argo-workflows)       _enable_argo_workflows ;;
+    azdo-agent)           _enable_azdo_agent ;;
     *)
       _kubectl_apply "$id"
       _start_comp_portforwards "$id"
@@ -796,17 +897,19 @@ do_disable() {
   fi
   log "Disabling: $name"
   case "$id" in
-    vault)          _disable_vault ;;
-    monitoring)     _disable_monitoring ;;
-    keda)           _disable_keda ;;
-    argocd)         _disable_argocd ;;
-    toolbox)        _disable_toolbox ;;
-    samba-ad)       _disable_samba_ad ;;
-    dex)            _disable_dex ;;
-    oauth2-proxy)   _disable_oauth2_proxy ;;
-    corp-client)    _disable_corp_client ;;
-    argo-workflows) _disable_argo_workflows ;;
-    azdo-agent)     _disable_azdo_agent ;;
+    vault)                _disable_vault ;;
+    monitoring)           _disable_monitoring ;;
+    keda)                 _disable_keda ;;
+    argocd)               _disable_argocd ;;
+    kubernetes-dashboard) _disable_kubernetes_dashboard ;;
+    rancher)              _disable_rancher ;;
+    toolbox)              _disable_toolbox ;;
+    samba-ad)             _disable_samba_ad ;;
+    dex)                  _disable_dex ;;
+    oauth2-proxy)         _disable_oauth2_proxy ;;
+    corp-client)          _disable_corp_client ;;
+    argo-workflows)       _disable_argo_workflows ;;
+    azdo-agent)           _disable_azdo_agent ;;
     *)
       _stop_comp_portforwards "$id"
       local ns; ns=$(comp_field "$id" ns)

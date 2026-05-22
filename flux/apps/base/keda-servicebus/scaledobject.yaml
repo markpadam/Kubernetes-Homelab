@@ -5,6 +5,8 @@ metadata:
   namespace: keda-servicebus
 spec:
   scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
     name: message-processor
   # Scale to zero when the queue is empty — this is the key difference from HPA.
   minReplicaCount: 0

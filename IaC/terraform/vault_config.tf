@@ -134,8 +134,8 @@ resource "vault_kubernetes_auth_backend_role" "azure_services" {
 
   # Token TTL mirrors the lifetime of an Azure managed identity access token.
   # Short TTLs limit the blast radius if a token is compromised.
-  token_ttl     = 3600  # 1 hour  — matches Azure AD managed identity token lifetime
-  token_max_ttl = 7200  # 2 hours — hard ceiling regardless of renewal
+  token_ttl     = 3600 # 1 hour  — matches Azure AD managed identity token lifetime
+  token_max_ttl = 7200 # 2 hours — hard ceiling regardless of renewal
 
   token_policies = [vault_policy.azure_services.name]
 }
@@ -190,18 +190,17 @@ resource "vault_pki_secret_backend_intermediate_cert_request" "int" {
   key_bits    = 256
 }
 
-resource "vault_pki_secret_backend_root_sign" "int" {
+resource "vault_pki_secret_backend_root_sign_intermediate" "int" {
   backend     = vault_mount.pki.path
   csr         = vault_pki_secret_backend_intermediate_cert_request.int.csr
   common_name = "aks-lab.local Intermediate CA"
   ttl         = "63072000"
-  is_ca       = true
 }
 
 resource "vault_pki_secret_backend_intermediate_set_signed" "int" {
-  backend     = vault_mount.pki_int.path
+  backend = vault_mount.pki_int.path
   # Full chain: intermediate cert + root cert so TLS clients can build the path.
-  certificate = "${vault_pki_secret_backend_root_sign.int.certificate}\n${vault_pki_secret_backend_root_cert.root.certificate}"
+  certificate = "${vault_pki_secret_backend_root_sign_intermediate.int.certificate}\n${vault_pki_secret_backend_root_cert.root.certificate}"
 }
 
 resource "vault_pki_secret_backend_config_urls" "pki_int" {

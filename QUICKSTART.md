@@ -162,8 +162,13 @@ Components can also be toggled from the **Lab Management** section of the dashbo
 | `taskflow` | Demo app — backend, frontend, PostgreSQL |
 | `monitoring` | Prometheus + Grafana |
 | `argocd` | ArgoCD GitOps UI |
+| `kubernetes-dashboard` | Official Kubernetes web UI |
 | `toolbox` | SSH-accessible debug pod |
 | `vault` | HashiCorp Vault (Azure Key Vault equivalent) |
+| `cert-manager` | TLS cert lifecycle via Vault PKI (auto-issues `*.aks-lab.local` certs) |
+| `keda` | Kubernetes Event-driven Autoscaling — scale-to-zero on external triggers |
+| `keda-servicebus` | Event-driven processor demo — scales 0→5 pods from Service Bus queue depth |
+| `rancher` | Rancher multi-cluster management UI |
 | `blob-explorer` | Azurite blob browser UI |
 | `azurite` | Azure Storage emulator |
 | `azure-sql` | SQL Server emulator |

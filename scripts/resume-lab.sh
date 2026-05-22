@@ -9,7 +9,10 @@ set -euo pipefail
 # ─────────────────────────────────────────────
 
 PROFILE="${LAB_PROFILE:-aks-lab}"
-GRAFANA_PASSWORD="admin123"
+# Grafana password is read from the in-cluster Secret after kubectl is reachable
+# (see "Retrieve runtime values" section below). The default "admin123" only
+# applies if the cluster isn't up yet or the monitoring stack isn't installed.
+GRAFANA_PASSWORD="${GRAFANA_PASSWORD:-admin123}"
 GITHUB_REPO="${GITHUB_REPO:-https://github.com/markpadam/Kubernetes-Homelab.git}"
 GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
 LAB_ENV="${LAB_ENV:-dev}"
@@ -314,6 +317,13 @@ feature_enabled corp-client        && _pf "K8s API (corp-client)" 8443 "kubectl 
 ARGOCD_PASSWORD=""
 ARGO_WORKFLOWS_TOKEN=""
 BIND9_IP=$(kubectl get svc bind9 -n dns-lab -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "unavailable")
+# Read the actual Grafana password from the live secret rather than relying on
+# the default — the user may have set GRAFANA_PASSWORD before running setup.
+if feature_enabled monitoring; then
+  _gp=$(kubectl -n monitoring get secret monitoring-grafana \
+    -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+  [[ -n "$_gp" ]] && GRAFANA_PASSWORD="$_gp"
+fi
 feature_enabled argocd         && ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<password-already-changed>")
 feature_enabled argo-workflows && ARGO_WORKFLOWS_TOKEN=$(kubectl -n argo exec deploy/argo-server -- argo auth token 2>/dev/null \

@@ -88,7 +88,10 @@ Components are individually toggleable at setup time or live from the dashboard.
 | Prometheus + Grafana | Azure Monitor + Managed Grafana | ✅ |
 | Kubernetes Dashboard | AKS resource view | ✅ |
 | HashiCorp Vault (KV v2 + K8s auth) | Azure Key Vault + Workload Identity | ✅ |
+| cert-manager + Vault PKI | Azure Certificate Manager / Private CA | ✅ |
 | Toolbox SSH Pod | Cloud Shell / jump box | ✅ |
+| KEDA *(optional)* | AKS KEDA add-on / Container Apps scaling | ☐ |
+| Rancher *(optional, ~2 GB RAM)* | AKS portal / Azure Arc multi-cluster | ☐ |
 
 ### Azure Service Emulators
 
@@ -106,6 +109,7 @@ Components are individually toggleable at setup time or live from the dashboard.
 |-----------|-------------|:-------:|
 | TaskFlow | Three-tier demo app — Nginx → Node.js → PostgreSQL with HPA | ✅ |
 | Blob Explorer | ASP.NET Core app using Azure.Storage.Blobs SDK against Azurite | ✅ |
+| KEDA Service Bus Demo | Event-driven processor — scales 0→5 pods from Service Bus queue depth | ☐ |
 | Argo Workflows | Kubernetes-native workflow engine | ☐ |
 | Azure DevOps Agent | Self-hosted Pipelines agent — run real ADO YAML pipelines in the cluster | ☐ |
 

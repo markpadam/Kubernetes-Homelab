@@ -1790,8 +1790,7 @@ if feature_enabled dex || feature_enabled oauth2-proxy; then
   step "Step 11b-2 — Dex + OAuth2 Proxy"
 
   if feature_enabled dex; then
-    DEX_CLIENT_SECRET=$(lab_secret_get_or_create DEX_CLIENT_SECRET \
-      "python3 -c 'import secrets; print(secrets.token_urlsafe(32))'")
+    DEX_CLIENT_SECRET=$(lab_secret_get_or_create DEX_CLIENT_SECRET token_urlsafe_32)
     export DEX_CLIENT_SECRET AD_ADMIN_PASSWORD="AksLab!AdDev1"
     if [[ -n "$SAMBA_IP" && "$SAMBA_IP" != "<samba-ad-ip>" ]]; then
       log "Applying Dex ConfigMap with LDAP connector (SambaAD IP: $SAMBA_IP)..."
@@ -1829,8 +1828,7 @@ PYEOF
   fi
 
   if feature_enabled oauth2-proxy; then
-    COOKIE_SECRET=$(lab_secret_get_or_create COOKIE_SECRET \
-      "python3 -c 'import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())'")
+    COOKIE_SECRET=$(lab_secret_get_or_create COOKIE_SECRET cookie_secret_32)
     export COOKIE_SECRET
     log "Applying OAuth2 Proxy secret..."
     kubectl apply -f flux/infrastructure/base/identity/oauth2-proxy/namespace.yaml
