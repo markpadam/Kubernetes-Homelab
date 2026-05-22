@@ -1,0 +1,51 @@
+namespace: incidenthub
+
+image:
+  repository: registry.container-registry.svc.cluster.local:5000/incidenthub
+  webTag: latest
+  workerTag: latest
+  migratorTag: latest
+  pullPolicy: IfNotPresent
+
+web:
+  replicaCount: 2
+  port: 8080
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits:   { cpu: 500m, memory: 384Mi }
+
+worker:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 50m,  memory: 96Mi }
+    limits:   { cpu: 300m, memory: 256Mi }
+
+ingress:
+  enabled: true
+  host: incidenthub.aks-lab.local
+  tlsSecret: incidenthub-tls
+
+# Connection strings — overridden by Vault Agent injection in the converged stage.
+# Hard-coded here so the chart deploys without Vault for early-stage exercises.
+config:
+  sqlConnectionString: "Server=mssql.azure-sql.svc.cluster.local,1433;Database=incidenthub;User Id=sa;Password=AksLab!SqlDev1;TrustServerCertificate=True;"
+  blobConnectionString: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite.azure-storage.svc.cluster.local:10000/devstoreaccount1;"
+  serviceBusConnectionString: "Endpoint=sb://servicebus.service-bus.svc.cluster.local;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
+  cosmosConnectionString: "AccountEndpoint=http://cosmosdb.cosmos-db.svc.cluster.local:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==;"
+
+vault:
+  enabled: false
+  role: incidenthub
+  secretPath: kv/data/incidenthub
+
+autoscaling:
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPU: 70
+  keda:
+    enabled: true
+    minReplicas: 0
+    maxReplicas: 8
+    queueLength: 5

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: incidenthub
+description: Corporate incident-reporting portal — ASP.NET Core web + worker. Backed by Azure SQL, Azurite, Service Bus, Cosmos DB. The reference app for the IncidentHub learning walkthrough.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

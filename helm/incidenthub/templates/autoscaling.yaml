@@ -1,0 +1,38 @@
+{{- if .Values.autoscaling.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: incidenthub-web
+  namespace: {{ .Values.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: incidenthub-web
+  minReplicas: {{ .Values.autoscaling.hpa.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: {{ .Values.autoscaling.hpa.targetCPU }} }
+{{- end }}
+---
+{{- if .Values.autoscaling.keda.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: incidenthub-worker
+  namespace: {{ .Values.namespace }}
+spec:
+  scaleTargetRef:
+    name: incidenthub-worker
+  minReplicaCount: {{ .Values.autoscaling.keda.minReplicas }}
+  maxReplicaCount: {{ .Values.autoscaling.keda.maxReplicas }}
+  triggers:
+    - type: azure-servicebus
+      metadata:
+        queueName: incident-created
+        messageCount: "{{ .Values.autoscaling.keda.queueLength }}"
+        connectionFromEnv: SERVICEBUS_CONNECTION_STRING
+{{- end }}

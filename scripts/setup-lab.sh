@@ -51,6 +51,8 @@ _TUI_FIFO=""
 _TUI_PID=""
 _STEP_ID=0
 _STEP_START_SECONDS=$SECONDS
+_CURRENT_STEP_LABEL=""
+_REACHED_HEALTH_CHECK=0
 _SUDO_KEEPALIVE_PID=""
 _WAS_TUI=0
 _HEALTH_ROWS=()
@@ -150,12 +152,16 @@ if [[ "$VERBOSE" != "1" ]]; then
   }
   step() {
     local _e; _e="$(_fmt_elapsed)"
+    # Breadcrumb to the log file so post-mortem of an interrupted run can tell
+    # exactly which step was active when things went sideways.
+    echo "[$(date +%T)] STEP: $*"
     if [[ "$_TUI_ACTIVE" == "1" ]]; then
       if (( _STEP_ID > 0 )); then
         _emit "{\"event\":\"step_done\",\"id\":${_STEP_ID},\"elapsed\":\"${_e}\"}"
       fi
       _STEP_ID=$(( _STEP_ID + 1 ))
       _STEP_START_SECONDS=$SECONDS
+      _CURRENT_STEP_LABEL="$*"
       _emit "{\"event\":\"step_start\",\"id\":${_STEP_ID},\"label\":\"$(_json_escape "$*")\"}"
     else
       if (( _STEP_ID > 0 )); then
@@ -163,6 +169,7 @@ if [[ "$VERBOSE" != "1" ]]; then
       fi
       _STEP_ID=$(( _STEP_ID + 1 ))
       _STEP_START_SECONDS=$SECONDS
+      _CURRENT_STEP_LABEL="$*"
       echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}" >&3
     fi
   }
@@ -197,6 +204,7 @@ else
     fi
     _STEP_ID=$(( _STEP_ID + 1 ))
     _STEP_START_SECONDS=$SECONDS
+    _CURRENT_STEP_LABEL="$*"
     echo -e "\n${BOLD}━━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
   }
 fi
@@ -298,17 +306,31 @@ _at_exit() {
   fi
   emin=${emin:-0}; esec=${esec:-0}
 
-  echo "[$(date +%T)] _at_exit fired (ec=$_ec pass=$pass fail=$fail total=$total)" >> "$log" 2>/dev/null || true
+  echo "[$(date +%T)] _at_exit fired (ec=$_ec pass=$pass fail=$fail total=$total reached_health=${_REACHED_HEALTH_CHECK:-0} step='${_CURRENT_STEP_LABEL:-}')" >> "$log" 2>/dev/null || true
+
+  # "Reached health check" is the authoritative signal for "setup ran to
+  # completion". Without it, _ec=0 can still mean we exited early (TUI death,
+  # signal handler, etc.) — never claim "complete" in that case.
+  local _reached=${_REACHED_HEALTH_CHECK:-0}
 
   {
     echo ""
     echo -e "  ${BOLD}════════════════════════════════════════════════════════════════════${RESET}"
-    if [[ "$_ec" -eq 0 && "$fail" -eq 0 ]]; then
+    if [[ "$_ec" -eq 0 && "$_reached" -eq 1 && "$fail" -eq 0 ]]; then
       echo -e "    ${GREEN}${BOLD}✓ Setup complete${RESET} — ${GREEN}${pass}/${total} components healthy${RESET} — ${emin}m ${esec}s"
-    elif [[ "$_ec" -eq 0 ]]; then
+    elif [[ "$_ec" -eq 0 && "$_reached" -eq 1 ]]; then
       echo -e "    ${YELLOW}${BOLD}~ Setup complete${RESET} — ${YELLOW}${pass}/${total} healthy · ${fail} need attention${RESET} — ${emin}m ${esec}s"
+    elif [[ "$_ec" -eq 0 ]]; then
+      echo -e "    ${YELLOW}${BOLD}~ Setup interrupted${RESET} — ${YELLOW}exited before health check${RESET} — ${emin}m ${esec}s"
+      if [[ -n "${_CURRENT_STEP_LABEL:-}" ]]; then
+        echo -e "    ${YELLOW}Stopped during:${RESET} ${_CURRENT_STEP_LABEL}"
+      fi
+      echo -e "    ${DIM}Inspect the log for the last STEP/ERR line to see where it exited.${RESET}"
     else
       echo -e "    ${RED}${BOLD}✗ Setup failed${RESET} — exit code ${_ec} — ${emin}m ${esec}s"
+      if [[ -n "${_CURRENT_STEP_LABEL:-}" ]]; then
+        echo -e "    ${RED}Failed during:${RESET} ${_CURRENT_STEP_LABEL}"
+      fi
       if [[ -n "$_FAILED_LINE" ]]; then
         echo -e "    ${RED}Failed at line ${_FAILED_LINE}:${RESET} ${_FAILED_CMD}"
       fi
@@ -1078,7 +1100,11 @@ kubectl wait --namespace cert-manager \
   --timeout=120s
 
 log "Applying cert-manager ClusterIssuer (Vault PKI — becomes Ready after Step 11)..."
-kubectl apply -k "$REPO_ROOT/flux/infrastructure/base/cert-manager/"
+# Only the ClusterIssuer is applied here. The sibling helmrelease.yaml /
+# helmrepository.yaml in this directory are Flux resources whose CRDs don't
+# exist until Step 10 — applying the whole kustomization would fail with
+# "no matches for kind HelmRelease".
+kubectl apply -f "$_REPO_ROOT/flux/infrastructure/base/cert-manager/cluster-issuer-vault.yaml"
 
 success "cert-manager ready"
 
@@ -2333,6 +2359,11 @@ _run_health_checks() {
   return 0
 }
 
+# Mark that the script reached the post-install health phase. _at_exit uses
+# this to decide between "complete" and "interrupted" — without it, an _ec=0
+# exit anywhere earlier (TUI death, signal handler, etc.) would otherwise
+# print a false "✓ Setup complete — 0/0 components healthy" banner.
+_REACHED_HEALTH_CHECK=1
 _run_health_checks
 
 printf "\n" >&3

@@ -1,0 +1,11 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY src/Migrator/ ./Migrator/
+RUN dotnet publish Migrator/IncidentHub.Migrator.csproj -c Release -o /app/publish
+
+FROM mcr.microsoft.com/dotnet/runtime:8.0
+WORKDIR /app
+RUN useradd -u 10001 -r app && chown app /app
+USER app
+COPY --from=build --chown=app /app/publish .
+ENTRYPOINT ["dotnet", "IncidentHub.Migrator.dll"]

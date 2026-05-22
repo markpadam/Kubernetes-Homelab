@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incidenthub-web
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "incidenthub.labels" . | nindent 4 }}
+    component: web
+spec:
+  replicas: {{ .Values.web.replicaCount }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: incidenthub, component: web }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: incidenthub, component: web }
+      {{- if .Values.vault.enabled }}
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: {{ .Values.vault.role | quote }}
+        vault.hashicorp.com/agent-inject-secret-config.env: {{ .Values.vault.secretPath | quote }}
+        vault.hashicorp.com/agent-inject-template-config.env: |
+          {{`{{- with secret "kv/data/incidenthub" -}}`}}
+          export SQL_CONNECTION_STRING={{`{{ .Data.data.sql_connection_string }}`}}
+          export BLOB_CONNECTION_STRING={{`{{ .Data.data.blob_connection_string }}`}}
+          export SERVICEBUS_CONNECTION_STRING={{`{{ .Data.data.servicebus_connection_string }}`}}
+          export COSMOS_CONNECTION_STRING={{`{{ .Data.data.cosmos_connection_string }}`}}
+          {{`{{- end -}}`}}
+      {{- end }}
+    spec:
+      serviceAccountName: incidenthub
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: web
+          image: "{{ .Values.image.repository }}-web:{{ .Values.image.webTag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.web.port }}
+          envFrom:
+            {{- if not .Values.vault.enabled }}
+            - secretRef: { name: incidenthub-config }
+            {{- end }}
+          startupProbe:
+            httpGet: { path: /healthz, port: {{ .Values.web.port }} }
+            failureThreshold: 30
+            periodSeconds: 2
+          readinessProbe:
+            httpGet: { path: /ready, port: {{ .Values.web.port }} }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: {{ .Values.web.port }} }
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

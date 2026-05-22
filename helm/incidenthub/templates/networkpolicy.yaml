@@ -1,0 +1,72 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: incidenthub-default-deny
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: incidenthub-web-allow
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: incidenthub, component: web }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+      ports: [{ port: 8080, protocol: TCP }]
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+    # Azure SQL
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: azure-sql }
+      ports: [{ port: 1433, protocol: TCP }]
+    # Azurite
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: azure-storage }
+      ports: [{ port: 10000, protocol: TCP }]
+    # Service Bus
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: service-bus }
+      ports: [{ port: 5672, protocol: TCP }]
+    # Cosmos DB
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: cosmos-db }
+      ports: [{ port: 8081, protocol: TCP }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: incidenthub-worker-allow
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: incidenthub, component: worker }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports: [{ port: 53, protocol: UDP }]
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: service-bus }
+      ports: [{ port: 5672, protocol: TCP }]
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: cosmos-db }
+      ports: [{ port: 8081, protocol: TCP }]

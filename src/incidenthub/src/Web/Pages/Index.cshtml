@@ -1,0 +1,63 @@
+@page
+@model IndexModel
+@{ Layout = null; }
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>IncidentHub</title>
+    <style>
+        body { font-family: -apple-system, system-ui, sans-serif; max-width: 900px; margin: 2rem auto; color: #222; }
+        header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #ddd; padding-bottom: .5rem; }
+        h1 { margin: 0; }
+        .who { font-size: .9rem; color: #555; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th, td { padding: .4rem .6rem; text-align: left; border-bottom: 1px solid #eee; font-size: .95rem; }
+        form.new { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: .5rem; margin-top: 1rem; }
+        form.search { margin-top: 1rem; }
+        input, select, button { padding: .4rem; font-size: 1rem; }
+        .sev-high { color: #c00; font-weight: bold; }
+        .sev-medium { color: #c70; }
+        .sev-low { color: #060; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>IncidentHub</h1>
+        <span class="who">@Model.Who</span>
+    </header>
+
+    <form class="new" method="post" enctype="multipart/form-data" asp-page-handler="Create">
+        <input name="title" placeholder="What happened?" required />
+        <select name="severity">
+            <option value="low">low</option>
+            <option value="medium" selected>medium</option>
+            <option value="high">high</option>
+        </select>
+        <input type="file" name="attachment" />
+        <button type="submit">File</button>
+    </form>
+
+    <form class="search" method="get">
+        <input name="q" value="@Model.Query" placeholder="Search title…" />
+        <button type="submit">Search</button>
+    </form>
+
+    <table>
+        <thead><tr><th>ID</th><th>Title</th><th>Severity</th><th>Reporter</th><th>Status</th><th>Created</th></tr></thead>
+        <tbody>
+            @foreach (var i in Model.Incidents)
+            {
+                <tr>
+                    <td>@i.Id</td>
+                    <td>@i.Title</td>
+                    <td class="sev-@i.Severity">@i.Severity</td>
+                    <td>@i.Reporter</td>
+                    <td>@i.Status</td>
+                    <td>@i.CreatedAt.ToString("u")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</body>
+</html>

@@ -43,12 +43,14 @@ Each service running in the cluster has its own doc below.
 
 | Doc | Description |
 |-----|-------------|
+| [terraform.md](iac/terraform.md) | Terraform lab provisioner — Vault dev server, Vault config (KV/PKI/K8s auth), and Multipass VMs |
 | [packer.md](iac/packer.md) | Packer VM image builder — pre-bake samba-ad and corp-client base images |
 
 ## Guides
 
 | Doc | Description |
 |-----|-------------|
+| [incidenthub/](guides/incidenthub/) | **Master walkthrough** — 26 stages building a .NET app while learning the cluster, covering CKAD + CKA + CKS topics |
 | [auth-walkthrough.md](guides/auth-walkthrough.md) | Nine-stage guide to the full SSO authentication chain |
 | [vault-walkthrough.md](guides/vault-walkthrough.md) | Eight-stage guide to Vault KV, Kubernetes auth, and Private Link DNS |
 | [cert-manager-walkthrough.md](guides/cert-manager-walkthrough.md) | Seven-stage guide to PKI hierarchy, cert issuance, revocation, and auto-renewal |
