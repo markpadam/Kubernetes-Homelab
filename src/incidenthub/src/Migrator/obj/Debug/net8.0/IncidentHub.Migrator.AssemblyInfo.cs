@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("IncidentHub.Migrator")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1b2491b7a5963733a0a262af74f9f0164f0c7d0b")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+266656d9499829256f922e89310e6f92152de4ea")]
 [assembly: System.Reflection.AssemblyProductAttribute("IncidentHub.Migrator")]
 [assembly: System.Reflection.AssemblyTitleAttribute("IncidentHub.Migrator")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
