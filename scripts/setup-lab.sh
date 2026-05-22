@@ -20,7 +20,8 @@ SETUP_START=$(date +%s)
 
 PROFILE="${LAB_PROFILE:-aks-lab}"
 K8S_VERSION="v1.32.0"
-NODES=3
+# LAB_NODES overrides the default 3-node topology (e.g. LAB_NODES=2 for test-all).
+NODES="${LAB_NODES:-3}"
 # CPUS / MEMORY / SAMBA_* / CLIENT_* are set by the resource tier prompt below
 APP_DIR="flux/apps/base/taskflow"
 DNS_DIR="flux/infrastructure/base/dns"
@@ -800,10 +801,15 @@ if docker info &>/dev/null 2>&1 && [[ -d "$HOME/.minikube/profiles/$PROFILE" ]];
   if docker inspect "$PROFILE" 2>/dev/null \
       | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d[0]['State']['Running'] else 1)" \
       2>/dev/null; then
-    printf "\n" >&3
-    echo -e "  ${YELLOW}${BOLD}[!]${RESET} Cluster '$PROFILE' is already running." >&3
-    printf "         Delete and recreate it? [y/N] " >&3
-    read -r _PRE_RECREATE_CLUSTER <&0
+    if [[ "$CI_MODE" == "1" ]]; then
+      log "CI mode: cluster '$PROFILE' is running — will delete and recreate"
+      _PRE_RECREATE_CLUSTER="y"
+    else
+      printf "\n" >&3
+      echo -e "  ${YELLOW}${BOLD}[!]${RESET} Cluster '$PROFILE' is already running." >&3
+      printf "         Delete and recreate it? [y/N] " >&3
+      read -r _PRE_RECREATE_CLUSTER <&0
+    fi
   fi
 fi
 

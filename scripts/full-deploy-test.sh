@@ -254,19 +254,26 @@ if $DRY_RUN; then
   exit 0
 fi
 
+RESIZE_DONE=false
+
 # ── Phase 0 — Cold start ──────────────────────────────────────────────────────
 if $DO_SETUP; then
   echo -e "\n${BOLD}━━━ Phase 0 — Teardown + Minimal Setup ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+  echo -e "  ${DIM}Topology: 1 large master (3 CPU / 5 GB) + 1 worker → resized to 2 GB after start${RESET}\n"
   log "Tearing down existing cluster (CI=true suppresses confirmation)..."
   CI=true bash "$SCRIPT_DIR/teardown-lab.sh" || true
 
-  log "Starting fresh cluster with --minimal preset..."
+  # 2-node cluster: master carries the control plane and most services;
+  # worker starts at the same per-node spec then gets immediately resized
+  # down to 2 GB so it only takes overflow scheduling.
+  # LAB_RESOURCE_TIER=3 = High (3 CPU / 5 GB per node).
+  log "Starting 2-node cluster (High tier: 3 CPU / 5 GB per node)..."
   _setup_log=$(ls -t /tmp/lab-setup-*.log 2>/dev/null | head -1 || true)
-  if ! bash "$SCRIPT_DIR/setup-lab.sh" --minimal; then
+  if ! LAB_NODES=2 LAB_RESOURCE_TIER=3 bash "$SCRIPT_DIR/setup-lab.sh" --minimal --ci; then
     _setup_log=$(ls -t /tmp/lab-setup-*.log 2>/dev/null | head -1 || true)
     echo
     error "Setup failed — cluster did not start.
-  Check Docker Desktop is running and has enough memory (≥12 GB).
+  Check Docker Desktop is running and has enough memory (≥10 GB for 2×5 GB).
   Log: ${_setup_log:-/tmp/lab-setup-*.log}"
   fi
 
@@ -276,7 +283,7 @@ if $DO_SETUP; then
   if ! kubectl cluster-info &>/dev/null; then
     _setup_log=$(ls -t /tmp/lab-setup-*.log 2>/dev/null | head -1 || true)
     error "Cluster API not responding after setup.
-  Possible causes: Docker Desktop not running, insufficient memory (need ≥12 GB),
+  Possible causes: Docker Desktop not running, insufficient memory (need ≥10 GB),
   or setup was interrupted. Check:
     kubectl get nodes
     Log: ${_setup_log:-/tmp/lab-setup-*.log}"
@@ -289,6 +296,14 @@ if $DO_SETUP; then
     error "Aborting: cluster nodes not Ready. Fix the cluster then re-run with --no-setup."
   fi
   success "Cluster ready — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes"
+
+  # Immediately shrink the worker to 2 GB so it's small for the whole test run.
+  # The master keeps its 5 GB and handles all the heavy lifting.
+  if $DO_RESIZE; then
+    log "Resizing worker → 2 GB (master stays at 5 GB)..."
+    bash "$SCRIPT_DIR/lab-resize.sh" 2>&1 | grep -E "Resizing|success|warn|✓|!" || true
+    RESIZE_DONE=true
+  fi
 else
   log "Skipping teardown/setup (--no-setup). Verifying cluster is responsive..."
   kubectl cluster-info &>/dev/null \
@@ -304,7 +319,6 @@ COMPONENT_NUM=0
 PAST_FROM=false
 [[ -z "$FROM_ID" ]] && PAST_FROM=true
 PREV_PHASE=""
-RESIZE_DONE=false
 
 for entry in "${DEPLOY_ORDER[@]}"; do
   IFS='|' read -r id phase note <<< "$entry"

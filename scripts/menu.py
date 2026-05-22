@@ -91,7 +91,7 @@ ACTIONS = [
     ("Resume",     ["resume"],  "stopped", "Resume after pause or Mac restart"),
     ("Pause",      ["pause"],   "running", "minikube stop — keeps all state"),
     ("Verify",     ["verify"],  "running", "Post-setup health check"),
-    ("Test All",   ["test-all", "--no-setup"], "running", "Sequential full deploy test"),
+    ("Test All",   ["test-all"],  None,        "Full cold-start deploy test (teardown → setup → all components)"),
     ("Features",   None,        "running", "Enable / disable components"),
     ("Refresh",    ["refresh"], "running", "Re-apply manifests on running cluster"),
     ("Resize",     ["resize"],  "running", "Shrink node memory after cluster settles"),
