@@ -91,6 +91,11 @@ Components are individually toggleable at setup time or live from the dashboard.
 | cert-manager + Vault PKI | Azure Certificate Manager / Private CA | ✅ |
 | Toolbox SSH Pod | Cloud Shell / jump box | ✅ |
 | KEDA *(optional)* | AKS KEDA add-on / Container Apps scaling | ☐ |
+| Reflector *(optional)* | Cross-namespace Secret/ConfigMap mirroring (no Azure equivalent) | ☐ |
+| Kyverno *(optional)* | Azure Policy for Kubernetes (Gatekeeper) | ☐ |
+| Falco *(optional)* | Microsoft Defender for Containers (runtime threat detection) | ☐ |
+| Istio *(optional, ~1 GB RAM)* | AKS Istio service mesh add-on | ☐ |
+| Cilium + Hubble *(optional)* | Azure CNI Powered by Cilium + Network Observability | ☐ |
 | Rancher *(optional, ~2 GB RAM)* | AKS portal / Azure Arc multi-cluster | ☐ |
 
 ### Azure Service Emulators
@@ -268,6 +273,11 @@ vim flux/infrastructure/base/dns/dns-config.yaml
 | Azure Private DNS Zones | bind9 privatelink zones |
 | GitOps (persistent) | Flux |
 | GitOps (ephemeral/visual) | ArgoCD |
+| Azure Policy for Kubernetes (Gatekeeper) | Kyverno |
+| Microsoft Defender for Containers (runtime) | Falco + falcosidekick |
+| AKS Istio service mesh add-on | Istio (upstream) |
+| Azure CNI Powered by Cilium | Cilium + Hubble (opt-in via `LAB_CNI=cilium`) |
+| Cross-namespace secret share (no Azure peer) | Reflector |
 | managed-csi StorageClass | CSI hostpath driver |
 | Azure DevOps self-hosted agent on AKS | Azure Pipelines agent pod in Minikube |
 

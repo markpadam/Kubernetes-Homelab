@@ -3,11 +3,14 @@ set -euo pipefail
 
 # ─────────────────────────────────────────────
 #  AKS Lab — Minikube Setup Script
-#  Usage: ./setup-lab.sh [--all|--minimal|--standard] [--verbose] [--reconfigure-ado]
+#  Usage: ./setup-lab.sh [--all|--minimal|--standard|--preset <name>] [--verbose] [--reconfigure-ado]
 #         --all              Install every component
 #         --minimal          Core cluster only (no optional features)
 #         --standard         Default components
-#         (no flag)          Prompts: Standard / All / Minimal / Custom
+#         --preset <name>    App-specific preset from lab-components.json
+#                            (e.g. --preset incidenthub — run
+#                             'scripts/lab-feature.sh list-presets' to see them)
+#         (no flag)          Prompts: Standard / All / Minimal / App preset / Custom
 #         --verbose          Stream all command output to the terminal
 #                            Default: quiet — all output logged to /tmp/lab-setup-<date>.log
 #         --reconfigure-ado  Re-prompt for Azure DevOps credentials even if ~/.lab-ado exists
@@ -35,6 +38,12 @@ GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
 LAB_ENV="${LAB_ENV:-dev}"
 case "$LAB_ENV" in dev|prd) ;; *) echo "Invalid LAB_ENV='$LAB_ENV' (expected: dev|prd)" >&2; exit 1 ;; esac
 FLUX_APPS_PATH="${FLUX_APPS_PATH:-./flux/clusters/${LAB_ENV}}"
+
+# LAB_CNI selects the cluster CNI plugin. Defaults to kindnet (minikube's
+# default). Set LAB_CNI=cilium to start minikube with --cni=cilium for the
+# production-shaped Cilium-as-only-CNI posture used by 'feature enable cilium'.
+LAB_CNI="${LAB_CNI:-}"
+case "${LAB_CNI:-kindnet}" in ""|kindnet|cilium) ;; *) echo "Invalid LAB_CNI='$LAB_CNI' (expected: kindnet|cilium)" >&2; exit 1 ;; esac
 
 # ── Colours ──────────────────────────────────
 RED='\033[0;31m'
@@ -101,18 +110,22 @@ _cleanup_tui() {
 
 # ── Parse args ────────────────────────────────
 SETUP_FLAG=""
+SETUP_PRESET=""
 VERBOSE=0
 CI_MODE=0
 RECONFIGURE_ADO=0
-for _arg in "$@"; do
-  case "$_arg" in
+while (( $# )); do
+  case "$1" in
     --verbose|-v)               VERBOSE=1 ;;
-    --all|--minimal|--standard) SETUP_FLAG="$_arg" ;;
+    --all|--minimal|--standard) SETUP_FLAG="$1" ;;
+    --preset)                   SETUP_PRESET="${2:-}"; [[ -n "$SETUP_PRESET" ]] || { echo "Usage: --preset <name>"; exit 1; }; shift ;;
+    --preset=*)                 SETUP_PRESET="${1#*=}" ;;
     --ci)                       CI_MODE=1 ;;
     --reconfigure-ado)          RECONFIGURE_ADO=1 ;;
     "")                         ;;
-    *) echo -e "${RED}${BOLD}[✗]${RESET} Unknown flag: $_arg  (use --all, --minimal, --standard, --ci, --verbose, --reconfigure-ado)"; exit 1 ;;
+    *) echo -e "${RED}${BOLD}[✗]${RESET} Unknown flag: $1  (use --all, --minimal, --standard, --preset <name>, --ci, --verbose, --reconfigure-ado)"; exit 1 ;;
   esac
+  shift
 done
 
 ADO_CONFIG_FILE="${HOME}/.lab-ado"
@@ -370,7 +383,9 @@ trap _at_exit EXIT
 # ── Feature selection ─────────────────────────
 step "Component Selection"
 
-if [[ -n "$SETUP_FLAG" ]]; then
+if [[ -n "$SETUP_PRESET" ]]; then
+  bash "$(dirname "$0")/lab-feature.sh" init --preset "$SETUP_PRESET" >&3 2>&3
+elif [[ -n "$SETUP_FLAG" ]]; then
   bash "$(dirname "$0")/lab-feature.sh" init "$SETUP_FLAG" >&3 2>&3
 else
   if [[ -f ".lab-state.json" ]]; then
@@ -382,18 +397,44 @@ else
   echo -e "  ${GREEN}1) Standard${RESET}   — default components (recommended for most labs)" >&3
   echo -e "  ${CYAN}2) All${RESET}        — every component including identity (SambaAD, Dex, OAuth2)" >&3
   echo -e "  ${DIM}3) Minimal${RESET}    — core cluster only, no optional components" >&3
-  echo -e "  4) Custom     — choose components from lab-components.json" >&3
-  [[ -f ".lab-state.json" ]] && echo -e "  5) Keep existing selection" >&3
+  echo -e "  4) App preset — install services for a specific learning app (IncidentHub, …)" >&3
+  echo -e "  5) Custom     — choose components from lab-components.json" >&3
+  [[ -f ".lab-state.json" ]] && echo -e "  6) Keep existing selection" >&3
   echo "" >&3
-  _default=$( [[ -f ".lab-state.json" ]] && echo 5 || echo 1 )
+  _default=$( [[ -f ".lab-state.json" ]] && echo 6 || echo 1 )
   printf "  Choice [%s]: " "$_default" >&3
   read -r _choice <&0
   case "${_choice:-$_default}" in
     1|s|S) bash "$(dirname "$0")/lab-feature.sh" init --standard  >&3 2>&3 ;;
     2|a|A) bash "$(dirname "$0")/lab-feature.sh" init --all       >&3 2>&3 ;;
     3|m|M) bash "$(dirname "$0")/lab-feature.sh" init --minimal   >&3 2>&3 ;;
-    5|k|K) log "Keeping existing feature selection" ;;
-    4|c|C)
+    6|k|K) log "Keeping existing feature selection" ;;
+    4|p|P)
+      echo -e "\n${BOLD}  Available app presets:${RESET}" >&3
+      _preset_names=$(python3 -c "
+import json
+presets = json.loads(open('lab-components.json').read()).get('presets', {})
+for i, (name, p) in enumerate(presets.items(), 1):
+    print(f'  {i}) {name:<16} — {p.get(\"desc\",\"\")}')
+print()
+print('__NAMES__:' + ' '.join(presets.keys()))
+" 2>/dev/null) || error "Failed to read presets from lab-components.json"
+      echo "$_preset_names" | grep -v '^__NAMES__:' >&3
+      _names_line=$(echo "$_preset_names" | grep '^__NAMES__:' | sed 's/^__NAMES__://')
+      [[ -n "$_names_line" ]] || error "No presets defined in lab-components.json"
+      IFS=' ' read -ra _preset_arr <<< "$_names_line"
+      printf "  Enter preset name or number: " >&3
+      read -r _preset_input <&0
+      _chosen=""
+      if [[ "$_preset_input" =~ ^[0-9]+$ ]]; then
+        _chosen="${_preset_arr[$((_preset_input - 1))]:-}"
+      else
+        for _p in "${_preset_arr[@]}"; do [[ "$_p" == "$_preset_input" ]] && _chosen="$_p"; done
+      fi
+      [[ -n "$_chosen" ]] || error "Unknown preset '${_preset_input}' — valid: ${_preset_arr[*]}"
+      bash "$(dirname "$0")/lab-feature.sh" init --preset "$_chosen" >&3 2>&3
+      ;;
+    5|c|C)
       echo -e "\n${BOLD}  Available components (from lab-components.json):${RESET}" >&3
       python3 -c "
 import json
@@ -433,7 +474,7 @@ open('.lab-state.json', 'w').write(json.dumps(state, indent=2))
         echo -e "  ${GREEN}${BOLD}[✓]${RESET} Custom selection saved: ${_ids}" >&3
       fi
       ;;
-    *) error "Invalid choice '${_choice:-}' — enter 1–4$( [[ -f ".lab-state.json" ]] && echo " or 5" )" ;;
+    *) error "Invalid choice '${_choice:-}' — enter 1–5$( [[ -f ".lab-state.json" ]] && echo " or 6" )" ;;
   esac
 fi
 
@@ -945,6 +986,11 @@ if $CLUSTER_NEEDS_START; then
     "Verifying components:Verifying Kubernetes" \
     "Cluster ready:Done! kubectl"
   _MK_RC=0
+  _CNI_ARGS=()
+  if [[ "$LAB_CNI" == "cilium" ]]; then
+    log "LAB_CNI=cilium — starting minikube with --cni=cilium"
+    _CNI_ARGS=(--cni=cilium)
+  fi
   minikube start \
     --driver=docker \
     --nodes="$NODES" \
@@ -952,7 +998,8 @@ if $CLUSTER_NEEDS_START; then
     --memory="$MEMORY" \
     --profile="$PROFILE" \
     --kubernetes-version="$K8S_VERSION" \
-    --apiserver-ips=127.0.0.1 || _MK_RC=$?
+    --apiserver-ips=127.0.0.1 \
+    "${_CNI_ARGS[@]}" || _MK_RC=$?
   _stop_progress
   [[ $_MK_RC -eq 0 ]] || error "Minikube failed to start — check $LAB_LOG"
 fi

@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: falco-ui
+  namespace: falco
+  annotations:
+    cert-manager.io/cluster-issuer: vault-issuer
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [falco.aks-lab.local]
+      secretName: falco-tls
+  rules:
+    - host: falco.aks-lab.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: falco-falcosidekick-ui
+                port:
+                  number: 2802

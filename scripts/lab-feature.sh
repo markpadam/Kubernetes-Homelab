@@ -350,6 +350,169 @@ _disable_keda() {
   success "KEDA disabled"
 }
 
+# ── Special: Reflector ────────────────────────────────────────────
+_enable_reflector() {
+  helm repo add emberstack https://emberstack.github.io/helm-charts &>/dev/null || true
+  helm repo update &>/dev/null
+  if helm status reflector -n reflector &>/dev/null; then
+    warn "Helm release 'reflector' already exists — skipping install."
+  else
+    log "Installing Reflector..."
+    helm install reflector emberstack/reflector \
+      --namespace reflector --create-namespace \
+      --wait --timeout=2m
+  fi
+  success "Reflector ready — annotate Secrets/ConfigMaps with reflector.v1.k8s.emberstack.com/* to mirror"
+}
+
+_disable_reflector() {
+  helm uninstall reflector -n reflector 2>/dev/null || true
+  _kubectl_delete_ns reflector
+  success "Reflector disabled"
+}
+
+# ── Special: Kyverno ──────────────────────────────────────────────
+_enable_kyverno() {
+  helm repo add kyverno https://kyverno.github.io/kyverno &>/dev/null || true
+  helm repo update &>/dev/null
+  if helm status kyverno -n kyverno &>/dev/null; then
+    warn "Helm release 'kyverno' already exists — skipping install."
+  else
+    log "Installing Kyverno (takes ~2 min — installs 4 controllers and ~20 CRDs)..."
+    helm install kyverno kyverno/kyverno \
+      --namespace kyverno --create-namespace \
+      --wait --timeout=5m
+  fi
+  log "Applying sample audit-mode policies (disallow :latest, require labels, require limits)..."
+  kubectl apply -f "$REPO_ROOT/flux/infrastructure/base/kyverno/sample-policies.yaml"
+  success "Kyverno ready — kubectl get clusterpolicies   |   PolicyReports: kubectl get policyreport -A"
+}
+
+_disable_kyverno() {
+  kubectl delete -f "$REPO_ROOT/flux/infrastructure/base/kyverno/sample-policies.yaml" 2>/dev/null || true
+  helm uninstall kyverno -n kyverno 2>/dev/null || true
+  _kubectl_delete_ns kyverno
+  success "Kyverno disabled"
+}
+
+# ── Special: Falco ────────────────────────────────────────────────
+_enable_falco() {
+  helm repo add falcosecurity https://falcosecurity.github.io/charts &>/dev/null || true
+  helm repo update &>/dev/null
+  if helm status falco -n falco &>/dev/null; then
+    warn "Helm release 'falco' already exists — skipping install."
+  else
+    log "Installing Falco with modern-eBPF driver + falcosidekick UI (takes ~2 min)..."
+    helm install falco falcosecurity/falco \
+      --namespace falco --create-namespace \
+      --set driver.kind=modern-ebpf \
+      --set tty=true \
+      --set falco.json_output=true \
+      --set falcosidekick.enabled=true \
+      --set falcosidekick.webui.enabled=true \
+      --wait --timeout=5m
+  fi
+  log "Applying Falco UI ingress (https://falco.aks-lab.local:9443)..."
+  kubectl apply -f "$REPO_ROOT/flux/infrastructure/base/falco/ingress.yaml" 2>/dev/null || true
+  success "Falco ready — https://falco.aks-lab.local:9443  |  kubectl logs -n falco -l app.kubernetes.io/name=falco -f"
+}
+
+_disable_falco() {
+  kubectl delete -f "$REPO_ROOT/flux/infrastructure/base/falco/ingress.yaml" 2>/dev/null || true
+  helm uninstall falco -n falco 2>/dev/null || true
+  _kubectl_delete_ns falco
+  success "Falco disabled"
+}
+
+# ── Special: Istio ────────────────────────────────────────────────
+_enable_istio() {
+  helm repo add istio https://istio-release.storage.googleapis.com/charts &>/dev/null || true
+  helm repo update &>/dev/null
+  if helm status istio-base -n istio-system &>/dev/null; then
+    warn "Helm release 'istio-base' already exists — skipping install."
+  else
+    log "Installing Istio base (CRDs)..."
+    kubectl create namespace istio-system 2>/dev/null || true
+    helm install istio-base istio/base \
+      --namespace istio-system \
+      --set defaultRevision=default \
+      --wait --timeout=2m
+  fi
+  if helm status istiod -n istio-system &>/dev/null; then
+    warn "Helm release 'istiod' already exists — skipping install."
+  else
+    log "Installing istiod control plane (takes ~2 min)..."
+    helm install istiod istio/istiod \
+      --namespace istio-system \
+      --wait --timeout=5m
+  fi
+  if helm status istio-gateway -n istio-ingress &>/dev/null; then
+    warn "Helm release 'istio-gateway' already exists — skipping install."
+  else
+    log "Installing Istio gateway (ClusterIP — does not replace NGINX ingress)..."
+    kubectl create namespace istio-ingress 2>/dev/null || true
+    kubectl label namespace istio-ingress istio-injection=enabled --overwrite
+    helm install istio-gateway istio/gateway \
+      --namespace istio-ingress \
+      --set service.type=ClusterIP \
+      --wait --timeout=3m
+  fi
+  success "Istio ready — label a namespace 'istio-injection=enabled' to mesh its pods"
+}
+
+_disable_istio() {
+  helm uninstall istio-gateway -n istio-ingress 2>/dev/null || true
+  helm uninstall istiod -n istio-system 2>/dev/null || true
+  helm uninstall istio-base -n istio-system 2>/dev/null || true
+  _kubectl_delete_ns istio-ingress
+  _kubectl_delete_ns istio-system
+  success "Istio disabled"
+}
+
+# ── Special: Cilium + Hubble ──────────────────────────────────────
+# Cilium installs in "overlay" mode by default — it runs alongside the existing
+# minikube CNI (kindnet) without replacing it. This lets you experiment with
+# Hubble observability and CiliumNetworkPolicy without rebuilding the cluster.
+#
+# For full Cilium-as-only-CNI (the production posture), recreate the cluster
+# with LAB_CNI=cilium ./aks-lab setup — that passes --cni=cilium to minikube.
+_enable_cilium() {
+  helm repo add cilium https://helm.cilium.io &>/dev/null || true
+  helm repo update &>/dev/null
+  if helm status cilium -n kube-system &>/dev/null; then
+    warn "Helm release 'cilium' already exists — upgrading to lab chart values."
+    helm upgrade cilium cilium/cilium \
+      --namespace kube-system \
+      --reuse-values \
+      --set hubble.enabled=true \
+      --set hubble.relay.enabled=true \
+      --set hubble.ui.enabled=true \
+      --wait --timeout=5m
+  else
+    log "Installing Cilium + Hubble in overlay mode (takes ~3 min)..."
+    helm install cilium cilium/cilium \
+      --namespace kube-system \
+      --set kubeProxyReplacement=false \
+      --set cni.exclusive=false \
+      --set ipam.mode=kubernetes \
+      --set operator.replicas=1 \
+      --set hubble.enabled=true \
+      --set hubble.relay.enabled=true \
+      --set hubble.ui.enabled=true \
+      --set 'hubble.metrics.enabled={dns,drop,tcp,flow,icmp,http}' \
+      --wait --timeout=10m
+  fi
+  log "Applying Hubble UI ingress (https://hubble.aks-lab.local:9443)..."
+  kubectl apply -f "$REPO_ROOT/flux/infrastructure/base/cilium/ingress.yaml" 2>/dev/null || true
+  success "Cilium + Hubble ready — https://hubble.aks-lab.local:9443  |  hubble observe --follow"
+}
+
+_disable_cilium() {
+  kubectl delete -f "$REPO_ROOT/flux/infrastructure/base/cilium/ingress.yaml" 2>/dev/null || true
+  helm uninstall cilium -n kube-system 2>/dev/null || true
+  success "Cilium disabled — cluster pod networking falls back to the original CNI (kindnet)"
+}
+
 # ── Special: ArgoCD ───────────────────────────────────────────────
 _enable_argocd() {
   local GITHUB_REPO="${GITHUB_REPO:-$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || echo '')}"
@@ -851,6 +1014,11 @@ do_enable() {
     vault)                _enable_vault ;;
     monitoring)           _enable_monitoring ;;
     keda)                 _enable_keda ;;
+    reflector)            _enable_reflector ;;
+    kyverno)              _enable_kyverno ;;
+    falco)                _enable_falco ;;
+    istio)                _enable_istio ;;
+    cilium)               _enable_cilium ;;
     argocd)               _enable_argocd ;;
     kubernetes-dashboard) _enable_kubernetes_dashboard ;;
     rancher)              _enable_rancher ;;
@@ -900,6 +1068,11 @@ do_disable() {
     vault)                _disable_vault ;;
     monitoring)           _disable_monitoring ;;
     keda)                 _disable_keda ;;
+    reflector)            _disable_reflector ;;
+    kyverno)              _disable_kyverno ;;
+    falco)                _disable_falco ;;
+    istio)                _disable_istio ;;
+    cilium)               _disable_cilium ;;
     argocd)               _disable_argocd ;;
     kubernetes-dashboard) _disable_kubernetes_dashboard ;;
     rancher)              _disable_rancher ;;
@@ -1026,9 +1199,28 @@ cmd_status() {
   echo ""
 }
 
+# ── Preset helpers ────────────────────────────────────────────────
+# Presets live under the top-level "presets" key in lab-components.json and
+# map a name → list of component IDs. Useful for app-specific installs
+# ("incidenthub", future apps) without baking the list into the script.
+preset_names() {
+  _py "import json; print(' '.join(json.load(open('$REGISTRY')).get('presets',{}).keys()))"
+}
+preset_components() {
+  _py "import json; p=json.load(open('$REGISTRY')).get('presets',{}).get('$1'); print(' '.join(p.get('components',[])) if p else '__NOTFOUND__')"
+}
+preset_field() {
+  _py "import json; p=json.load(open('$REGISTRY')).get('presets',{}).get('$1',{}); print(p.get('$2',''))"
+}
+
 # ── cmd: init (interactive menu + profile flags) ──────────────────
 cmd_init() {
   local mode="${1:---interactive}"
+  local preset_name=""
+  if [[ "$mode" == "--preset" ]]; then
+    preset_name="${2:-}"
+    [[ -n "$preset_name" ]] || error "Usage: lab-feature.sh init --preset <name>"
+  fi
   local all_ids_str; all_ids_str=$(all_ids)
   local defaults; defaults=$(default_ids)
 
@@ -1046,6 +1238,13 @@ cmd_init() {
       IFS=' ' read -ra selected <<< "$defaults"
       log "Standard install — default components"
       ;;
+    --preset)
+      local comps; comps=$(preset_components "$preset_name")
+      [[ "$comps" != "__NOTFOUND__" ]] || error "Preset '$preset_name' not found — try: lab-feature.sh list-presets"
+      IFS=' ' read -ra selected <<< "$comps"
+      local pname; pname=$(preset_field "$preset_name" name)
+      log "Preset install — ${pname:-$preset_name}"
+      ;;
     --interactive|-i)
       selected=()
       while IFS= read -r _line; do
@@ -1053,7 +1252,7 @@ cmd_init() {
       done < <(_show_interactive_menu "$defaults" "$all_ids_str")
       ;;
     *)
-      error "Unknown init mode: $mode  (use --all, --minimal, --standard, or --interactive)"
+      error "Unknown init mode: $mode  (use --all, --minimal, --standard, --preset <name>, or --interactive)"
       ;;
   esac
 
@@ -1179,7 +1378,22 @@ shift || true
 
 case "$cmd" in
   init)
-    cmd_init "${1:---interactive}"
+    cmd_init "$@"
+    ;;
+  list-presets)
+    _py "
+import json
+data = json.load(open('$REGISTRY'))
+presets = data.get('presets', {})
+if not presets:
+    print('  (no presets defined in lab-components.json)')
+else:
+    for name, p in presets.items():
+        print(f'  {name:<16} {p.get(\"desc\",\"\")}')
+        comps = p.get('components', [])
+        if comps:
+            print(f'    components: {\" \".join(comps)}')
+"
     ;;
   enable)
     [[ -n "${1:-}" ]] || error "Usage: ./aks-lab feature enable <id|group>"
@@ -1207,10 +1421,11 @@ case "$cmd" in
     echo -e "${BOLD}  lab-feature.sh — Lab Component Manager${RESET}"
     echo ""
     echo "  Commands:"
-    echo "    init [--all|--minimal|--standard|--interactive]"
+    echo "    init [--all|--minimal|--standard|--preset <name>|--interactive]"
     echo "         Select which components to install (saves to .lab-state.json)"
     echo ""
     echo "    list              Show all components and current enabled/disabled state"
+    echo "    list-presets      Show app presets defined in lab-components.json"
     echo "    status            Live cluster health check for enabled components"
     echo ""
     echo "    enable  <id|group>   Enable a component (auto-enables dependencies)"
@@ -1221,6 +1436,7 @@ case "$cmd" in
     echo "    list-json         Machine-readable registry + state (used by dashboard)"
     echo ""
     echo "  Profiles:   --all  --minimal  --standard (default components only)"
+    echo "  Presets:    --preset <name>  (run 'list-presets' to see them)"
     echo "  Groups:     infrastructure  identity  storage  apps"
     echo ""
     echo "  Component IDs:"

@@ -1,5 +1,26 @@
 {
   "version": 1,
+  "presets": {
+    "incidenthub": {
+      "name": "IncidentHub walkthrough",
+      "desc": "Services for the IncidentHub master learning walkthrough (CKAD/CKA/CKS topics)",
+      "components": [
+        "vault",
+        "cert-manager",
+        "kubernetes-dashboard",
+        "toolbox",
+        "dex",
+        "oauth2-proxy",
+        "azurite",
+        "azure-sql",
+        "service-bus",
+        "cosmos-db",
+        "container-registry",
+        "keda",
+        "argo-workflows"
+      ]
+    }
+  },
   "components": [
     {
       "id": "cert-manager",
@@ -78,6 +99,71 @@
       "depends": [],
       "port_forwards": [],
       "desc": "Kubernetes Event-driven Autoscaling — scale workloads to zero based on external triggers (queues, topics, metrics)"
+    },
+    {
+      "id": "reflector",
+      "name": "Reflector",
+      "group": "infrastructure",
+      "default": false,
+      "type": "special",
+      "ns": "reflector",
+      "flux_dir": "",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [],
+      "desc": "Mirrors Secrets and ConfigMaps across namespaces — annotation-driven, keeps mirrors in sync on rotation"
+    },
+    {
+      "id": "kyverno",
+      "name": "Kyverno",
+      "group": "infrastructure",
+      "default": false,
+      "type": "special",
+      "ns": "kyverno",
+      "flux_dir": "",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [],
+      "desc": "Kubernetes-native policy engine — validate / mutate / generate / verifyImages, with audit-mode sample policies"
+    },
+    {
+      "id": "falco",
+      "name": "Falco (runtime security)",
+      "group": "infrastructure",
+      "default": false,
+      "type": "special",
+      "ns": "falco",
+      "flux_dir": "",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [],
+      "desc": "eBPF-based runtime threat detection — shell-in-container, sensitive-file access, unexpected network flows. UI at falco.aks-lab.local"
+    },
+    {
+      "id": "istio",
+      "name": "Istio (service mesh)",
+      "group": "infrastructure",
+      "default": false,
+      "type": "special",
+      "ns": "istio-system",
+      "flux_dir": "",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [],
+      "desc": "Service mesh — mTLS by default, traffic shifting, L7 authorization. ClusterIP gateway (does not replace NGINX)"
+    },
+    {
+      "id": "cilium",
+      "name": "Cilium + Hubble",
+      "group": "infrastructure",
+      "default": false,
+      "type": "special",
+      "ns": "kube-system",
+      "flux_dir": "",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [],
+      "desc": "eBPF CNI + flow observability — runs alongside default CNI unless LAB_CNI=cilium ./aks-lab setup. UI at hubble.aks-lab.local"
     },
     {
       "id": "rancher",

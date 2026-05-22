@@ -80,23 +80,22 @@ A progressive, 26-stage guide that builds **IncidentHub** — a corporate incide
 
 ## Prerequisites
 
-```bash
-# Required services for most stages
-./scripts/lab-feature.sh enable vault
-./scripts/lab-feature.sh enable cert-manager
-./scripts/lab-feature.sh enable azurite
-./scripts/lab-feature.sh enable azure-sql
-./scripts/lab-feature.sh enable service-bus
-./scripts/lab-feature.sh enable cosmos-db
-./scripts/lab-feature.sh enable container-registry
+The lab ships an `incidenthub` preset that enables every cluster service the walkthrough uses (vault, cert-manager, azurite, azure-sql, service-bus, cosmos-db, container-registry, dex, oauth2-proxy, keda, argo-workflows, kubernetes-dashboard, toolbox). Two ways to apply it:
 
-# Optional — needed in later stages
-./scripts/lab-feature.sh enable dex
-./scripts/lab-feature.sh enable oauth2-proxy
-./scripts/lab-feature.sh enable keda
-./scripts/lab-feature.sh enable argo-workflows
-./scripts/lab-feature.sh enable flux
+```bash
+# Fresh lab — pick "App preset" in the setup menu, then "incidenthub"
+./setup-lab.sh
+
+# Or non-interactive
+./setup-lab.sh --preset incidenthub
+
+# Already-running lab — just rewrite the feature selection
+./scripts/lab-feature.sh init --preset incidenthub
 ```
+
+See `./scripts/lab-feature.sh list-presets` for all available app presets.
+
+If you'd rather enable services one at a time, every stage names what it needs and you can run `./scripts/lab-feature.sh enable <id>` for each.
 
 ## What you ship
 
