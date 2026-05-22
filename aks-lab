@@ -94,6 +94,10 @@ case "${1:-}" in
     shift
     exec bash "$SCRIPTS/verify-lab.sh" "$@"
     ;;
+  test-all)
+    shift
+    exec bash "$SCRIPTS/full-deploy-test.sh" "$@"
+    ;;
   resize)
     shift
     exec bash "$SCRIPTS/lab-resize.sh" "$@"
