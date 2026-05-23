@@ -822,9 +822,30 @@ if ! sudo -v; then
   exit 1
 fi
 echo -e "  ${GREEN}${BOLD}[✓]${RESET} Sudo credentials cached" >&3
-# Keep the sudo token alive in the background — setup can take 20+ minutes.
-( while true; do sudo -n true 2>/dev/null; sleep 60; kill -0 "$$" 2>/dev/null || exit 0; done ) &
-_SUDO_KEEPALIVE_PID=$!
+
+# Write all /etc/hosts entries NOW while sudo is definitely cached.
+# The "Configuring Local DNS" step near the end just verifies they exist.
+# Doing it here avoids a 40-minute sudo cache expiry race with the TUI running.
+_HOSTS_BLOCK=""
+_maybe_add() { grep -qF "127.0.0.1 $1" /etc/hosts 2>/dev/null || _HOSTS_BLOCK+="127.0.0.1 $1"$'\n'; }
+feature_enabled taskflow             && _maybe_add "taskflow.aks-lab.local"
+feature_enabled monitoring           && _maybe_add "grafana.aks-lab.local"
+feature_enabled kubernetes-dashboard && _maybe_add "dashboard.aks-lab.local"
+feature_enabled argocd               && _maybe_add "argocd.aks-lab.local"
+feature_enabled blob-explorer        && _maybe_add "blob-explorer.aks-lab.local"
+feature_enabled vault                && _maybe_add "vault.aks-lab.local"
+feature_enabled rancher              && _maybe_add "rancher.aks-lab.local"
+feature_enabled argo-workflows       && _maybe_add "argo-workflows.aks-lab.local"
+feature_enabled dex                  && _maybe_add "dex.aks-lab.local"
+feature_enabled oauth2-proxy         && _maybe_add "oauth2-proxy.aks-lab.local"
+if [[ -n "$_HOSTS_BLOCK" ]]; then
+  printf "%s" "$_HOSTS_BLOCK" | sudo tee -a /etc/hosts > /dev/null \
+    && echo -e "  ${GREEN}${BOLD}[✓]${RESET} /etc/hosts entries written" >&3 \
+    || echo -e "  ${YELLOW}${BOLD}[!]${RESET} /etc/hosts update failed — web UIs may not resolve" >&3
+else
+  echo -e "  ${GREEN}${BOLD}[✓]${RESET} /etc/hosts entries already present" >&3
+fi
+unset _HOSTS_BLOCK _maybe_add
 
 printf "\n" >&3
 
@@ -1746,8 +1767,30 @@ if feature_enabled vault; then
       -target=vault_auth_backend.kubernetes \
       -target=vault_kubernetes_auth_backend_config.minikube \
       -target=vault_kubernetes_auth_backend_role.azure_services \
+      -target=vault_mount.pki \
+      -target=vault_pki_secret_backend_root_cert.root \
+      -target=vault_pki_secret_backend_config_urls.pki \
+      -target=vault_mount.pki_int \
+      -target=vault_pki_secret_backend_intermediate_cert_request.int \
+      -target=vault_pki_secret_backend_root_sign.int \
+      -target=vault_pki_secret_backend_intermediate_set_signed.int \
+      -target=vault_pki_secret_backend_config_urls.pki_int \
+      -target=vault_pki_secret_backend_role.web \
+      -target=vault_policy.cert_manager \
+      -target=vault_kubernetes_auth_backend_role.cert_manager \
       2>&1 | tee /tmp/vault-terraform-apply.log; } \
     || error "Vault Terraform apply failed — check /tmp/vault-terraform-apply.log"
+
+  log "Trusting Vault Root CA in macOS System Keychain..."
+  _CA_FILE="/tmp/aks-lab-root-ca.crt"
+  curl -sf "${VAULT_ADDR}/v1/pki/ca/pem" -o "$_CA_FILE" \
+    && { sudo security delete-certificate -c "aks-lab.local Root CA" \
+           /Library/Keychains/System.keychain 2>/dev/null || true
+         sudo security add-trusted-cert -d -r trustRoot \
+           -k /Library/Keychains/System.keychain "$_CA_FILE"
+         rm -f "$_CA_FILE"
+         log "Root CA trusted — restart Chrome/Firefox after setup for the padlock"; } \
+    || warn "Could not fetch/trust Vault Root CA — HTTPS will show browser warnings"
 
   success "Vault ready — ${VAULT_ADDR}/ui  (token: ${VAULT_TOKEN})"
   log "  KV v2 secrets:  ${VAULT_KV_PATH}/azure-services/*"
@@ -2254,15 +2297,17 @@ step "Configuring Local DNS"
 
 _add_hosts_entry() {
   local host="$1"
-  if grep -qF "127.0.0.1 $host" /etc/hosts; then
-    warn "$host already in /etc/hosts — skipping"
+  if grep -qF "127.0.0.1 $host" /etc/hosts 2>/dev/null; then
+    log "$host → /etc/hosts ✓"
   else
-    echo "127.0.0.1 $host" | sudo tee -a /etc/hosts > /dev/null
-    success "Added $host → /etc/hosts"
+    # Fallback: entry wasn't written upfront (e.g. feature enabled mid-run).
+    echo "127.0.0.1 $host" | sudo tee -a /etc/hosts > /dev/null \
+      && success "Added $host → /etc/hosts" \
+      || warn "$host could not be added to /etc/hosts"
   fi
 }
 
-log "Adding aks-lab.local entries to /etc/hosts (sudo required)..."
+log "Verifying aks-lab.local entries in /etc/hosts..."
 feature_enabled taskflow             && _add_hosts_entry "taskflow.aks-lab.local"
 feature_enabled monitoring           && _add_hosts_entry "grafana.aks-lab.local"
 feature_enabled kubernetes-dashboard && _add_hosts_entry "dashboard.aks-lab.local"

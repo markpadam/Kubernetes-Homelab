@@ -12,6 +12,17 @@ Each service running in the cluster has its own doc below.
 | [corp-client.md](tools/corp-client.md) | Multipass VM | Domain-joined Ubuntu VM — simulates a corporate laptop |
 | [auth-walkthrough.md](guides/auth-walkthrough.md) | — | Nine-stage guide to the full SSO authentication chain |
 
+## Monitoring & Observability
+
+Installed by default. Azure equivalent: Azure Monitor + Azure Managed Grafana + Azure Monitor Alerts.
+
+| Doc | Namespace | Purpose |
+|-----|-----------|---------|
+| [monitoring.md](services/monitoring.md) | `monitoring` | Stack overview — kube-prometheus-stack, access, credentials, Azure mapping |
+| [prometheus.md](services/prometheus.md) | `monitoring` | Scrape pipeline, ServiceMonitors, PromQL quick reference, retention |
+| [grafana.md](services/grafana.md) | `monitoring` | Dashboards, datasources, provisioning custom boards via ConfigMap |
+| [alertmanager.md](services/alertmanager.md) | `monitoring` | Alert routing, pre-loaded rules, adding Slack / webhook receivers |
+
 ## Shared Infrastructure
 
 | Doc | Namespace | Purpose |
@@ -64,6 +75,7 @@ Mirrors the tools used in production AKS. All optional — `./aks-lab feature en
 | Doc | Description |
 |-----|-------------|
 | [incidenthub/](guides/incidenthub/) | **Master walkthrough** — 26 stages building a .NET app while learning the cluster, covering CKAD + CKA + CKS topics |
+| [monitoring-walkthrough.md](guides/monitoring-walkthrough.md) | Six-stage guide — scrape pipeline, PromQL, dashboards, alerting, custom instrumentation, Azure parity |
 | [auth-walkthrough.md](guides/auth-walkthrough.md) | Nine-stage guide to the full SSO authentication chain |
 | [vault-walkthrough.md](guides/vault-walkthrough.md) | Eight-stage guide to Vault KV, Kubernetes auth, and Private Link DNS |
 | [cert-manager-walkthrough.md](guides/cert-manager-walkthrough.md) | Seven-stage guide to PKI hierarchy, cert issuance, revocation, and auto-renewal |
