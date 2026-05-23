@@ -1081,6 +1081,31 @@ else
   log "No images to build — all present on cluster or loaded from cache"
 fi
 
+# ── pfctl port redirects ─────────────────────
+# Redirect standard ports 80 and 443 on loopback to the lab's kubectl
+# port-forwards (9980 and 9443).  Without this, browsers always try port 80/443
+# and never reach the lab ingress.  Uses a named pf anchor so the rules are
+# isolated from system pf config.
+_setup_lab_pfctl() {
+  log "Setting up pfctl port redirects (80→9980, 443→9443) — sudo required..."
+  sudo tee /etc/pf.anchors/aks-lab > /dev/null << 'EOF'
+rdr pass on lo0 proto tcp from any to 127.0.0.1 port 80  -> 127.0.0.1 port 9980
+rdr pass on lo0 proto tcp from any to 127.0.0.1 port 443 -> 127.0.0.1 port 9443
+EOF
+  # Add rdr-anchor + load lines to /etc/pf.conf if not already present.
+  if ! grep -q 'aks-lab' /etc/pf.conf 2>/dev/null; then
+    sudo sed -i '' '/^rdr-anchor "com\.apple\/\*"/a\
+rdr-anchor "aks-lab"
+' /etc/pf.conf
+    echo 'load anchor "aks-lab" from "/etc/pf.anchors/aks-lab"' \
+      | sudo tee -a /etc/pf.conf > /dev/null
+  fi
+  sudo pfctl -e 2>/dev/null || true   # enable pf if not already on
+  sudo pfctl -f /etc/pf.conf 2>/dev/null \
+    && success "pfctl: 80→9980 and 443→9443 redirects active" \
+    || warn "pfctl reload failed — run: sudo pfctl -f /etc/pf.conf"
+}
+
 # ── Step 3: Ingress ──────────────────────────
 step "Step 3 — Enabling Ingress"
 
@@ -1105,6 +1130,13 @@ done
 
 if [[ "$_INGRESS_READY" == "1" ]]; then
   success "Ingress controller ready"
+  # macOS cannot bind ports <1024 without root, so the lab uses port-forwards:
+  #   HTTP  → localhost:9980 → ingress:80
+  #   HTTPS → localhost:9443 → ingress:443
+  # pfctl redirects the standard ports (80, 443) to these port-forwards so
+  # browsers can use plain URLs (http://hostname, https://hostname) and links
+  # in the Kubernetes Dashboard resolve correctly.
+  _setup_lab_pfctl
 else
   warn "Ingress admission webhook never became ready in 5 min — dependent components may fail. Diagnostics dumped to log."
   {

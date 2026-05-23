@@ -286,6 +286,19 @@ if feature_enabled vault; then
   fi
 fi
 
+# ── pfctl port redirects ──────────────────────
+# Ensure 80→9980 and 443→9443 are active after a Mac reboot (pfctl rules
+# don't survive reboots unless the LaunchDaemon reloads pf.conf).
+step "Restoring pfctl Port Redirects"
+if [[ -f /etc/pf.anchors/aks-lab ]]; then
+  sudo pfctl -e 2>/dev/null || true
+  sudo pfctl -f /etc/pf.conf 2>/dev/null \
+    && success "pfctl: 80→9980 and 443→9443 redirects active" \
+    || warn "pfctl reload failed — web UIs may not load at standard ports (run: sudo pfctl -f /etc/pf.conf)"
+else
+  warn "pfctl anchor not found — run ./aks-lab setup to install port redirects"
+fi
+
 # ── Port-forwards ─────────────────────────────
 step "Restoring Port-Forwards"
 

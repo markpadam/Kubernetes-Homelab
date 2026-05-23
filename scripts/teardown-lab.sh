@@ -174,6 +174,21 @@ for host in "${HOSTS_ENTRIES[@]}"; do
 done
 [[ "$REMOVED" -eq 0 ]] && warn "No aks-lab.local entries in /etc/hosts — already clean"
 
+# ── Remove pfctl port redirects ───────────────
+step "Removing pfctl Port Redirects"
+
+if [[ -f /etc/pf.anchors/aks-lab ]]; then
+  sudo rm -f /etc/pf.anchors/aks-lab
+  # Remove both the rdr-anchor line and the load anchor line from /etc/pf.conf
+  sudo sed -i '' '/rdr-anchor "aks-lab"/d' /etc/pf.conf 2>/dev/null || true
+  sudo sed -i '' '/load anchor "aks-lab"/d' /etc/pf.conf 2>/dev/null || true
+  sudo pfctl -f /etc/pf.conf 2>/dev/null \
+    && success "pfctl rules removed" \
+    || warn "pfctl reload failed — run: sudo pfctl -f /etc/pf.conf"
+else
+  warn "No pfctl anchor found — already clean"
+fi
+
 # ── Clean up SSH config entry ─────────────────
 step "Cleaning Up SSH Config"
 
