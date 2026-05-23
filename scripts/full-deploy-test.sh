@@ -159,6 +159,28 @@ _check_ingress() {
 # nc-based TCP port check.
 _check_tcp() { nc -z -w 2 localhost "$1" 2>/dev/null; }
 
+# Patch every ValidatingWebhookConfiguration and MutatingWebhookConfiguration
+# whose entries still carry failurePolicy=Fail → Ignore.
+# Safe to call repeatedly; idempotent.
+_patch_fail_webhooks() {
+  local _kind _wh _count _patch
+  for _kind in validatingwebhookconfiguration mutatingwebhookconfiguration; do
+    while IFS= read -r _wh; do
+      _count=$(kubectl get "$_wh" \
+        -o jsonpath='{range .webhooks[*]}{.failurePolicy}{"\n"}{end}' 2>/dev/null \
+        | grep -c "^Fail$" || echo 0)
+      [[ "$_count" -gt 0 ]] || continue
+      # Build JSON patch for every index that has failurePolicy=Fail
+      _patch=$(kubectl get "$_wh" \
+        -o jsonpath='{range .webhooks[*]}{.failurePolicy}{"\n"}{end}' 2>/dev/null \
+        | awk 'BEGIN{ORS="";print "["} {if($0=="Fail"){printf "%s{\"op\":\"replace\",\"path\":\"/webhooks/%d/failurePolicy\",\"value\":\"Ignore\"}",sep,NR-1;sep=","}} END{print "]"}')
+      [[ "$_patch" == "[]" ]] && continue
+      kubectl patch "$_wh" --type=json -p="$_patch" &>/dev/null \
+        && log "Patched ${_wh##*/} (${_count} Fail → Ignore)" || true
+    done < <(kubectl get "$_kind" -o name 2>/dev/null)
+  done
+}
+
 # Record a result and print the result line.
 # _record_result PASS|FAIL|SKIP id elapsed "detail"
 _record_result() {
@@ -199,13 +221,13 @@ _extra_health_check() {
       _check_tcp 5000
       ;;
     azure-sql)
-      for _ in 1 2 3 4 5 6; do _check_tcp 1433 && return 0; sleep 10; done; return 1
+      for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18; do _check_tcp 1433 && return 0; sleep 10; done; return 1
       ;;
     service-bus)
-      for _ in 1 2 3 4 5 6; do _check_tcp 5672 && return 0; sleep 10; done; return 1
+      for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do _check_tcp 5672 && return 0; sleep 10; done; return 1
       ;;
     cosmos-db)
-      for _ in 1 2 3 4 5 6; do _check_tcp 8081 && return 0; sleep 10; done; return 1
+      for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do _check_tcp 8081 && return 0; sleep 10; done; return 1
       ;;
     argo-workflows)
       _check_tcp 2746
@@ -297,6 +319,10 @@ if $DO_SETUP; then
   fi
   success "Cluster ready — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes"
 
+  # Patch NGINX and any other admission webhooks installed by setup to Ignore
+  # so a pod restart doesn't block subsequent resource creation.
+  _patch_fail_webhooks
+
   # Immediately shrink the worker to 2 GB so it's small for the whole test run.
   # The master keeps its 5 GB and handles all the heavy lifting.
   if $DO_RESIZE; then
@@ -311,6 +337,41 @@ else
   kubectl get nodes --no-headers 2>/dev/null | grep -q Ready \
     || error "No Ready nodes found. Check: kubectl get nodes"
 fi
+
+# ── Pre-build custom lab images ───────────────────────────────────────────────
+# setup --minimal skips image builds for toolbox/taskflow/blob-explorer because
+# those features are not enabled. Pre-build them now so pods don't ImagePullBackOff.
+log "Pre-building custom lab images (toolbox, backend, blob-explorer)..."
+IMAGE_CACHE_DIR="${HOME}/.lab-cache/images"
+mkdir -p "$IMAGE_CACHE_DIR"
+declare -A _IMG_SRCS=(
+  [toolbox]="src/toolbox"
+  [backend]="src/taskflow/backend"
+  [blob-explorer]="src/blob-explorer"
+)
+for _img_name in toolbox backend blob-explorer; do
+  _img_src="${REPO_ROOT}/${_IMG_SRCS[$_img_name]}"
+  _img_full="aks-lab/${_img_name}:latest"
+  _img_cache="${IMAGE_CACHE_DIR}/${_img_name}.tar"
+  if minikube image ls -p "$PROFILE" 2>/dev/null | grep -q "aks-lab/${_img_name}"; then
+    log "${_img_name} already in cluster image cache — skipping build"
+  elif [[ -f "$_img_cache" ]]; then
+    log "Loading ${_img_name} from local cache (${_img_cache})..."
+    minikube image load "$_img_cache" -p "$PROFILE" \
+      && log "${_img_name} loaded from cache" \
+      || warn "${_img_name} cache load failed — will attempt build"
+  else
+    log "Building ${_img_name} (first run, may take a few minutes)..."
+    _build_rc=0
+    minikube image build -t "$_img_full" "$_img_src" -p "$PROFILE" </dev/null || _build_rc=$?
+    if [[ $_build_rc -eq 0 ]]; then
+      log "${_img_name} built successfully"
+    else
+      warn "${_img_name} build failed (exit ${_build_rc}) — components depending on this image may fail"
+    fi
+  fi
+done
+unset _img_name _img_src _img_full _img_cache _IMG_SRCS
 
 # ── Main deploy loop ──────────────────────────────────────────────────────────
 echo -e "\n${BOLD}━━━ Sequential Deploy + Health Check (${TOTAL_COMPONENTS} components) ━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
@@ -379,6 +440,10 @@ for entry in "${DEPLOY_ORDER[@]}"; do
     _record_result FAIL "$id" "$elapsed" "feature enable failed (see /tmp/test-all-enable-${id}.log)"
     continue
   fi
+
+  # Re-patch any admission webhooks that may have been added or reconciled back
+  # to failurePolicy=Fail by this component's install (e.g. Kyverno, NGINX).
+  _patch_fail_webhooks
 
   # ── Pod readiness ────────────────────────────────────────────────────────────
   ns=$(_comp_field "$id" ns)

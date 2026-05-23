@@ -72,3 +72,4 @@ Mirrors the tools used in production AKS. All optional — `./aks-lab feature en
 | [istio-walkthrough.md](guides/istio-walkthrough.md) | Six-stage guide — sidecar injection, mTLS, traffic shifting, AuthorizationPolicy |
 | [cilium-walkthrough.md](guides/cilium-walkthrough.md) | Five-stage guide — Hubble flows, identity-aware policy, L7 enforcement, audit mode |
 | [lab-features.md](lab-features.md) | How to enable / disable optional lab components |
+| [system-requirements.md](system-requirements.md) | Hardware requirements, memory profiles, and recommended deployment configurations |

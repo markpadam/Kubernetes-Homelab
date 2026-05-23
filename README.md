@@ -424,7 +424,6 @@ git add ado && git commit -m "chore: bump ado submodule"
 | [QUICKSTART.md](QUICKSTART.md) | Start, pause, resume, destroy — flags, URLs, troubleshooting |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Detailed diagrams — cluster layout, GitOps flow, secrets, DNS |
 | [docs/README.md](docs/README.md) | Full service documentation index |
-| [docs/iac/packer.md](docs/iac/packer.md) | Packer VM image builder — pre-bake samba-ad and corp-client base images |
 
 ---
 
