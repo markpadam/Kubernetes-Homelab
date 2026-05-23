@@ -1,7 +1,7 @@
 # cert-manager + Vault PKI
 
 **Runs in:** `cert-manager` namespace  
-**HTTPS port:** `9443` (port-forwarded from NGINX ingress port 443)  
+**HTTPS port:** `9444` (port-forwarded from NGINX ingress port 443)  
 **Azure equivalent:** Azure Certificate Manager + Azure Private CA / DigiCert integration  
 **Installed by:** `scripts/setup-lab.sh` Step 3a (Helm), Vault PKI configured in Step 11 (Terraform)  
 **Default:** yes — enabled on every `./aks-lab setup` run

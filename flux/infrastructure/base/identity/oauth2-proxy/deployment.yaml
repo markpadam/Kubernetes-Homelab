@@ -21,7 +21,7 @@ spec:
             # Azure equivalent: --provider=azure with a registered App Registration
             - --provider=oidc
             # Dex's issuer must match the `iss` claim in JWT tokens — use the external HTTPS URL.
-            - --oidc-issuer-url=https://dex.aks-lab.local:9443
+            - --oidc-issuer-url=https://dex.aks-lab.local:9444
             - --insecure-oidc-allow-unverified-email=true
             # Skip auto-discovery: the discovery document returns internal cluster URLs for
             # all endpoints, which browsers cannot reach. We set each endpoint manually so
@@ -29,13 +29,13 @@ spec:
             # external ingress URL.
             - --skip-oidc-discovery=true
             # Browser redirect — use external HTTPS URL
-            - --login-url=https://dex.aks-lab.local:9443/auth
+            - --login-url=https://dex.aks-lab.local:9444/auth
             # Pod-to-pod token exchange — keep internal HTTP (no TLS between pods)
             - --redeem-url=http://dex.dex.svc.cluster.local:5556/token
             - --oidc-jwks-url=http://dex.dex.svc.cluster.local:5556/keys
 
             # Redirect URL — must match the redirectURI registered in Dex
-            - --redirect-url=https://oauth2-proxy.aks-lab.local:9443/oauth2/callback
+            - --redirect-url=https://oauth2-proxy.aks-lab.local:9444/oauth2/callback
 
             # Forward auth mode — OAuth2 Proxy validates sessions but does not
             # serve the upstream itself. NGINX handles the upstream proxy.
@@ -59,9 +59,9 @@ spec:
 
             # Allow post-login redirects to any *.aks-lab.local subdomain.
             # Both forms required: the bare domain for standard HTTPS port 443, and the
-            # :9443 variant for the port-forward tunnel used by the lab.
+            # :9444 variant for the port-forward tunnel used by the lab.
             - --whitelist-domain=.aks-lab.local
-            - --whitelist-domain=.aks-lab.local:9443
+            - --whitelist-domain=.aks-lab.local:9444
 
             # Pass user identity to the backend via headers
             - --set-xauthrequest=true

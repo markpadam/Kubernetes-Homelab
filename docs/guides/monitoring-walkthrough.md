@@ -192,7 +192,7 @@ for r in data['data']['result']:
 
 ```bash
 # Open Grafana via ingress (SSO if oauth2-proxy is enabled)
-open https://grafana.aks-lab.local:9443
+open https://grafana.aks-lab.local:9444
 
 # Or bypass SSO via port-forward
 kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80 &
@@ -619,7 +619,7 @@ The one difference: in Azure Managed Grafana, you select the **Azure Monitor** d
 | Prometheus UI | `kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090` → `http://localhost:9090` |
 | Alertmanager UI | `kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-alertmanager 9093:9093` → `http://localhost:9093` |
 | Grafana (direct) | `kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80` → `http://localhost:3000` |
-| Grafana (SSO) | `open https://grafana.aks-lab.local:9443` |
+| Grafana (SSO) | `open https://grafana.aks-lab.local:9444` |
 | List scrape targets | `curl -s http://localhost:9090/api/v1/targets \| python3 -m json.tool` |
 | List firing alerts | `curl -s http://localhost:9093/api/v2/alerts \| python3 -m json.tool` |
 | List ServiceMonitors | `kubectl get servicemonitors -n monitoring` |

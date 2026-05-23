@@ -1,6 +1,6 @@
 # Rancher
 
-**URL:** `http://rancher.aks-lab.local:9980`  
+**URL:** `https://rancher.aks-lab.local:9444`  
 **Namespace:** `cattle-system`  
 **Azure equivalent:** Azure Kubernetes Service portal / Azure Arc  
 **Managed by:** Helm (`rancher-stable/rancher`)
@@ -26,7 +26,7 @@ On first access you will be prompted to set a permanent admin password. The boot
 
 ## Access
 
-Rancher is exposed via NGINX Ingress at `http://rancher.aks-lab.local:9980`. NGINX proxies the request to the Rancher service (`cattle-system/rancher:443`) over HTTPS, so the browser sees plain HTTP while the in-cluster hop is encrypted.
+Rancher is exposed via NGINX Ingress at `https://rancher.aks-lab.local:9444`. NGINX proxies the request to the Rancher service (`cattle-system/rancher:443`) over HTTPS, so the browser sees plain HTTP while the in-cluster hop is encrypted.
 
 ## Installation
 

@@ -10,7 +10,7 @@ Dex is a lightweight OpenID Connect (OIDC) identity provider deployed in the clu
 | Image | `ghcr.io/dexidp/dex:latest` |
 | Port | 5556 (HTTP) |
 | Cluster URL | `http://dex.dex.svc.cluster.local:5556` |
-| External URL | `http://dex.aks-lab.local:9980` |
+| External URL | `https://dex.aks-lab.local:9444` |
 | Storage | In-memory (no database required) |
 
 ## Azure equivalent
@@ -36,10 +36,10 @@ When a user tries to access a protected service, OAuth2 Proxy redirects them to 
 
 | Endpoint | URL |
 |----------|-----|
-| Discovery | `http://dex.aks-lab.local:9980/.well-known/openid-configuration` |
-| Authorization | `http://dex.aks-lab.local:9980/auth` |
-| Token | `http://dex.aks-lab.local:9980/token` |
-| JWKS (public keys) | `http://dex.aks-lab.local:9980/keys` |
+| Discovery | `https://dex.aks-lab.local:9444/.well-known/openid-configuration` |
+| Authorization | `https://dex.aks-lab.local:9444/auth` |
+| Token | `https://dex.aks-lab.local:9444/token` |
+| JWKS (public keys) | `https://dex.aks-lab.local:9444/keys` |
 | Health | `http://dex.dex.svc.cluster.local:5556/healthz` |
 
 ## LDAP connector configuration
@@ -60,7 +60,7 @@ Dex connects to SambaAD using the following settings (injected at setup time):
 
 | Client ID | Secret | Redirect URI |
 |-----------|--------|--------------|
-| `oauth2-proxy` | `${DEX_CLIENT_SECRET}` (set at setup time) | `http://oauth2-proxy.aks-lab.local:9980/oauth2/callback` |
+| `oauth2-proxy` | `${DEX_CLIENT_SECRET}` (set at setup time) | `https://oauth2-proxy.aks-lab.local:9444/oauth2/callback` |
 
 ## Configuration
 
@@ -70,10 +70,10 @@ Dex config is rendered from the template at `flux/infrastructure/base/identity/d
 
 ```bash
 # Check Dex is healthy
-curl http://dex.aks-lab.local:9980/.well-known/openid-configuration
+curl https://dex.aks-lab.local:9444/.well-known/openid-configuration
 
 # Fetch public signing keys
-curl http://dex.aks-lab.local:9980/keys | python3 -m json.tool
+curl https://dex.aks-lab.local:9444/keys | python3 -m json.tool
 
 # Check Dex pod logs
 kubectl logs -n dex deploy/dex -f

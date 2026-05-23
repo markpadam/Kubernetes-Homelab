@@ -141,7 +141,7 @@ open http://localhost:9090/alerts
 
 **Via Grafana (Alerting panel):**
 
-Open `https://grafana.aks-lab.local:9443` → Alerting → Alert Rules. This view shows all PrometheusRules and their current state, grouped by namespace.
+Open `https://grafana.aks-lab.local:9444` → Alerting → Alert Rules. This view shows all PrometheusRules and their current state, grouped by namespace.
 
 ## Adding a Slack or Webhook Receiver
 

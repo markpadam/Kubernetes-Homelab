@@ -42,7 +42,7 @@ Custom rules are written in the same DSL:
 ./aks-lab feature enable falco
 ```
 
-Web UI: <https://falco.aks-lab.local:9443/> (gated by OAuth2 Proxy SSO when `oauth2-proxy` is enabled).
+Web UI: <https://falco.aks-lab.local:9444/> (gated by OAuth2 Proxy SSO when `oauth2-proxy` is enabled).
 
 ## Useful commands
 
@@ -54,7 +54,7 @@ kubectl get pods -n falco -o wide
 kubectl logs -n falco -l app.kubernetes.io/name=falco -f --tail=20
 
 # Browse events in falcosidekick-ui
-open https://falco.aks-lab.local:9443/
+open https://falco.aks-lab.local:9444/
 
 # Trigger a noisy detection to confirm Falco is alive
 kubectl run alpine-shell --rm -it --image=alpine -- sh

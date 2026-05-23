@@ -89,7 +89,7 @@ ldapsearch -H ldap://<samba-ip>:389 \
   -b "OU=lab-users,DC=corp,DC=internal" "(objectClass=person)" cn
 
 # Access cluster web services (from inside the VM)
-curl -v http://taskflow.aks-lab.local:9980
+curl -v https://taskflow.aks-lab.local:9444
 
 # Check SSSD status
 systemctl status sssd

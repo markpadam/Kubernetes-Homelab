@@ -1,8 +1,8 @@
 # ArgoCD
 
 **Runs in:** `argocd` namespace
-**HTTPS port:** `9443` (port-forwarded from NGINX ingress port 443)
-**Hostname:** `https://argocd.aks-lab.local:9443`
+**HTTPS port:** `9444` (port-forwarded from NGINX ingress port 443)
+**Hostname:** `https://argocd.aks-lab.local:9444`
 **Azure equivalent:** Azure DevOps environments + GitOps connector, or Argo CD on AKS
 **Installed by:** `scripts/setup-lab.sh` Step 4b / `scripts/lab-feature.sh` `_enable_argocd` — applies upstream `install.yaml`
 **Default:** yes — enabled on every `./aks-lab setup` run
@@ -33,10 +33,10 @@ If `GITHUB_TOKEN` is configured (via macOS Keychain item `aks-lab-github-token`)
 
 ```bash
 # Web UI
-open https://argocd.aks-lab.local:9443
+open https://argocd.aks-lab.local:9444
 
 # argocd CLI login (if installed)
-argocd login argocd.aks-lab.local:9443 --username admin --password <password>
+argocd login argocd.aks-lab.local:9444 --username admin --password <password>
 argocd app list
 ```
 

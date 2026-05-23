@@ -34,7 +34,7 @@ This passes `--cni=cilium` to minikube, which uses minikube's bundled Cilium ins
 ./aks-lab feature enable cilium
 ```
 
-Hubble UI: <https://hubble.aks-lab.local:9443/>
+Hubble UI: <https://hubble.aks-lab.local:9444/>
 
 ## Useful commands
 

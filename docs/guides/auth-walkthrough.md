@@ -160,7 +160,7 @@ exit
 
 ```bash
 # OIDC discovery document — what OAuth2 clients read first
-curl http://dex.aks-lab.local:9980/.well-known/openid-configuration | python3 -m json.tool
+curl https://dex.aks-lab.local:9444/.well-known/openid-configuration | python3 -m json.tool
 
 # Key fields:
 #   "issuer"                  — identity of this OIDC provider
@@ -169,7 +169,7 @@ curl http://dex.aks-lab.local:9980/.well-known/openid-configuration | python3 -m
 #   "jwks_uri"                — public keys to verify tokens
 
 # Fetch the signing keys (JWKs)
-curl http://dex.aks-lab.local:9980/keys | python3 -m json.tool
+curl https://dex.aks-lab.local:9444/keys | python3 -m json.tool
 
 # Inspect the Dex ConfigMap (rendered from template at setup time)
 kubectl describe configmap dex-config -n dex
@@ -188,12 +188,12 @@ kubectl logs -n dex deploy/dex -f
 
 ```bash
 # Step 1: hit a protected service — observe the redirect chain
-curl -v http://taskflow.aks-lab.local:9980 2>&1 | grep -E "< HTTP|< Location"
+curl -v https://taskflow.aks-lab.local:9444 2>&1 | grep -E "< HTTP|< Location"
 # Expect: 302 → /oauth2/start → Dex authorization endpoint
 
 # Step 2: check OAuth2 Proxy health
-curl http://oauth2-proxy.aks-lab.local:9980/ping          # 200 OK
-curl -I http://oauth2-proxy.aks-lab.local:9980/oauth2/auth  # 401 without session
+curl https://oauth2-proxy.aks-lab.local:9444/ping          # 200 OK
+curl -I https://oauth2-proxy.aks-lab.local:9444/oauth2/auth  # 401 without session
 
 # Step 3: inspect what NGINX does for every request
 # The auth-url annotation makes NGINX issue a sub-request to:
@@ -222,14 +222,14 @@ kubectl logs -n oauth2-proxy deploy/oauth2-proxy -f
 # From corp-client — trace the full redirect chain
 multipass shell corp-client
 
-curl -v http://taskflow.aks-lab.local:9980 2>&1 | grep -E "< HTTP|< Location"
+curl -v https://taskflow.aks-lab.local:9444 2>&1 | grep -E "< HTTP|< Location"
 # You'll see:
 # 1. GET /             → 302 (NGINX auth check fails)
 # 2. GET /oauth2/start → 302 (OAuth2 Proxy redirects to Dex)
 # 3. GET /auth         → 200 (Dex login page)
 ```
 
-For a real end-to-end test, open a browser on your Mac and navigate to `http://taskflow.aks-lab.local:9980`. Log in with:
+For a real end-to-end test, open a browser on your Mac and navigate to `https://taskflow.aks-lab.local:9444`. Log in with:
 
 - **Username:** `testuser1@corp.internal`
 - **Password:** `AksLab!User1`
@@ -254,7 +254,7 @@ echo $TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | python3 -m json.tool
 
 # Expected claims:
 # {
-#   "iss": "http://dex.aks-lab.local:9980",
+#   "iss": "https://dex.aks-lab.local:9444",
 #   "sub": "CN=testuser1,OU=lab-users,DC=corp,DC=internal",
 #   "aud": "oauth2-proxy",
 #   "exp": <unix timestamp>,
@@ -269,7 +269,7 @@ echo $TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | python3 -m json.tool
 echo $TOKEN | cut -d. -f1 | base64 -d 2>/dev/null | python3 -m json.tool
 
 # Fetch Dex's public keys — the key matching 'kid' was used to sign the token
-curl http://dex.aks-lab.local:9980/keys | python3 -m json.tool
+curl https://dex.aks-lab.local:9444/keys | python3 -m json.tool
 ```
 
 **What you learn:** A JWT is a signed, self-contained token. The signature (third segment) is created with Dex's private key. Any service that trusts Dex can verify the signature using the public JWKS endpoint — no call back to Dex required. This is how stateless authentication scales: the identity assertion travels with the request, not through a session store.
@@ -284,9 +284,9 @@ curl http://dex.aks-lab.local:9980/keys | python3 -m json.tool
 | List AD users | `multipass exec samba-ad -- samba-tool user list` |
 | Resolve AD user | `multipass exec corp-client -- id testuser1@corp.internal` |
 | Get Kerberos ticket | `multipass exec corp-client -- kinit testuser1@CORP.INTERNAL` |
-| OIDC discovery | `curl http://dex.aks-lab.local:9980/.well-known/openid-configuration` |
-| Auth check (unauthenticated) | `curl -I http://oauth2-proxy.aks-lab.local:9980/oauth2/auth` |
-| Redirect chain | `curl -v http://taskflow.aks-lab.local:9980 2>&1 \| grep "< Location"` |
+| OIDC discovery | `curl https://dex.aks-lab.local:9444/.well-known/openid-configuration` |
+| Auth check (unauthenticated) | `curl -I https://oauth2-proxy.aks-lab.local:9444/oauth2/auth` |
+| Redirect chain | `curl -v https://taskflow.aks-lab.local:9444 2>&1 \| grep "< Location"` |
 | Dex logs | `kubectl logs -n dex deploy/dex -f` |
 | OAuth2 Proxy logs | `kubectl logs -n oauth2-proxy deploy/oauth2-proxy -f` |
 

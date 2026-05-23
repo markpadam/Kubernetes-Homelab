@@ -1,8 +1,8 @@
 # Monitoring (Prometheus + Grafana)
 
 **Runs in:** `monitoring` namespace
-**HTTPS port:** `9443` (Grafana, port-forwarded from NGINX ingress port 443)
-**Hostname:** `https://grafana.aks-lab.local:9443`
+**HTTPS port:** `9444` (Grafana, port-forwarded from NGINX ingress port 443)
+**Hostname:** `https://grafana.aks-lab.local:9444`
 **Azure equivalent:** Azure Monitor + Azure Managed Grafana
 **Installed by:** `scripts/setup-lab.sh` Step 5 / `scripts/lab-feature.sh` `_enable_monitoring` — Helm chart `kube-prometheus-stack`
 **Default:** yes — enabled on every `./aks-lab setup` run
@@ -29,7 +29,7 @@ Grafana ships with `admin` / `admin123` in the lab. Override at setup time by se
 
 ```bash
 # Grafana UI (SSO-protected if oauth2-proxy is enabled)
-open https://grafana.aks-lab.local:9443
+open https://grafana.aks-lab.local:9444
 
 # Direct Prometheus API
 kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090

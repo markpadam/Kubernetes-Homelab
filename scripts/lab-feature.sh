@@ -330,7 +330,7 @@ _enable_monitoring() {
   fi
   [[ -f "$REPO_ROOT/flux/infrastructure/base/monitoring/ingress.yaml" ]] && \
     kubectl apply -f "$REPO_ROOT/flux/infrastructure/base/monitoring/ingress.yaml"
-  success "Monitoring ready — https://grafana.aks-lab.local:9443  (admin/admin123)"
+  success "Monitoring ready — https://grafana.aks-lab.local:9444  (admin/admin123)"
 }
 
 _disable_monitoring() {
@@ -433,9 +433,9 @@ _enable_falco() {
       --set falcosidekick.webui.enabled=true \
       --wait --timeout=5m
   fi
-  log "Applying Falco UI ingress (https://falco.aks-lab.local:9443)..."
+  log "Applying Falco UI ingress (https://falco.aks-lab.local:9444)..."
   kubectl apply -f "$REPO_ROOT/flux/infrastructure/base/falco/ingress.yaml" 2>/dev/null || true
-  success "Falco ready — https://falco.aks-lab.local:9443  |  kubectl logs -n falco -l app.kubernetes.io/name=falco -f"
+  success "Falco ready — https://falco.aks-lab.local:9444  |  kubectl logs -n falco -l app.kubernetes.io/name=falco -f"
 }
 
 _disable_falco() {
@@ -523,9 +523,9 @@ _enable_cilium() {
       --set 'hubble.metrics.enabled={dns,drop,tcp,flow,icmp,http}' \
       --wait --timeout=10m
   fi
-  log "Applying Hubble UI ingress (https://hubble.aks-lab.local:9443)..."
+  log "Applying Hubble UI ingress (https://hubble.aks-lab.local:9444)..."
   kubectl apply -f "$REPO_ROOT/flux/infrastructure/base/cilium/ingress.yaml" 2>/dev/null || true
-  success "Cilium + Hubble ready — https://hubble.aks-lab.local:9443  |  hubble observe --follow"
+  success "Cilium + Hubble ready — https://hubble.aks-lab.local:9444  |  hubble observe --follow"
 }
 
 _disable_cilium() {
@@ -560,7 +560,7 @@ _enable_argocd() {
     kubectl apply -f "$REPO_ROOT/flux/infrastructure/base/argocd/ingress.yaml"
   local pw; pw=$(kubectl -n argocd get secret argocd-initial-admin-secret \
     -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<password-already-changed>")
-  success "ArgoCD ready — https://argocd.aks-lab.local:9443  (admin / $pw)"
+  success "ArgoCD ready — https://argocd.aks-lab.local:9444  (admin / $pw)"
 }
 
 _disable_argocd() {
@@ -587,7 +587,7 @@ _enable_kubernetes_dashboard() {
   token=$(kubectl get secret admin-user-token -n kubernetes-dashboard \
     -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || echo "")
   if [[ -n "$token" ]]; then
-    success "Kubernetes Dashboard ready — https://dashboard.aks-lab.local:9443"
+    success "Kubernetes Dashboard ready — https://dashboard.aks-lab.local:9444"
   else
     warn "Dashboard installed but could not read admin token yet"
   fi
@@ -661,7 +661,7 @@ _enable_rancher() {
     fi
   done
 
-  success "Rancher ready — https://rancher.aks-lab.local:9443  (bootstrap: ${bootstrap_pw})"
+  success "Rancher ready — https://rancher.aks-lab.local:9444  (bootstrap: ${bootstrap_pw})"
 }
 
 _disable_rancher() {
@@ -771,7 +771,7 @@ Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substit
   kubectl apply -k "$REPO_ROOT/flux/infrastructure/base/identity/dex/"
   kubectl apply -f /tmp/dex-config-rendered.yaml
   kubectl wait deployment dex --for=condition=available --namespace=dex --timeout=120s
-  success "Dex ready — https://dex.aks-lab.local:9443"
+  success "Dex ready — https://dex.aks-lab.local:9444"
 }
 
 _disable_dex() {
@@ -799,7 +799,7 @@ _sso_patch_ingress() {
   kubectl annotate ingress -n "$ns" "$name" --overwrite \
     "nginx.ingress.kubernetes.io/auth-url=http://oauth2-proxy.oauth2-proxy.svc.cluster.local:4180/oauth2/auth" \
     "nginx.ingress.kubernetes.io/auth-response-headers=X-Auth-Request-User,X-Auth-Request-Email" \
-    "nginx.ingress.kubernetes.io/auth-signin=https://oauth2-proxy.aks-lab.local:9443/oauth2/start?rd=https://${host}:9443/" \
+    "nginx.ingress.kubernetes.io/auth-signin=https://oauth2-proxy.aks-lab.local:9444/oauth2/start?rd=https://${host}:9444/" \
     &>/dev/null
 }
 
@@ -841,7 +841,7 @@ Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).saf
   kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s
   log "Patching SSO annotations onto protected ingresses..."
   _sso_apply_all
-  success "OAuth2 Proxy ready — SSO gate at https://oauth2-proxy.aks-lab.local:9443"
+  success "OAuth2 Proxy ready — SSO gate at https://oauth2-proxy.aks-lab.local:9444"
 }
 
 _disable_oauth2_proxy() {

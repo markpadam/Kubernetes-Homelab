@@ -12,7 +12,7 @@ The full picture: **browser → NGINX Ingress → frontend (Nginx) → backend (
 
 ```
 Browser
-  ↓ HTTP :80 / :9980
+  ↓ HTTP→HTTPS / :9444
 NGINX Ingress (taskflow.aks-lab.local)
   ↓ routes to frontend Service
 Frontend — nginx:alpine  (2 replicas, NodePort 30080)
@@ -215,11 +215,11 @@ kubectl get configmap frontend-html -n taskapp \
 # }
 
 # Curl the frontend through the ingress
-curl -s http://taskflow.aks-lab.local:9980 | head -20
+curl -s https://taskflow.aks-lab.local:9444 | head -20
 
 # Curl the API through the frontend's /api prefix (goes backend via proxy_pass)
-curl -s http://taskflow.aks-lab.local:9980/api/health
-curl -s http://taskflow.aks-lab.local:9980/api/tasks
+curl -s https://taskflow.aks-lab.local:9444/api/health
+curl -s https://taskflow.aks-lab.local:9444/api/tasks
 ```
 
 **The ConfigMap-as-code pattern:** the HTML is stored in a Kubernetes ConfigMap rather than baked into an image. This means:
@@ -300,7 +300,7 @@ nslookup taskflow.aks-lab.local
 # Expect: 127.0.0.1 (Minikube tunnel address)
 
 # Trace the redirect chain (if OAuth2 Proxy SSO is enabled)
-curl -v http://taskflow.aks-lab.local:9980 2>&1 | grep -E "< HTTP|< Location"
+curl -v https://taskflow.aks-lab.local:9444 2>&1 | grep -E "< HTTP|< Location"
 # Without SSO: 200 OK (HTML served directly)
 # With SSO:    302 → /oauth2/start → Dex login
 
@@ -314,7 +314,7 @@ kubectl exec -n toolbox deploy/toolbox -- \
   curl -s http://frontend.taskapp.svc.cluster.local:80/api/health
 
 # Full end-to-end: create a task via the ingress, see it in postgres
-curl -s -X POST http://taskflow.aks-lab.local:9980/api/tasks \
+curl -s -X POST https://taskflow.aks-lab.local:9444/api/tasks \
   -H 'Content-Type: application/json' \
   -d '{"title":"end to end test"}' | python3 -m json.tool
 
@@ -325,7 +325,7 @@ kubectl exec -n taskapp deploy/postgres -- \
 **The full request path for `POST /api/tasks`:**
 
 ```
-Browser POST http://taskflow.aks-lab.local:9980/api/tasks
+Browser POST https://taskflow.aks-lab.local:9444/api/tasks
   → Minikube tunnel → NGINX Ingress pod
   → Ingress checks auth-url (OAuth2 Proxy, if SSO enabled)
   → Routes to frontend Service (round-robin across 2 pods)
@@ -345,10 +345,10 @@ Browser POST http://taskflow.aks-lab.local:9980/api/tasks
 
 | Task | Command |
 |------|---------|
-| Open TaskFlow | `http://taskflow.aks-lab.local:9980` |
-| List all tasks | `curl -s http://taskflow.aks-lab.local:9980/api/tasks` |
-| Create a task | `curl -s -X POST http://taskflow.aks-lab.local:9980/api/tasks -H 'Content-Type: application/json' -d '{"title":"..."}'` |
-| Backend health | `curl -s http://taskflow.aks-lab.local:9980/api/health` |
+| Open TaskFlow | `https://taskflow.aks-lab.local:9444` |
+| List all tasks | `curl -s https://taskflow.aks-lab.local:9444/api/tasks` |
+| Create a task | `curl -s -X POST https://taskflow.aks-lab.local:9444/api/tasks -H 'Content-Type: application/json' -d '{"title":"..."}'` |
+| Backend health | `curl -s https://taskflow.aks-lab.local:9444/api/health` |
 | Connect to PostgreSQL | `kubectl exec -n taskapp deploy/postgres -- psql -U taskuser -d taskdb` |
 | Watch HPA | `kubectl get hpa backend-hpa -n taskapp -w` |
 | Backend logs | `kubectl logs -n taskapp deploy/backend -f` |

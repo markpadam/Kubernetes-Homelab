@@ -1,7 +1,7 @@
 # Kubernetes Dashboard
 
 **Namespace:** `kubernetes-dashboard`
-**URL:** `http://dashboard.aks-lab.local:9980`
+**URL:** `https://dashboard.aks-lab.local:9444`
 **Managed by:** `./aks-lab feature enable kubernetes-dashboard` (dispatches to `scripts/lab-feature.sh`)
 
 ## Overview
@@ -20,7 +20,7 @@ If the component is already enabled, the command is idempotent.
 
 ## Access
 
-Open `http://dashboard.aks-lab.local:9980` in your browser. If OAuth2 Proxy is enabled, you will authenticate through Dex using the lab SSO account.
+Open `https://dashboard.aks-lab.local:9444` in your browser. If OAuth2 Proxy is enabled, you will authenticate through Dex using the lab SSO account.
 
 ## Deployment
 

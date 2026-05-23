@@ -18,7 +18,7 @@ data:
     # Dex wraps SambaAD (LDAP/Kerberos) into standard OAuth2/OIDC tokens
     # so that applications like OAuth2 Proxy don't need to know how to speak LDAP.
 
-    issuer: https://dex.aks-lab.local:9443
+    issuer: https://dex.aks-lab.local:9444
 
     storage:
       type: memory   # in-memory — config is reapplied from this ConfigMap on restart
@@ -81,5 +81,5 @@ data:
       - id: oauth2-proxy
         secret: ${DEX_CLIENT_SECRET}
         redirectURIs:
-          - https://oauth2-proxy.aks-lab.local:9443/oauth2/callback
+          - https://oauth2-proxy.aks-lab.local:9444/oauth2/callback
         name: OAuth2 Proxy

@@ -4,7 +4,7 @@ A progressive, six-stage guide to understanding Rancher — the cluster manageme
 
 **Azure equivalent:** Azure Kubernetes Service portal blade / Azure Arc  
 **Namespace:** `cattle-system`  
-**URL:** `http://rancher.aks-lab.local:9980`
+**URL:** `https://rancher.aks-lab.local:9444`
 
 ---
 
@@ -48,10 +48,10 @@ kubectl logs -n cattle-system -l app=rancher --tail=30
 
 **Goal:** complete the initial Rancher setup and understand what the bootstrap flow does.
 
-1. Open `http://rancher.aks-lab.local:9980` in a browser
+1. Open `https://rancher.aks-lab.local:9444` in a browser
 2. Rancher prompts for the bootstrap password: **`AksLabRancher1`**
 3. Set a new permanent admin password (or accept the generated one)
-4. Accept the Server URL (pre-filled as `http://rancher.aks-lab.local:9980`)
+4. Accept the Server URL (pre-filled as `https://rancher.aks-lab.local:9444`)
 5. Click **Continue**
 
 ```bash
@@ -232,7 +232,7 @@ Fleet will begin reconciling the repository alongside Flux. Because both would a
 
 | Task | Command / URL |
 |------|--------------|
-| Open Rancher | `http://rancher.aks-lab.local:9980` |
+| Open Rancher | `https://rancher.aks-lab.local:9444` |
 | Bootstrap password | `AksLabRancher1` |
 | Enable Rancher | `./aks-lab feature enable rancher` |
 | Disable Rancher | `./aks-lab feature disable rancher` |

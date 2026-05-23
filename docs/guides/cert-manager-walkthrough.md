@@ -248,7 +248,7 @@ curl -s http://localhost:8200/v1/pki/ca/pem | \
 #   Key Size: 256 bit (EC P-256)
 
 # Confirm the browser sees a valid chain by checking the cert for a running service
-echo | openssl s_client -connect localhost:9443 \
+echo | openssl s_client -connect localhost:9444 \
   -servername taskflow.aks-lab.local 2>/dev/null | \
   openssl x509 -noout -text | grep -E "Subject:|Issuer:|Not After:"
 ```
@@ -256,7 +256,7 @@ echo | openssl s_client -connect localhost:9443 \
 **The trust chain from browser to certificate:**
 
 ```
-Browser sees: https://taskflow.aks-lab.local:9443
+Browser sees: https://taskflow.aks-lab.local:9444
   → TLS handshake: NGINX presents leaf cert + intermediate cert
   → Browser builds chain: leaf → intermediate → root
   → Root cert: "aks-lab.local Root CA"
@@ -268,7 +268,7 @@ Browser sees: https://taskflow.aks-lab.local:9443
 # Test that all services show a valid chain (no certificate warnings)
 for host in taskflow grafana argocd dashboard dex oauth2-proxy; do
   echo -n "$host.aks-lab.local: "
-  echo | openssl s_client -connect localhost:9443 \
+  echo | openssl s_client -connect localhost:9444 \
     -servername ${host}.aks-lab.local 2>/dev/null | \
     grep -E "Verify return code|subject=" | head -2
 done

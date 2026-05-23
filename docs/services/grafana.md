@@ -1,7 +1,7 @@
 # Grafana
 
 **Runs in:** `monitoring` namespace  
-**URL:** `https://grafana.aks-lab.local:9443`  
+**URL:** `https://grafana.aks-lab.local:9444`  
 **HTTP port-forward:** `kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80`  
 **Azure equivalent:** Azure Managed Grafana (same dashboard engine, same datasource plugin model)  
 **Installed by:** `scripts/setup-lab.sh` Step 5 / `scripts/lab-feature.sh` `_enable_monitoring` — Helm chart `kube-prometheus-stack`  
@@ -19,7 +19,7 @@ Grafana is a dashboard rendering engine. It does not store metrics — it querie
 | **Provisioning** | Dashboards and data sources loaded from ConfigMaps or files at startup — they survive pod restarts |
 | **Explore** | Ad-hoc query mode for investigating metrics without a predefined dashboard |
 
-In this lab, Grafana is accessed via NGINX Ingress at `https://grafana.aks-lab.local:9443`. If `oauth2-proxy` is enabled, requests are intercepted and require SSO authentication before reaching Grafana. If `oauth2-proxy` is disabled, you reach the Grafana login page directly.
+In this lab, Grafana is accessed via NGINX Ingress at `https://grafana.aks-lab.local:9444`. If `oauth2-proxy` is enabled, requests are intercepted and require SSO authentication before reaching Grafana. If `oauth2-proxy` is disabled, you reach the Grafana login page directly.
 
 ## Default Credentials
 
@@ -32,7 +32,7 @@ These credentials apply when you reach the Grafana login page directly (i.e., wh
 
 Override the password at setup time by setting `GRAFANA_PASSWORD` before running `./aks-lab setup`. The value is persisted to `.lab-state.json` and re-exported on every `./aks-lab resume`.
 
-**SSO note:** when `oauth2-proxy` is enabled, browser requests to `https://grafana.aks-lab.local:9443` are intercepted at the ingress and redirected to Dex for authentication. You authenticate with your Dex credentials, not Grafana credentials. The Grafana login form is bypassed entirely via the `GF_AUTH_PROXY_ENABLED=true` configuration injected by the Helm values.
+**SSO note:** when `oauth2-proxy` is enabled, browser requests to `https://grafana.aks-lab.local:9444` are intercepted at the ingress and redirected to Dex for authentication. You authenticate with your Dex credentials, not Grafana credentials. The Grafana login form is bypassed entirely via the `GF_AUTH_PROXY_ENABLED=true` configuration injected by the Helm values.
 
 ## Pre-loaded Dashboards
 
@@ -127,7 +127,7 @@ curl -s -u admin:admin123 http://localhost:3000/api/search?query=My+Custom | pyt
 **Via ingress (SSO-protected):**
 
 ```bash
-open https://grafana.aks-lab.local:9443
+open https://grafana.aks-lab.local:9444
 ```
 
 **Via port-forward (bypasses SSO — direct Grafana login):**

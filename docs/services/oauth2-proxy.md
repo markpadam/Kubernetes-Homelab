@@ -9,7 +9,7 @@ OAuth2 Proxy is a reverse proxy that sits in front of cluster web services and e
 | Namespace | `oauth2-proxy` |
 | Image | `quay.io/oauth2-proxy/oauth2-proxy:latest` |
 | Port | 4180 |
-| External URL | `http://oauth2-proxy.aks-lab.local:9980/oauth2` |
+| External URL | `https://oauth2-proxy.aks-lab.local:9444/oauth2` |
 | OIDC provider | Dex (`http://dex.dex.svc.cluster.local:5556`) |
 | Auth mode | Forward auth (NGINX sub-request) |
 
@@ -42,7 +42,7 @@ Incoming request → NGINX Ingress
 
 ```yaml
 nginx.ingress.kubernetes.io/auth-url: "http://oauth2-proxy.oauth2-proxy.svc.cluster.local/oauth2/auth"
-nginx.ingress.kubernetes.io/auth-signin: "http://oauth2-proxy.aks-lab.local:9980/oauth2/start?rd=$escaped_request_uri"
+nginx.ingress.kubernetes.io/auth-signin: "https://oauth2-proxy.aks-lab.local:9444/oauth2/start?rd=$escaped_request_uri"
 nginx.ingress.kubernetes.io/auth-response-headers: "X-Auth-Request-User,X-Auth-Request-Email"
 ```
 
@@ -77,10 +77,10 @@ The `oauth2-proxy-secret` Kubernetes secret is rendered from the template at `fl
 
 ```bash
 # Health check
-curl http://oauth2-proxy.aks-lab.local:9980/ping
+curl https://oauth2-proxy.aks-lab.local:9444/ping
 
 # Test auth endpoint (expects 401 without session)
-curl -I http://oauth2-proxy.aks-lab.local:9980/oauth2/auth
+curl -I https://oauth2-proxy.aks-lab.local:9444/oauth2/auth
 
 # Check pod logs
 kubectl logs -n oauth2-proxy deploy/oauth2-proxy -f
@@ -89,7 +89,7 @@ kubectl logs -n oauth2-proxy deploy/oauth2-proxy -f
 kubectl get secret oauth2-proxy-secret -n oauth2-proxy -o yaml
 
 # Test a protected service redirect chain
-curl -v http://taskflow.aks-lab.local:9980 2>&1 | grep -E "< HTTP|< Location"
+curl -v https://taskflow.aks-lab.local:9444 2>&1 | grep -E "< HTTP|< Location"
 ```
 
 See also: [dex.md](dex.md), [samba-ad.md](samba-ad.md), [auth-walkthrough.md](../guides/auth-walkthrough.md)

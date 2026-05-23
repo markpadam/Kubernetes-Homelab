@@ -45,7 +45,7 @@ The first terminal should show the flow — source pod, destination service, ver
 
 ```bash
 # Open the visual service map (requires the dashboard URL)
-open https://hubble.aks-lab.local:9443/
+open https://hubble.aks-lab.local:9444/
 # Pick any namespace from the dropdown — the map shows live flows between services
 ```
 
