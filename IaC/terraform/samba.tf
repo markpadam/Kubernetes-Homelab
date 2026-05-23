@@ -109,10 +109,11 @@ sys.exit(r.returncode)
       kill $_TAIL_PID 2>/dev/null || true
       wait $_TAIL_PID 2>/dev/null || true
 
-      # cloud-init exit codes: 0=done, 1=error, 2=recoverable_error (warnings only).
-      # Treat 0 and 2 as success — 2 means non-fatal warnings, provisioning still ran.
-      if [[ $_CI_RC -eq 1 ]]; then
-        echo "[samba] ERROR: cloud-init hard failure (rc=$_CI_RC) — last 60 lines of log:"
+      # cloud-init exit codes: 0=done, 1=error, 2=recoverable_error.
+      # With packages moved into samba-provision.sh, rc=2 is also a real failure
+      # (a module warning that masked a provision error previously).
+      if [[ $_CI_RC -ne 0 ]]; then
+        echo "[samba] ERROR: cloud-init finished with rc=$_CI_RC — last 60 lines of log:"
         multipass exec samba-ad -- sudo tail -60 /var/log/cloud-init-output.log 2>/dev/null || true
         exit 1
       fi

@@ -63,6 +63,37 @@ write_files:
       #!/bin/bash
       set -euo pipefail
 
+      # ── Wait for network ───────────────────────────────────────────────────
+      # Multipass NAT can take 10-30s to establish after VM boot on macOS —
+      # wait before attempting apt-get to avoid a package install failure.
+      echo "[samba] Waiting for network connectivity (up to 60s)..."
+      _net_ok=false
+      for _i in $(seq 1 30); do
+        ping -c1 -W2 8.8.8.8 &>/dev/null && _net_ok=true && break || true
+        sleep 2
+      done
+      if ! $_net_ok; then
+        echo "[samba] WARNING: no internet after 60s — apt may fail"
+      else
+        echo "[samba] Network ready"
+      fi
+
+      # ── Install packages with retry ────────────────────────────────────────
+      echo "[samba] Installing packages..."
+      _pkg_ok=false
+      for _attempt in 1 2 3; do
+        apt-get update -qq 2>&1 | tail -1 || true
+        if apt-get install -y --no-install-recommends \
+            samba winbind krb5-user attr dnsutils ldap-utils acl socat; then
+          _pkg_ok=true
+          break
+        fi
+        echo "[samba] Package install failed (attempt $_attempt/3) — retrying in 15s..."
+        sleep 15
+      done
+      $_pkg_ok || { echo "[samba] ERROR: packages could not be installed after 3 attempts"; exit 1; }
+      echo "[samba] Packages installed"
+
       echo "[samba] Stopping default Samba services..."
       systemctl stop smbd nmbd winbind 2>/dev/null || true
       systemctl disable smbd nmbd winbind 2>/dev/null || true
@@ -118,16 +149,6 @@ write_files:
       systemctl enable --now samba-dns-proxy-udp samba-dns-proxy-tcp
 
       echo "[samba] Provisioning complete."
-
-packages:
-  - samba
-  - winbind
-  - krb5-user
-  - attr
-  - dnsutils
-  - ldap-utils
-  - acl
-  - socat
 
 runcmd:
   - [bash, /root/samba-provision.sh]
