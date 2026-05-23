@@ -424,6 +424,7 @@ git add ado && git commit -m "chore: bump ado submodule"
 | [QUICKSTART.md](QUICKSTART.md) | Start, pause, resume, destroy — flags, URLs, troubleshooting |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Detailed diagrams — cluster layout, GitOps flow, secrets, DNS |
 | [docs/README.md](docs/README.md) | Full service documentation index |
+| [docs/iac/ado.md](docs/iac/ado.md) | Azure DevOps submodule — Bicep templates, YAML pipelines, and self-hosted agent setup |
 
 ---
 

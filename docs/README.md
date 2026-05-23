@@ -57,6 +57,7 @@ Mirrors the tools used in production AKS. All optional — `./aks-lab feature en
 |-----|-------------|
 | [terraform.md](iac/terraform.md) | Terraform lab provisioner — Vault dev server, Vault config (KV/PKI/K8s auth), and Multipass VMs |
 | [packer.md](iac/packer.md) | Packer VM image builder — pre-bake samba-ad and corp-client base images |
+| [ado.md](iac/ado.md) | Azure DevOps submodule — Bicep templates, YAML pipeline definitions, and self-hosted agent setup |
 
 ## Guides
 

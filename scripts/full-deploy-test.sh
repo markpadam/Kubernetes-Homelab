@@ -166,9 +166,10 @@ _patch_fail_webhooks() {
   local _kind _wh _count _patch
   for _kind in validatingwebhookconfiguration mutatingwebhookconfiguration; do
     while IFS= read -r _wh; do
+      _count=0
       _count=$(kubectl get "$_wh" \
         -o jsonpath='{range .webhooks[*]}{.failurePolicy}{"\n"}{end}' 2>/dev/null \
-        | grep -c "^Fail$" || echo 0)
+        | grep -c "^Fail$" 2>/dev/null) || true
       [[ "$_count" -gt 0 ]] || continue
       # Build JSON patch for every index that has failurePolicy=Fail
       _patch=$(kubectl get "$_wh" \
@@ -344,13 +345,13 @@ fi
 log "Pre-building custom lab images (toolbox, backend, blob-explorer)..."
 IMAGE_CACHE_DIR="${HOME}/.lab-cache/images"
 mkdir -p "$IMAGE_CACHE_DIR"
-declare -A _IMG_SRCS=(
-  [toolbox]="src/toolbox"
-  [backend]="src/taskflow/backend"
-  [blob-explorer]="src/blob-explorer"
-)
 for _img_name in toolbox backend blob-explorer; do
-  _img_src="${REPO_ROOT}/${_IMG_SRCS[$_img_name]}"
+  case "$_img_name" in
+    toolbox)      _img_src="src/toolbox" ;;
+    backend)      _img_src="src/taskflow/backend" ;;
+    blob-explorer) _img_src="src/blob-explorer" ;;
+  esac
+  _img_src="${REPO_ROOT}/${_img_src}"
   _img_full="aks-lab/${_img_name}:latest"
   _img_cache="${IMAGE_CACHE_DIR}/${_img_name}.tar"
   if minikube image ls -p "$PROFILE" 2>/dev/null | grep -q "aks-lab/${_img_name}"; then
@@ -371,7 +372,7 @@ for _img_name in toolbox backend blob-explorer; do
     fi
   fi
 done
-unset _img_name _img_src _img_full _img_cache _IMG_SRCS
+unset _img_name _img_src _img_full _img_cache
 
 # ── Main deploy loop ──────────────────────────────────────────────────────────
 echo -e "\n${BOLD}━━━ Sequential Deploy + Health Check (${TOTAL_COMPONENTS} components) ━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
