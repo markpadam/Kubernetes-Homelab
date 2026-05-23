@@ -1820,8 +1820,12 @@ if feature_enabled samba-ad; then
   # Uses python3 subprocess with a hard timeout so a hung multipass exec (e.g. after
   # a daemon restart) can never block the script indefinitely.
   _mp_check_nat() {
-    for _vm in $(multipass list --format csv 2>/dev/null | tail -n +2 \
-                   | grep -iv "^samba-ad," | grep -i ",Running," | cut -d, -f1); do
+    local _vms
+    _vms=$(multipass list --format csv 2>/dev/null | tail -n +2 \
+             | grep -iv "^samba-ad," | grep -i ",Running," | cut -d, -f1)
+    # No running VMs → nothing to check; treat as OK (NAT not needed yet)
+    [[ -z "$_vms" ]] && return 0
+    for _vm in $_vms; do
       python3 -c "
 import subprocess, sys
 try:
@@ -1848,12 +1852,23 @@ except Exception:
                    | grep -v "^samba-ad," | cut -d, -f1); do
       multipass start "$_vm" 2>/dev/null || true
     done
-    log "Waiting 10s for multipass to re-establish NAT..."
-    sleep 10
-    _mp_check_nat \
-      || error "Multipass NAT still broken after VM cycle. Restart the daemon manually:
-      sudo launchctl load /Library/LaunchDaemons/com.canonical.multipassd.plist"
-    success "Multipass NAT restored"
+    log "Waiting for Multipass VMs to finish booting (up to 60s)..."
+    _nat_ok=false
+    for _wait in 15 15 15 15; do
+      sleep "$_wait"
+      if _mp_check_nat; then
+        _nat_ok=true
+        break
+      fi
+      log "NAT not ready yet — retrying..."
+    done
+    if ! $_nat_ok; then
+      warn "Multipass NAT still unreachable after VM cycle — proceeding anyway."
+      warn "If Samba provisioning fails with no internet, restart the daemon:"
+      warn "  sudo launchctl load /Library/LaunchDaemons/com.canonical.multipassd.plist"
+    else
+      success "Multipass NAT restored"
+    fi
   else
     success "Multipass NAT OK"
   fi
