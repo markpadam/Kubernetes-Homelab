@@ -285,13 +285,13 @@ if feature_enabled vault; then
 fi
 
 # ── pfctl port redirects ──────────────────────
-# Ensure 80→9980 and 443→9443 are active after a Mac reboot (pfctl rules
+# Ensure 80→9980 and 443→9444 are active after a Mac reboot (pfctl rules
 # don't survive reboots unless the LaunchDaemon reloads pf.conf).
 step "Restoring pfctl Port Redirects"
 if [[ -f /etc/pf.anchors/aks-lab ]]; then
   sudo pfctl -e 2>/dev/null || true
   sudo pfctl -f /etc/pf.conf 2>/dev/null \
-    && success "pfctl: 80→9980 and 443→9443 redirects active" \
+    && success "pfctl: 80→9980 and 443→9444 redirects active" \
     || warn "pfctl reload failed — web UIs may not load at standard ports (run: sudo pfctl -f /etc/pf.conf)"
 else
   warn "pfctl anchor not found — run ./aks-lab setup to install port redirects"
@@ -312,7 +312,7 @@ _pf() {
 
 log "Clearing stale port-forwards and starting fresh..."
 _pf "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-portforward.log
-_pf "Ingress (HTTPS)"    9443 "kubectl port-forward svc/ingress-nginx-controller 9443:443 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-https-portforward.log
+_pf "Ingress (HTTPS)"    9444 "kubectl port-forward svc/ingress-nginx-controller 9444:443 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-https-portforward.log
 feature_enabled toolbox            && _pf "Toolbox SSH"       2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"             /tmp/toolbox-portforward.log
 feature_enabled argo-workflows     && _pf "Argo Workflows"    2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"             /tmp/argo-workflows-portforward.log
 feature_enabled azure-sql          && _pf "Azure SQL"         1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"              /tmp/azure-sql-portforward.log

@@ -62,7 +62,7 @@ for pid_file in /tmp/lab-pf-*.pid; do
   rm -f "$pid_file"
 done
 
-for port in 2222 8080 9980 2746 1433 5672 5300 5000 8081 1234 9997 8443; do
+for port in 2222 8080 9980 9444 2746 1433 5672 5300 5000 8081 1234 9997 8443; do
   pids=$(lsof -ti:"$port" 2>/dev/null || true)
   [[ -n "$pids" ]] && echo "$pids" | xargs kill -9 2>/dev/null || true
 done

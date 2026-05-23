@@ -847,6 +847,25 @@ else
 fi
 unset _HOSTS_BLOCK _maybe_add
 
+# pfctl anchor — write file + update pf.conf now while sudo is definitely cached.
+# The actual pfctl -f reload happens here; _setup_lab_pfctl() later just reports success.
+echo -e "  ${BOLD}Setting up pfctl port redirects${RESET} (80→9980, 443→9444)..." >&3
+sudo tee /etc/pf.anchors/aks-lab > /dev/null << 'EOF'
+rdr pass on lo0 proto tcp from any to 127.0.0.1 port 80  -> 127.0.0.1 port 9980
+rdr pass on lo0 proto tcp from any to 127.0.0.1 port 443 -> 127.0.0.1 port 9444
+EOF
+if ! grep -q 'aks-lab' /etc/pf.conf 2>/dev/null; then
+  sudo sed -i '' '/^rdr-anchor "com\.apple\/\*"/a\
+rdr-anchor "aks-lab"
+' /etc/pf.conf
+  echo 'load anchor "aks-lab" from "/etc/pf.anchors/aks-lab"' \
+    | sudo tee -a /etc/pf.conf > /dev/null
+fi
+sudo pfctl -e 2>/dev/null || true
+sudo pfctl -f /etc/pf.conf 2>/dev/null \
+  && echo -e "  ${GREEN}${BOLD}[✓]${RESET} pfctl: 80→9980 and 443→9444 redirects active" >&3 \
+  || echo -e "  ${YELLOW}${BOLD}[!]${RESET} pfctl reload failed — run: sudo pfctl -f /etc/pf.conf" >&3
+
 printf "\n" >&3
 
 # ── TUI bootstrap ─────────────────────────────────────────────────────────────
@@ -1104,27 +1123,17 @@ fi
 
 # ── pfctl port redirects ─────────────────────
 # Redirect standard ports 80 and 443 on loopback to the lab's kubectl
-# port-forwards (9980 and 9443).  Without this, browsers always try port 80/443
+# port-forwards (9980 and 9444).  Without this, browsers always try port 80/443
 # and never reach the lab ingress.  Uses a named pf anchor so the rules are
 # isolated from system pf config.
 _setup_lab_pfctl() {
-  log "Setting up pfctl port redirects (80→9980, 443→9443) — sudo required..."
-  sudo tee /etc/pf.anchors/aks-lab > /dev/null << 'EOF'
-rdr pass on lo0 proto tcp from any to 127.0.0.1 port 80  -> 127.0.0.1 port 9980
-rdr pass on lo0 proto tcp from any to 127.0.0.1 port 443 -> 127.0.0.1 port 9443
-EOF
-  # Add rdr-anchor + load lines to /etc/pf.conf if not already present.
-  if ! grep -q 'aks-lab' /etc/pf.conf 2>/dev/null; then
-    sudo sed -i '' '/^rdr-anchor "com\.apple\/\*"/a\
-rdr-anchor "aks-lab"
-' /etc/pf.conf
-    echo 'load anchor "aks-lab" from "/etc/pf.anchors/aks-lab"' \
-      | sudo tee -a /etc/pf.conf > /dev/null
+  # pfctl anchor file + pf.conf are written before the TUI starts (sudo already done).
+  # This function just confirms they're in place and reports status.
+  if [[ -f /etc/pf.anchors/aks-lab ]] && grep -q 'aks-lab' /etc/pf.conf 2>/dev/null; then
+    success "pfctl: 80→9980 and 443→9444 redirects active"
+  else
+    warn "pfctl anchor missing — port 80/443 redirects not active (run: sudo pfctl -f /etc/pf.conf)"
   fi
-  sudo pfctl -e 2>/dev/null || true   # enable pf if not already on
-  sudo pfctl -f /etc/pf.conf 2>/dev/null \
-    && success "pfctl: 80→9980 and 443→9443 redirects active" \
-    || warn "pfctl reload failed — run: sudo pfctl -f /etc/pf.conf"
 }
 
 # ── Step 3: Ingress ──────────────────────────
@@ -1153,7 +1162,7 @@ if [[ "$_INGRESS_READY" == "1" ]]; then
   success "Ingress controller ready"
   # macOS cannot bind ports <1024 without root, so the lab uses port-forwards:
   #   HTTP  → localhost:9980 → ingress:80
-  #   HTTPS → localhost:9443 → ingress:443
+  #   HTTPS → localhost:9444 → ingress:443
   # pfctl redirects the standard ports (80, 443) to these port-forwards so
   # browsers can use plain URLs (http://hostname, https://hostname) and links
   # in the Kubernetes Dashboard resolve correctly.
@@ -1307,7 +1316,7 @@ if feature_enabled kubernetes-dashboard; then
     -n kubernetes-dashboard \
     -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || echo "")
   if [[ -n "$K8S_DASHBOARD_TOKEN" ]]; then
-    success "Kubernetes Dashboard ready — https://dashboard.aks-lab.local:9443"
+    success "Kubernetes Dashboard ready — https://dashboard.aks-lab.local:9444"
     log "  Admin token: ${K8S_DASHBOARD_TOKEN:0:40}... (full token in lab dashboard)"
   else
     warn "Dashboard installed but could not read admin token yet"
@@ -1386,7 +1395,7 @@ if feature_enabled rancher; then
     fi
   done
 
-  success "Rancher ready — https://rancher.aks-lab.local:9443  (bootstrap: ${RANCHER_BOOTSTRAP_PASSWORD})"
+  success "Rancher ready — https://rancher.aks-lab.local:9444  (bootstrap: ${RANCHER_BOOTSTRAP_PASSWORD})"
 else
   log "Skipping Step 5c — Rancher not selected"
 fi
@@ -1755,8 +1764,10 @@ if feature_enabled vault; then
     log "vault-reviewer-token not found — forcing K8s reviewer recreation..."
     VAULT_REPLACE_FLAGS="-replace=null_resource.k8s_vault_reviewer"
   fi
+  _K8S_API_HOST=$(kubectl config view --context="${PROFILE}" --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || echo "https://127.0.0.1:8443")
   { terraform -chdir=IaC/terraform apply -auto-approve -input=false $VAULT_REPLACE_FLAGS \
       -var="minikube_profile=${PROFILE}" \
+      -var="minikube_k8s_host=${_K8S_API_HOST}" \
       -target=null_resource.vault_dev_server \
       -target=null_resource.vault_health_check \
       -target=null_resource.k8s_vault_reviewer \
@@ -1972,7 +1983,7 @@ PYEOF
     _DEX_RC=0
     kubectl wait deployment dex --for=condition=available --namespace=dex --timeout=120s || _DEX_RC=$?
     [[ $_DEX_RC -eq 0 ]] \
-      && success "Dex OIDC server ready — https://dex.aks-lab.local:9443" \
+      && success "Dex OIDC server ready — https://dex.aks-lab.local:9444" \
       || warn "Dex deployment did not complete within 120s — check: kubectl logs -n dex deployment/dex"
   fi
 
@@ -1996,7 +2007,7 @@ Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).saf
     _OAUTH_RC=0
     kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s || _OAUTH_RC=$?
     if [[ $_OAUTH_RC -eq 0 ]]; then
-      success "OAuth2 Proxy ready — SSO gate at https://oauth2-proxy.aks-lab.local:9443"
+      success "OAuth2 Proxy ready — SSO gate at https://oauth2-proxy.aks-lab.local:9444"
       log "Patching SSO annotations onto protected ingresses..."
       for _ing in "argocd argocd argocd.aks-lab.local" \
                   "kubernetes-dashboard kubernetes-dashboard dashboard.aks-lab.local" \
@@ -2009,7 +2020,7 @@ Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).saf
           kubectl annotate ingress -n "$1" "$2" --overwrite \
             "nginx.ingress.kubernetes.io/auth-url=http://oauth2-proxy.oauth2-proxy.svc.cluster.local:4180/oauth2/auth" \
             "nginx.ingress.kubernetes.io/auth-response-headers=X-Auth-Request-User,X-Auth-Request-Email" \
-            "nginx.ingress.kubernetes.io/auth-signin=https://oauth2-proxy.aks-lab.local:9443/oauth2/start?rd=https://${3}:9443/" \
+            "nginx.ingress.kubernetes.io/auth-signin=https://oauth2-proxy.aks-lab.local:9444/oauth2/start?rd=https://${3}:9444/" \
             &>/dev/null || true
       done
       success "SSO annotations applied"
@@ -2211,9 +2222,9 @@ _pf() {
   fi
 }
 
-# Web apps route through NGINX Ingress: HTTP on 9980, HTTPS on 9443.
+# Web apps route through NGINX Ingress: HTTP on 9980, HTTPS on 9444.
 _pf "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-portforward.log
-_pf "Ingress (HTTPS)"    9443 "kubectl port-forward svc/ingress-nginx-controller 9443:443 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-https-portforward.log
+_pf "Ingress (HTTPS)"    9444 "kubectl port-forward svc/ingress-nginx-controller 9444:443 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-https-portforward.log
 feature_enabled toolbox            && _pf "Toolbox SSH"       2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"             /tmp/toolbox-portforward.log
 feature_enabled argo-workflows     && _pf "Argo Workflows"    2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"             /tmp/argo-workflows-portforward.log
 feature_enabled azure-sql          && _pf "Azure SQL"         1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"              /tmp/azure-sql-portforward.log

@@ -269,7 +269,10 @@ _enable_vault() {
     log "vault-reviewer-token not found — forcing K8s reviewer recreation..."
     VAULT_REPLACE_FLAGS="-replace=null_resource.k8s_vault_reviewer"
   fi
+  _K8S_API_HOST=$(kubectl config view --context="${PROFILE}" --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || echo "https://127.0.0.1:8443")
   terraform -chdir="$TF_DIR" apply -auto-approve -input=false $VAULT_REPLACE_FLAGS \
+    -var="minikube_profile=${PROFILE}" \
+    -var="minikube_k8s_host=${_K8S_API_HOST}" \
     -target=null_resource.vault_dev_server \
     -target=null_resource.vault_health_check \
     -target=null_resource.k8s_vault_reviewer \
