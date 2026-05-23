@@ -271,13 +271,11 @@ if feature_enabled vault; then
         -var="minikube_profile=${PROFILE}" \
         2>&1 | tee /tmp/vault-terraform-apply.log
       success "Vault configured"
-      log "Re-trusting Vault Root CA in macOS System Keychain (sudo required)..."
+      log "Re-trusting Vault Root CA in macOS login Keychain..."
       _CA_FILE="/tmp/aks-lab-root-ca.crt"
       curl -sf "${VAULT_ADDR}/v1/pki/ca/pem" -o "$_CA_FILE"
-      sudo security delete-certificate -c "aks-lab.local Root CA" \
-        /Library/Keychains/System.keychain 2>/dev/null || true
-      sudo security add-trusted-cert -d -r trustRoot \
-        -k /Library/Keychains/System.keychain "$_CA_FILE"
+      security delete-certificate -c "aks-lab.local Root CA" 2>/dev/null || true
+      security add-trusted-cert -d -r trustRoot "$_CA_FILE"
       rm -f "$_CA_FILE"
       success "Vault Root CA re-trusted — restart Chrome/Firefox if the padlock is missing"
     else

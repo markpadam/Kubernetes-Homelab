@@ -293,13 +293,11 @@ _enable_vault() {
     -target=vault_kubernetes_auth_backend_role.cert_manager \
     2>&1 | tee /tmp/vault-terraform-apply.log
 
-  log "Trusting Vault Root CA in macOS System Keychain..."
+  log "Trusting Vault Root CA in macOS login Keychain..."
   _CA_FILE="/tmp/aks-lab-root-ca.crt"
   curl -sf "${VAULT_ADDR}/v1/pki/ca/pem" -o "$_CA_FILE"
-  sudo security delete-certificate -c "aks-lab.local Root CA" \
-    /Library/Keychains/System.keychain 2>/dev/null || true
-  sudo security add-trusted-cert -d -r trustRoot \
-    -k /Library/Keychains/System.keychain "$_CA_FILE"
+  security delete-certificate -c "aks-lab.local Root CA" 2>/dev/null || true
+  security add-trusted-cert -d -r trustRoot "$_CA_FILE"
   rm -f "$_CA_FILE"
 
   success "Vault ready — http://127.0.0.1:8200/ui  (token: root)"
