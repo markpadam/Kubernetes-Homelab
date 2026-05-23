@@ -199,13 +199,13 @@ _extra_health_check() {
       _check_tcp 5000
       ;;
     azure-sql)
-      _check_tcp 1433
+      for _ in 1 2 3 4 5 6; do _check_tcp 1433 && return 0; sleep 10; done; return 1
       ;;
     service-bus)
-      _check_tcp 5672
+      for _ in 1 2 3 4 5 6; do _check_tcp 5672 && return 0; sleep 10; done; return 1
       ;;
     cosmos-db)
-      _check_tcp 8081
+      for _ in 1 2 3 4 5 6; do _check_tcp 8081 && return 0; sleep 10; done; return 1
       ;;
     argo-workflows)
       _check_tcp 2746
@@ -301,7 +301,7 @@ if $DO_SETUP; then
   # The master keeps its 5 GB and handles all the heavy lifting.
   if $DO_RESIZE; then
     log "Resizing worker → 2 GB (master stays at 5 GB)..."
-    bash "$SCRIPT_DIR/lab-resize.sh" 2>&1 | grep -E "Resizing|success|warn|✓|!" || true
+    bash "$SCRIPT_DIR/lab-resize.sh" --yes 2>&1 | grep -E "Resizing|success|warn|✓|!" || true
     RESIZE_DONE=true
   fi
 else
@@ -333,7 +333,7 @@ for entry in "${DEPLOY_ORDER[@]}"; do
     if [[ "$phase" == "6" && "$DO_RESIZE" == "true" && "$RESIZE_DONE" == "false" ]]; then
       echo -e "\n  ${YELLOW}${BOLD}── Auto Resize (between Phase 5 and 6) ──${RESET}"
       log "Reducing worker node memory to 2 GB to free headroom for apps..."
-      bash "$SCRIPT_DIR/lab-resize.sh" 2>&1 | grep -E "Resizing|success|warn|✓|!" || true
+      bash "$SCRIPT_DIR/lab-resize.sh" --yes 2>&1 | grep -E "Resizing|success|warn|✓|!" || true
       RESIZE_DONE=true
       echo
     fi

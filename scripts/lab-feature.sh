@@ -383,6 +383,17 @@ _enable_kyverno() {
       --namespace kyverno --create-namespace \
       --wait --timeout=5m
   fi
+  # Patch all Kyverno validating webhooks to failurePolicy=Ignore so a brief
+  # Kyverno restart doesn't block Helm installs of unrelated components.
+  local _wh _n _patch
+  while IFS= read -r _wh; do
+    _n=$(kubectl get "$_wh" -o jsonpath='{.webhooks}' 2>/dev/null \
+         | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
+    [[ "$_n" -gt 0 ]] || continue
+    _patch=$(python3 -c "import json; print(json.dumps([{'op':'replace','path':f'/webhooks/{i}/failurePolicy','value':'Ignore'} for i in range($_n)]))")
+    kubectl patch "$_wh" --type=json -p="$_patch" &>/dev/null \
+      && log "Patched ${_wh##*/} → failurePolicy=Ignore" || true
+  done < <(kubectl get validatingwebhookconfiguration -o name 2>/dev/null | grep kyverno)
   log "Applying sample audit-mode policies (disallow :latest, require labels, require limits)..."
   kubectl apply -f "$REPO_ROOT/flux/infrastructure/base/kyverno/sample-policies.yaml"
   success "Kyverno ready — kubectl get clusterpolicies   |   PolicyReports: kubectl get policyreport -A"
@@ -405,7 +416,7 @@ _enable_falco() {
     log "Installing Falco with modern-eBPF driver + falcosidekick UI (takes ~2 min)..."
     helm install falco falcosecurity/falco \
       --namespace falco --create-namespace \
-      --set driver.kind=modern-ebpf \
+      --set driver.kind=modern_ebpf \
       --set tty=true \
       --set falco.json_output=true \
       --set falcosidekick.enabled=true \
@@ -667,7 +678,8 @@ _enable_toolbox() {
   kubectl apply -f "$TEMP"
   rm "$TEMP"
   log "Waiting for toolbox pod (2–3 min first run)..."
-  kubectl wait deployment toolbox --for=condition=available --namespace=toolbox --timeout=300s
+  kubectl wait deployment toolbox --for=condition=available --namespace=toolbox --timeout=300s \
+    || warn "Toolbox pod not Ready after 5 min — image may still be pulling. Check: kubectl get pods -n toolbox"
   _start_comp_portforwards "toolbox"
   ssh-keyscan -p 2222 -H localhost >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
   local PRIVATE_KEY="${SSH_KEY_PATH%.pub}"
@@ -959,24 +971,37 @@ _enable_azdo_agent() {
   if ! kubectl cluster-info &>/dev/null; then
     error "Cannot reach the Kubernetes API server. Run ./resume-lab.sh first."
   fi
-  # The agent pod reads credentials from a K8s secret that must exist before
-  # the Deployment is applied — prompt and create it here.
-  echo ""
-  AZP_URL=""
-  while [[ ! "$AZP_URL" =~ ^https://dev\.azure\.com/ ]]; do
-    printf "  Azure DevOps org URL  (e.g. https://dev.azure.com/yourorg): "
-    read -r AZP_URL
-    [[ "$AZP_URL" =~ ^https://dev\.azure\.com/ ]] || echo "[!] URL must start with https://dev.azure.com/ — try again"
-  done
-  printf "  Agent pool name       (must exist in ADO → Org Settings → Agent pools): "
-  read -r AZP_POOL
-  AZP_TOKEN=""
-  while [[ -z "$AZP_TOKEN" ]]; do
-    printf "  Personal Access Token (Agent Pools: Read & Manage scope): "
-    read -rs AZP_TOKEN
-    printf "\n"
-    [[ -n "$AZP_TOKEN" ]] || echo "[!] PAT cannot be empty — try again"
-  done
+  local _ADO_CONFIG="$HOME/.lab-ado"
+  if [[ -f "$_ADO_CONFIG" ]]; then
+    # shellcheck source=/dev/null
+    source "$_ADO_CONFIG"
+    log "ADO credentials loaded from $_ADO_CONFIG"
+    [[ -n "${AZP_URL:-}"   ]] || error "AZP_URL missing from $_ADO_CONFIG — run: ./aks-lab feature enable azdo-agent"
+    [[ -n "${AZP_TOKEN:-}" ]] || error "AZP_TOKEN missing from $_ADO_CONFIG — run: ./aks-lab feature enable azdo-agent"
+    [[ -n "${AZP_POOL:-}"  ]] || error "AZP_POOL missing from $_ADO_CONFIG — run: ./aks-lab feature enable azdo-agent"
+  else
+    # Interactive prompts — collect and save credentials for future runs
+    echo ""
+    AZP_URL=""
+    while [[ ! "$AZP_URL" =~ ^https://dev\.azure\.com/ ]]; do
+      printf "  Azure DevOps org URL  (e.g. https://dev.azure.com/yourorg): "
+      read -r AZP_URL
+      [[ "$AZP_URL" =~ ^https://dev\.azure\.com/ ]] || echo "[!] URL must start with https://dev.azure.com/ — try again"
+    done
+    printf "  Agent pool name       (must exist in ADO → Org Settings → Agent pools): "
+    read -r AZP_POOL
+    AZP_TOKEN=""
+    while [[ -z "$AZP_TOKEN" ]]; do
+      printf "  Personal Access Token (Agent Pools: Read & Manage scope): "
+      read -rs AZP_TOKEN
+      printf "\n"
+      [[ -n "$AZP_TOKEN" ]] || echo "[!] PAT cannot be empty — try again"
+    done
+    printf 'AZP_URL="%s"\nAZP_POOL="%s"\nAZP_TOKEN="%s"\n' \
+      "$AZP_URL" "$AZP_POOL" "$AZP_TOKEN" > "$_ADO_CONFIG"
+    chmod 600 "$_ADO_CONFIG"
+    log "Credentials saved to $_ADO_CONFIG"
+  fi
 
   kubectl create namespace azdo-agent --dry-run=client -o yaml | kubectl apply --validate=false -f -
   kubectl create secret generic azdo-agent-secret \

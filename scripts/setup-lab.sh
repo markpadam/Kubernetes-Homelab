@@ -992,11 +992,7 @@ if $CLUSTER_NEEDS_START; then
     "Verifying components:Verifying Kubernetes" \
     "Cluster ready:Done! kubectl"
   _MK_RC=0
-  _CNI_ARGS=()
-  if [[ "$LAB_CNI" == "cilium" ]]; then
-    log "LAB_CNI=cilium — starting minikube with --cni=cilium"
-    _CNI_ARGS=(--cni=cilium)
-  fi
+  [[ "$LAB_CNI" == "cilium" ]] && log "LAB_CNI=cilium — starting minikube with --cni=cilium"
   minikube start \
     --driver=docker \
     --nodes="$NODES" \
@@ -1005,13 +1001,14 @@ if $CLUSTER_NEEDS_START; then
     --profile="$PROFILE" \
     --kubernetes-version="$K8S_VERSION" \
     --apiserver-ips=127.0.0.1 \
-    "${_CNI_ARGS[@]}" || _MK_RC=$?
+    ${LAB_CNI:+--cni="$LAB_CNI"} \
+    || _MK_RC=$?
   _stop_progress
   [[ $_MK_RC -eq 0 ]] || error "Minikube failed to start — check $LAB_LOG"
 fi
 
 log "Waiting for all nodes to be Ready..."
-kubectl wait --for=condition=Ready nodes --all --timeout=120s
+kubectl wait --for=condition=Ready nodes --all --timeout=300s
 success "Cluster is up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes ready"
 
 # ── Multipass NAT restore ─────────────────────
