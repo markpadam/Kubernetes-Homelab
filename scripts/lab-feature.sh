@@ -158,6 +158,15 @@ _start_portforward() {
   local name="$1" local_port="$2" svc="$3" ns="$4" remote_port="$5"
   lsof -ti:"$local_port" | xargs kill -9 2>/dev/null || true
   sleep 1
+  # Wait up to 120s for the service to have at least one ready endpoint so
+  # kubectl port-forward doesn't start against a Pending pod and immediately exit.
+  local _waited=0 _ep=""
+  while [[ $_waited -lt 120 ]]; do
+    _ep=$(kubectl get endpoints "$svc" -n "$ns" \
+      -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
+    [[ -n "$_ep" ]] && break
+    sleep 5; _waited=$(( _waited + 5 ))
+  done
   kubectl port-forward "svc/$svc" "${local_port}:${remote_port}" -n "$ns" \
     >> "/tmp/${name}-portforward.log" 2>&1 &
   local pid=$!

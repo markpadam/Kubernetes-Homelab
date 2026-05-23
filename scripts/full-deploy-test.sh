@@ -176,8 +176,7 @@ _patch_fail_webhooks() {
         -o jsonpath='{range .webhooks[*]}{.failurePolicy}{"\n"}{end}' 2>/dev/null \
         | awk 'BEGIN{ORS="";print "["} {if($0=="Fail"){printf "%s{\"op\":\"replace\",\"path\":\"/webhooks/%d/failurePolicy\",\"value\":\"Ignore\"}",sep,NR-1;sep=","}} END{print "]"}')
       [[ "$_patch" == "[]" ]] && continue
-      kubectl patch "$_wh" --type=json -p="$_patch" &>/dev/null \
-        && log "Patched ${_wh##*/} (${_count} Fail → Ignore)" || true
+      kubectl patch "$_wh" --type=json -p="$_patch" &>/dev/null || true
     done < <(kubectl get "$_kind" -o name 2>/dev/null)
   done
 }
