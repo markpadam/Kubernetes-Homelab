@@ -63,43 +63,31 @@ write_files:
       #!/bin/bash
       set -euo pipefail
 
-      # ── Wait for network ───────────────────────────────────────────────────
-      # Multipass NAT can take 10-30s to establish after VM boot on macOS —
-      # wait before attempting apt-get to avoid a package install failure.
-      echo "[samba] Waiting for network connectivity (up to 60s)..."
+      # ── Wait for TCP network (apt needs HTTP, not just ICMP) ──────────────
+      # Multipass NAT on macOS can pass ICMP while blocking TCP — test port 80
+      # directly using bash /dev/tcp so no external tools are needed.
+      echo "[samba] Waiting for TCP connectivity to ports.ubuntu.com (up to 120s)..."
       _net_ok=false
-      for _i in $(seq 1 30); do
-        ping -c1 -W2 8.8.8.8 &>/dev/null && _net_ok=true && break || true
-        sleep 2
+      for _i in $(seq 1 40); do
+        if timeout 4 bash -c 'echo >/dev/tcp/ports.ubuntu.com/80' 2>/dev/null; then
+          _net_ok=true
+          break
+        fi
+        sleep 3
       done
       if ! $_net_ok; then
-        echo "[samba] WARNING: no internet after 60s — apt may fail"
+        echo "[samba] WARNING: TCP unreachable after 120s — apt will likely fail"
       else
-        echo "[samba] Network ready"
+        echo "[samba] TCP connectivity confirmed"
       fi
 
       # ── Install packages with retry ────────────────────────────────────────
-      # krb5-user is in the universe repo on Ubuntu 24.04.
-      # Write the sources file directly — add-apt-repository is not available
-      # in the minimal Multipass cloud image without software-properties-common.
-      echo "[samba] Enabling universe repository..."
-      _rel=$(. /etc/os-release && echo "$VERSION_CODENAME")
-      _arch=$(dpkg --print-architecture)
-      if [ "$_arch" = "arm64" ]; then
-        _mirror="http://ports.ubuntu.com/ubuntu-ports"
-      else
-        _mirror="http://archive.ubuntu.com/ubuntu"
-      fi
-      printf 'deb %s %s universe\ndeb %s %s-updates universe\n' \
-        "$_mirror" "$_rel" "$_mirror" "$_rel-updates" \
-        > /etc/apt/sources.list.d/lab-universe.list
-
       echo "[samba] Installing packages..."
       _pkg_ok=false
       for _attempt in 1 2 3; do
-        apt-get update -qq 2>&1 | tail -1 || true
+        apt-get update 2>&1 | grep -E "^Err|^W:|^E:" || true
         if apt-get install -y --no-install-recommends \
-            samba winbind krb5-user attr dnsutils ldap-utils acl socat; then
+            samba winbind attr dnsutils ldap-utils acl socat; then
           _pkg_ok=true
           break
         fi

@@ -89,6 +89,30 @@ resource "null_resource" "samba_vm" {
         --cloud-init /tmp/samba-ad-cloud-init.yaml \
         --timeout 900
 
+      # Docker Desktop disrupts macOS NAT for newly created Multipass VMs —
+      # ICMP passes but TCP is blocked. Test TCP port 80 from inside the VM
+      # and cycle it once if broken; the stop/start re-establishes NAT routes.
+      echo "[samba] Checking TCP connectivity in VM..."
+      _vm_tcp_ok=false
+      for _i in $(seq 1 10); do
+        if multipass exec samba-ad -- \
+            timeout 4 bash -c 'echo >/dev/tcp/ports.ubuntu.com/80' 2>/dev/null; then
+          _vm_tcp_ok=true
+          break
+        fi
+        sleep 5
+      done
+      if ! $_vm_tcp_ok; then
+        echo "[samba] TCP broken — cycling VM to restore Multipass NAT..."
+        multipass stop samba-ad
+        sleep 5
+        multipass start samba-ad
+        echo "[samba] Waiting 20s for NAT to re-establish..."
+        sleep 20
+      else
+        echo "[samba] VM TCP connectivity confirmed"
+      fi
+
       echo "[samba] Streaming cloud-init log..."
       multipass exec samba-ad -- bash -c '
         until [ -f /var/log/cloud-init-output.log ]; do sleep 1; done

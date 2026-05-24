@@ -297,7 +297,7 @@ runcmd:
     for _attempt in 1 2 3; do
       apt-get update -qq 2>&1 | tail -1 || true
       if DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-          realmd sssd sssd-tools adcli krb5-user ldap-utils \
+          realmd sssd sssd-tools adcli ldap-utils \
           curl wget dnsutils net-tools \
           xfce4 xfce4-goodies xfce4-terminal thunar \
           tigervnc-standalone-server dbus-x11 \
