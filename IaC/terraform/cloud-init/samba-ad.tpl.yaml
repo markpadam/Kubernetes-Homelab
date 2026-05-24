@@ -2,11 +2,9 @@
 # Samba 4 Active Directory Domain Controller
 # Rendered from samba-ad.tpl.yaml by Terraform — do not edit directly.
 #
-# Packages are installed during VM boot (parallel with cloud-init init phases),
-# then runcmd calls the provisioning script once packages are available.
-
-package_update: true
-package_reboot_if_required: false
+# All provisioning (package install + domain setup) is done in samba-provision.sh
+# called from runcmd. package_update/packages directives are intentionally omitted
+# to avoid cloud-init 25.x schema validation failures when packages list is absent.
 
 write_files:
   # Force apt to use IPv4 — Multipass VMs often lack IPv6 routing.

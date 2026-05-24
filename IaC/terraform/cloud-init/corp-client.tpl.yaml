@@ -5,9 +5,6 @@
 # SAMBA_IP_PLACEHOLDER is substituted at apply time by the provisioner once
 # the samba-ad VM IP is known. All other variables are rendered by Terraform.
 
-package_update: true
-package_reboot_if_required: false
-
 write_files:
   - path: /etc/apt/apt.conf.d/99force-ipv4
     owner: root:root
