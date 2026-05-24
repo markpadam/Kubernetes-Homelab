@@ -91,7 +91,7 @@ write_files:
         _mirror="http://archive.ubuntu.com/ubuntu"
       fi
       printf 'deb %s %s universe\ndeb %s %s-updates universe\n' \
-        "$_mirror" "$_rel" "$_mirror" "${_rel}-updates" \
+        "$_mirror" "$_rel" "$_mirror" "$_rel-updates" \
         > /etc/apt/sources.list.d/lab-universe.list
 
       echo "[samba] Installing packages..."
