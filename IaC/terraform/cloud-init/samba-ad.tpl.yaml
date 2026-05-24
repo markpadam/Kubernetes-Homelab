@@ -79,6 +79,21 @@ write_files:
       fi
 
       # ── Install packages with retry ────────────────────────────────────────
+      # krb5-user is in the universe repo on Ubuntu 24.04.
+      # Write the sources file directly — add-apt-repository is not available
+      # in the minimal Multipass cloud image without software-properties-common.
+      echo "[samba] Enabling universe repository..."
+      _rel=$(. /etc/os-release && echo "$VERSION_CODENAME")
+      _arch=$(dpkg --print-architecture)
+      if [ "$_arch" = "arm64" ]; then
+        _mirror="http://ports.ubuntu.com/ubuntu-ports"
+      else
+        _mirror="http://archive.ubuntu.com/ubuntu"
+      fi
+      printf 'deb %s %s universe\ndeb %s %s-updates universe\n' \
+        "$_mirror" "$_rel" "$_mirror" "${_rel}-updates" \
+        > /etc/apt/sources.list.d/lab-universe.list
+
       echo "[samba] Installing packages..."
       _pkg_ok=false
       for _attempt in 1 2 3; do

@@ -219,6 +219,28 @@ write_files:
         sleep 3
       done
 
+      echo "[client] Granting sudo/wheel access to domain admins and lab users..."
+      # Domain Admins group → full sudo (Cockpit admin access).
+      # printf avoids heredoc << syntax which is invalid inside YAML block scalars.
+      printf '%s\n' '%domain\ admins ALL=(ALL) ALL' \
+        > /etc/sudoers.d/domain-admins
+      chmod 440 /etc/sudoers.d/domain-admins
+
+      # Individual lab users → passwordless sudo for convenience
+      printf '%s\n' \
+        'testuser1 ALL=(ALL) NOPASSWD: ALL' \
+        'testuser2 ALL=(ALL) NOPASSWD: ALL' \
+        > /etc/sudoers.d/lab-users
+      chmod 440 /etc/sudoers.d/lab-users
+
+      # Cockpit on Ubuntu checks the 'sudo' group for admin badge —
+      # create a wheel group and wire it to sudoers.
+      groupadd -f wheel
+      printf '%s\n' '%wheel ALL=(ALL) ALL' \
+        > /etc/sudoers.d/wheel
+      chmod 440 /etc/sudoers.d/wheel
+      echo "[client] Sudo/wheel access configured"
+
       echo "[client] Adding cluster service host entries..."
       GATEWAY_IP=$(ip route | grep default | awk '{print $3}')
       printf '\n# AKS lab cluster services (via Mac host port-forwards)\n' >> /etc/hosts
@@ -245,27 +267,49 @@ write_files:
       systemctl enable vncserver@1
       systemctl start vncserver@1
 
+      echo "[client] Enabling Cockpit web console (port 9090)..."
+      systemctl enable --now cockpit.socket
+      # Allow cockpit through ufw if active
+      ufw allow 9090/tcp 2>/dev/null || true
+      CLIENT_IP=$(hostname -I | awk '{print $1}')
+      echo "[client] Cockpit ready — https://$CLIENT_IP:9090  (login: ubuntu / domain creds)"
+
       echo "[client] Client provisioning complete."
 
-packages:
-  - realmd
-  - sssd
-  - sssd-tools
-  - adcli
-  - krb5-user
-  - ldap-utils
-  - curl
-  - wget
-  - dnsutils
-  - net-tools
-  - xfce4
-  - xfce4-goodies
-  - xfce4-terminal
-  - thunar
-  - tigervnc-standalone-server
-  - dbus-x11
-
 runcmd:
+  # krb5-user, xfce4 etc. are in universe on Ubuntu 24.04 — enable it first.
+  # Write the sources file directly; add-apt-repository is not available in the
+  # minimal cloud image without software-properties-common.
+  - |
+    echo "[client] Enabling universe repository..."
+    _rel=$(. /etc/os-release && echo "$VERSION_CODENAME")
+    _arch=$(dpkg --print-architecture)
+    if [ "$_arch" = "arm64" ]; then
+      _mirror="http://ports.ubuntu.com/ubuntu-ports"
+    else
+      _mirror="http://archive.ubuntu.com/ubuntu"
+    fi
+    printf 'deb %s %s universe\ndeb %s %s-updates universe\n' \
+      "$_mirror" "$_rel" "$_mirror" "${_rel}-updates" \
+      > /etc/apt/sources.list.d/lab-universe.list
+    echo "[client] Installing packages..."
+    _pkg_ok=false
+    for _attempt in 1 2 3; do
+      apt-get update -qq 2>&1 | tail -1 || true
+      if DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          realmd sssd sssd-tools adcli krb5-user ldap-utils \
+          curl wget dnsutils net-tools \
+          xfce4 xfce4-goodies xfce4-terminal thunar \
+          tigervnc-standalone-server dbus-x11 \
+          cockpit cockpit-packagekit; then
+        _pkg_ok=true
+        break
+      fi
+      echo "[client] Package install failed (attempt $_attempt/3) — retrying in 15s..."
+      sleep 15
+    done
+    $_pkg_ok || { echo "[client] ERROR: packages could not be installed after 3 attempts"; exit 1; }
+    echo "[client] Packages installed"
   - [bash, /root/install-extras.sh]
   - [bash, /root/install-k8s-tools.sh]
   - [bash, /root/client-setup.sh]

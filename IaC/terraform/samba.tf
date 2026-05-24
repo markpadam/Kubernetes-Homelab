@@ -87,7 +87,7 @@ resource "null_resource" "samba_vm" {
         --memory "${var.samba_vm_memory}" \
         --disk "${var.samba_vm_disk}" \
         --cloud-init /tmp/samba-ad-cloud-init.yaml \
-        --timeout 300
+        --timeout 900
 
       echo "[samba] Streaming cloud-init log..."
       multipass exec samba-ad -- bash -c '
@@ -217,7 +217,7 @@ resource "null_resource" "corp_client_vm" {
         --memory "${var.client_vm_memory}" \
         --disk "${var.client_vm_disk}" \
         --cloud-init /tmp/corp-client-cloud-init.yaml \
-        --timeout 300
+        --timeout 900
 
       echo "[client] Streaming cloud-init log..."
       multipass exec corp-client -- bash -c '
@@ -239,8 +239,8 @@ sys.exit(r.returncode)
       kill $_TAIL_PID 2>/dev/null || true
       wait $_TAIL_PID 2>/dev/null || true
 
-      if [[ $_CI_RC -eq 1 ]]; then
-        echo "[client] ERROR: cloud-init hard failure (rc=$_CI_RC) — last 60 lines:"
+      if [[ $_CI_RC -ne 0 ]]; then
+        echo "[client] ERROR: cloud-init finished with rc=$_CI_RC — last 60 lines:"
         multipass exec corp-client -- sudo tail -60 /var/log/cloud-init-output.log 2>/dev/null || true
         exit 1
       fi
