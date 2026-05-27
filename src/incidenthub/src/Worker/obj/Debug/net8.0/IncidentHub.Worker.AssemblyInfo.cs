@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("IncidentHub.Worker")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+400de0faef14fec7cd3659865cd1d65715e3cecf")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+be952e41b427e74e1ee2684bca917661d9f4cc2f")]
 [assembly: System.Reflection.AssemblyProductAttribute("IncidentHub.Worker")]
 [assembly: System.Reflection.AssemblyTitleAttribute("IncidentHub.Worker")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

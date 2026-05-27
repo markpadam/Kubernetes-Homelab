@@ -208,14 +208,21 @@ resource "null_resource" "corp_client_vm" {
         echo "[client] Tip: run IaC/packer/build.sh corp-client to pre-build the image"
       fi
 
-      echo "[client] Launching corp-client VM..."
+      echo "[client] Launching corp-client VM (bridged to en0 for direct internet)..."
       multipass launch "$_LAUNCH_IMAGE" \
         --name corp-client \
         --cpus "${var.client_vm_cpus}" \
         --memory "${var.client_vm_memory}" \
         --disk "${var.client_vm_disk}" \
+        --network en0 \
         --cloud-init /tmp/corp-client-cloud-init.yaml \
         --timeout 900
+
+      echo "[client] Waiting 15s for bridged interface DHCP..."
+      sleep 15
+
+      echo "[client] Removing Multipass NAT default route (prefer bridged interface)..."
+      multipass exec corp-client -- sudo ip route del default via 192.168.252.1 2>/dev/null || true
 
       echo "[client] Streaming cloud-init log..."
       multipass exec corp-client -- bash -c '

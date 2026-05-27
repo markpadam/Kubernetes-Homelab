@@ -10,6 +10,20 @@ write_files:
     owner: root:root
     content: 'Acquire::ForceIPv4 "true";'
 
+  # Suppress Multipass NAT default route so the bridged interface (enp0s2)
+  # carries all internet traffic — same approach as samba-ad.
+  - path: /etc/netplan/60-bridged-routing.yaml
+    owner: root:root
+    content: |
+      network:
+        version: 2
+        ethernets:
+          enp0s1:
+            dhcp4: true
+            dhcp4-overrides:
+              use-routes: false
+              route-metric: 1000
+
   - path: /etc/systemd/system/vncserver@.service
     owner: root:root
     content: |
@@ -269,26 +283,31 @@ write_files:
       echo "[client] Client provisioning complete."
 
 runcmd:
-  # krb5-user, xfce4 etc. are in universe on Ubuntu 24.04 — enable it first.
-  # Write the sources file directly; add-apt-repository is not available in the
-  # minimal cloud image without software-properties-common.
   - |
-    echo "[client] Enabling universe repository..."
-    _rel=$(. /etc/os-release && echo "$VERSION_CODENAME")
-    _arch=$(dpkg --print-architecture)
-    if [ "$_arch" = "arm64" ]; then
-      _mirror="http://ports.ubuntu.com/ubuntu-ports"
-    else
-      _mirror="http://archive.ubuntu.com/ubuntu"
+    # ── Pin routing: prefer bridged interface (enp0s2) over Multipass NAT ──
+    # 60-bridged-routing.yaml was written by write_files; apply it now and
+    # immediately remove the NAT default route before networkd re-adds it.
+    if ip link show enp0s2 >/dev/null 2>&1; then
+      netplan apply 2>/dev/null || true
+      sleep 3
+      ip route del default via 192.168.252.1 2>/dev/null || true
     fi
-    printf 'deb %s %s universe\ndeb %s %s-updates universe\n' \
-      "$_mirror" "$_rel" "$_mirror" "$_rel-updates" \
-      > /etc/apt/sources.list.d/lab-universe.list
+    echo "[client] Active default routes: $(ip route show default)"
+
+    echo "[client] Waiting for apt lock (unattended-upgrades holds it at boot)..."
+    for _i in $(seq 1 30); do
+      if ! fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1; then
+        break
+      fi
+      echo "[client] apt locked — waiting 10s (attempt $_i/30)..."
+      sleep 10
+    done
+
     echo "[client] Installing packages..."
     _pkg_ok=false
     for _attempt in 1 2 3; do
-      apt-get update -qq 2>&1 | tail -1 || true
-      if DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ip route del default via 192.168.252.1 2>/dev/null || true
+      if apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y \
           realmd sssd sssd-tools adcli ldap-utils \
           curl wget dnsutils net-tools \
           xfce4 xfce4-goodies xfce4-terminal thunar \

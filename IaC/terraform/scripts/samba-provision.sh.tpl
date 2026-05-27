@@ -75,8 +75,8 @@ for _attempt in 1 2 3 4 5; do
   # Re-delete NAT route each attempt in case systemd-networkd restored it.
   ip route del default via 192.168.252.1 2>/dev/null || true
   if apt-get update -qq; then
-    if apt-get install -y --no-install-recommends \
-        samba winbind attr dnsutils ldap-utils acl socat; then
+    if apt-get install -y \
+        samba samba-ad-provision samba-dsdb-modules samba-vfs-modules winbind attr dnsutils ldap-utils acl socat; then
       _pkg_ok=true
       break
     fi
