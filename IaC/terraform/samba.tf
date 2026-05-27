@@ -222,7 +222,7 @@ resource "null_resource" "corp_client_vm" {
       sleep 15
 
       echo "[client] Removing Multipass NAT default route (prefer bridged interface)..."
-      multipass exec corp-client -- sudo ip route del default via 192.168.252.1 2>/dev/null || true
+      timeout 30 multipass exec corp-client -- sudo ip route del default via 192.168.252.1 2>/dev/null || true
 
       echo "[client] Streaming cloud-init log..."
       multipass exec corp-client -- bash -c '
