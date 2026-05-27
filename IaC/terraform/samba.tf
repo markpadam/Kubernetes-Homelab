@@ -21,24 +21,23 @@ resource "null_resource" "multipass_check" {
 # Samba 4 implements the full AD DS protocol stack — LDAP, Kerberos, DNS, SMB —
 # making it wire-compatible with Windows AD clients and tools.
 #
-# Provisioned via cloud-init: packages install in parallel with VM boot,
-# and a single embedded shell script handles all Samba configuration.
-# This eliminates ~15 sequential multipass exec round-trips and halves
-# provisioning time vs. the old approach.
+# Provisioned via multipass transfer + exec: the provisioning script is rendered
+# locally by Terraform, transferred into the VM, and run via "multipass exec".
+# This bypasses cloud-init entirely, avoiding cloud-init 25.x schema validation
+# failures that silently skip runcmd when the YAML round-trip converts quoted
+# octal permission strings to integers.
 
 locals {
   # "corp.internal" → "DC=corp,DC=internal"
   samba_dc_path = join(",", [for part in split(".", var.ad_domain) : "DC=${part}"])
 }
 
-# Render the cloud-init template with domain/credential variables and write
-# it to a temp file. The file path (non-sensitive) is passed to multipass
-# launch; the sensitive values never appear in the null_resource command
-# string, so Terraform does not suppress provisioner output.
-resource "local_file" "samba_cloud_init" {
-  filename        = "/tmp/samba-ad-cloud-init.yaml"
+# Render the provisioning script with domain/credential variables.
+# Written to a temp file and transferred into the VM via multipass transfer.
+resource "local_file" "samba_provision_script" {
+  filename        = "/tmp/samba-provision.sh"
   file_permission = "0600"
-  content = templatefile("${path.module}/cloud-init/samba-ad.tpl.yaml", {
+  content = templatefile("${path.module}/scripts/samba-provision.sh.tpl", {
     ad_domain          = var.ad_domain
     ad_domain_netbios  = var.ad_domain_netbios
     ad_admin_password  = var.ad_admin_password
@@ -51,13 +50,13 @@ resource "local_file" "samba_cloud_init" {
 resource "null_resource" "samba_vm" {
   depends_on = [
     null_resource.multipass_check,
-    local_file.samba_cloud_init,
+    local_file.samba_provision_script,
   ]
 
   triggers = {
     ad_domain         = var.ad_domain
     ad_domain_netbios = var.ad_domain_netbios
-    template_hash     = filemd5("${path.module}/cloud-init/samba-ad.tpl.yaml")
+    template_hash     = filemd5("${path.module}/scripts/samba-provision.sh.tpl")
   }
 
   provisioner "local-exec" {
@@ -68,7 +67,7 @@ resource "null_resource" "samba_vm" {
       multipass delete samba-ad --purge 2>/dev/null || true
 
       # Use the Packer-built base image if it exists — packages are already
-      # installed so cloud-init only needs to run the domain provisioning step.
+      # installed so the provisioning script only needs to run domain setup.
       # Fall back to plain Ubuntu 24.04 if the cache is missing.
       _SAMBA_BASE="$${HOME}/.lab-cache/images/samba-base.tar.gz"
       if [[ -f "$_SAMBA_BASE" ]]; then
@@ -76,79 +75,54 @@ resource "null_resource" "samba_vm" {
         echo "[samba] Using Packer base image — packages pre-installed ($${_SAMBA_BASE})"
       else
         _LAUNCH_IMAGE="24.04"
-        echo "[samba] No Packer cache found — packages will install via cloud-init"
+        echo "[samba] No Packer cache found — packages will install via provisioning script"
         echo "[samba] Tip: run IaC/packer/build.sh samba to pre-build the image"
       fi
 
-      echo "[samba] Launching samba-ad VM..."
+      echo "[samba] Launching samba-ad VM (bridged to en0 for direct internet)..."
       multipass launch "$_LAUNCH_IMAGE" \
         --name samba-ad \
         --cpus "${var.samba_vm_cpus}" \
         --memory "${var.samba_vm_memory}" \
         --disk "${var.samba_vm_disk}" \
-        --cloud-init /tmp/samba-ad-cloud-init.yaml \
-        --timeout 900
+        --network en0 \
+        --timeout 300
 
-      # Docker Desktop disrupts macOS NAT for newly created Multipass VMs —
-      # ICMP passes but TCP is blocked. Test TCP port 80 from inside the VM
-      # and cycle it once if broken; the stop/start re-establishes NAT routes.
-      echo "[samba] Checking TCP connectivity in VM..."
-      _vm_tcp_ok=false
-      for _i in $(seq 1 10); do
+      echo "[samba] Waiting 15s for bridged interface DHCP..."
+      sleep 15
+
+      # The Multipass NAT interface (enp0s1) gets metric 100 and the bridged
+      # interface (enp0s2) gets metric 200, so Linux prefers the broken NAT
+      # default route. Remove it so internet traffic falls through to the
+      # bridged default route. The connected 192.168.252.0/24 route stays,
+      # keeping multipass exec working.
+      echo "[samba] Removing Multipass NAT default route to force traffic via bridged interface..."
+      multipass exec samba-ad -- sudo ip route del default via 192.168.252.1 2>/dev/null || true
+
+      echo "[samba] Verifying HTTP connectivity via bridged interface..."
+      _vm_http_ok=false
+      for _i in $(seq 1 12); do
         if multipass exec samba-ad -- \
-            timeout 4 bash -c 'echo >/dev/tcp/ports.ubuntu.com/80' 2>/dev/null; then
-          _vm_tcp_ok=true
+            timeout 10 bash -c \
+            'wget -q --spider --timeout=8 http://ports.ubuntu.com/ubuntu-ports/dists/noble/Release' \
+            2>/dev/null; then
+          _vm_http_ok=true
           break
         fi
-        sleep 5
+        echo "[samba] HTTP not ready yet (attempt $_i/12) — waiting 10s..."
+        sleep 10
       done
-      if ! $_vm_tcp_ok; then
-        echo "[samba] TCP broken — cycling VM to restore Multipass NAT..."
-        multipass stop samba-ad
-        sleep 5
-        multipass start samba-ad
-        echo "[samba] Waiting 20s for NAT to re-establish..."
-        sleep 20
-      else
-        echo "[samba] VM TCP connectivity confirmed"
-      fi
-
-      echo "[samba] Streaming cloud-init log..."
-      multipass exec samba-ad -- bash -c '
-        until [ -f /var/log/cloud-init-output.log ]; do sleep 1; done
-        exec tail -F /var/log/cloud-init-output.log
-      ' &
-      _TAIL_PID=$!
-
-      echo "[samba] Waiting for cloud-init to complete (packages + domain provision)..."
-      _CI_RC=0
-      python3 -c "
-import subprocess, sys
-r = subprocess.run(
-    ['multipass', 'exec', 'samba-ad', '--', 'cloud-init', 'status', '--wait'],
-    timeout=600)
-sys.exit(r.returncode)
-" || _CI_RC=$?
-
-      kill $_TAIL_PID 2>/dev/null || true
-      wait $_TAIL_PID 2>/dev/null || true
-
-      # cloud-init exit codes: 0=done, 1=error, 2=recoverable_error.
-      # With packages moved into samba-provision.sh, rc=2 is also a real failure
-      # (a module warning that masked a provision error previously).
-      if [[ $_CI_RC -ne 0 ]]; then
-        echo "[samba] ERROR: cloud-init finished with rc=$_CI_RC — last 60 lines of log:"
-        multipass exec samba-ad -- sudo tail -60 /var/log/cloud-init-output.log 2>/dev/null || true
+      if ! $_vm_http_ok; then
+        echo "[samba] ERROR: HTTP unreachable after bridged network — check en0 DHCP"
         exit 1
       fi
+      echo "[samba] HTTP connectivity confirmed"
 
-      # Belt-and-suspenders: verify the provisioning script reached completion.
-      if ! multipass exec samba-ad -- grep -q '\[samba\] Provisioning complete\.' \
-          /var/log/cloud-init-output.log 2>/dev/null; then
-        echo "[samba] ERROR: samba-provision.sh did not reach completion — last 30 lines:"
-        multipass exec samba-ad -- sudo tail -30 /var/log/cloud-init-output.log 2>/dev/null || true
-        exit 1
-      fi
+      echo "[samba] Transferring provisioning script..."
+      multipass transfer /tmp/samba-provision.sh samba-ad:/tmp/samba-provision.sh
+
+      echo "[samba] Running provisioning script (packages + domain setup)..."
+      multipass exec samba-ad -- sudo bash /tmp/samba-provision.sh
 
       SAMBA_IP=$(multipass info samba-ad --format json \
         | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])")

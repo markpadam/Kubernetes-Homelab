@@ -1415,6 +1415,15 @@ fi
 if feature_enabled taskflow; then
   step "Step 6 — Deploying TaskFlow Demo App"
 
+  # Rancher's admission webhook intercepts namespace creation. If the webhook pod
+  # just started it will refuse connections and block the apply. Wait for it first.
+  if kubectl get deployment rancher-webhook -n cattle-system &>/dev/null; then
+    log "Waiting for rancher-webhook to be ready..."
+    kubectl rollout status deployment/rancher-webhook \
+      --namespace=cattle-system --timeout=120s \
+      || warn "rancher-webhook not ready — apply may fail"
+  fi
+
   log "Applying manifests from ./$APP_DIR ..."
   kubectl apply -k "$APP_DIR/"
 
@@ -1678,7 +1687,11 @@ if _flux_deployed; then
   warn "Flux already installed — skipping controller install."
 else
   log "Installing Flux controllers..."
-  flux install --namespace=flux-system --network-policy=false
+  for _flux_attempt in 1 2 3; do
+    flux install --namespace=flux-system --network-policy=false && break
+    warn "flux install failed (attempt $_flux_attempt/3) — API server may be busy, retrying in 20s..."
+    sleep 20
+  done
 fi
 
 # Create / update the auth secret for the private repo

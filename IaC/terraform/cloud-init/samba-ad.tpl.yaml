@@ -10,7 +10,6 @@ write_files:
   # Force apt to use IPv4 — Multipass VMs often lack IPv6 routing.
   - path: /etc/apt/apt.conf.d/99force-ipv4
     owner: root:root
-    permissions: '0644'
     content: 'Acquire::ForceIPv4 "true";'
 
   # socat-based IPv4→IPv6 DNS proxy: Samba binds dns[master] to [::]:53 with
@@ -19,7 +18,6 @@ write_files:
   # from IPv4-only clients such as the corp-client VM.
   - path: /etc/systemd/system/samba-dns-proxy-udp.service
     owner: root:root
-    permissions: '0644'
     content: |
       [Unit]
       Description=Samba DNS IPv4 UDP proxy
@@ -37,7 +35,6 @@ write_files:
 
   - path: /etc/systemd/system/samba-dns-proxy-tcp.service
     owner: root:root
-    permissions: '0644'
     content: |
       [Unit]
       Description=Samba DNS IPv4 TCP proxy
@@ -54,9 +51,12 @@ write_files:
       WantedBy=multi-user.target
 
   # All Samba AD provisioning steps in a single script called from runcmd.
+  # No permissions field — cloud-init 25.x's multipass YAML round-trip converts
+  # quoted octal strings ('0644') to integers (420), failing schema validation
+  # and causing write_files to be skipped entirely. Script is invoked via
+  # "bash /root/samba-provision.sh" so the execute bit is not needed.
   - path: /root/samba-provision.sh
     owner: root:root
-    permissions: '0700'
     content: |
       #!/bin/bash
       set -euo pipefail
@@ -152,4 +152,4 @@ write_files:
       echo "[samba] Provisioning complete."
 
 runcmd:
-  - [bash, /root/samba-provision.sh]
+  - bash /root/samba-provision.sh

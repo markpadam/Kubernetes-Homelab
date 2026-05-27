@@ -8,12 +8,10 @@
 write_files:
   - path: /etc/apt/apt.conf.d/99force-ipv4
     owner: root:root
-    permissions: '0644'
     content: 'Acquire::ForceIPv4 "true";'
 
   - path: /etc/systemd/system/vncserver@.service
     owner: root:root
-    permissions: '0644'
     content: |
       [Unit]
       Description=TigerVNC server for display %i
@@ -34,7 +32,6 @@ write_files:
 
   - path: /root/install-extras.sh
     owner: root:root
-    permissions: '0700'
     content: |
       #!/bin/bash
       set -euo pipefail
@@ -60,7 +57,6 @@ write_files:
 
   - path: /root/install-k8s-tools.sh
     owner: root:root
-    permissions: '0700'
     content: |
       #!/bin/bash
       # Install the Kubernetes / GitOps CLI toolchain on the corp-client VM
@@ -174,7 +170,6 @@ write_files:
 
   - path: /root/client-setup.sh
     owner: root:root
-    permissions: '0700'
     content: |
       #!/bin/bash
       set -euo pipefail
@@ -307,6 +302,6 @@ runcmd:
     done
     $_pkg_ok || { echo "[client] ERROR: packages could not be installed after 3 attempts"; exit 1; }
     echo "[client] Packages installed"
-  - [bash, /root/install-extras.sh]
-  - [bash, /root/install-k8s-tools.sh]
-  - [bash, /root/client-setup.sh]
+  - bash /root/install-extras.sh
+  - bash /root/install-k8s-tools.sh
+  - bash /root/client-setup.sh
