@@ -665,23 +665,23 @@ _kubectl_apply_retry() {
 success "Features loaded: ${ENABLED_FEATURES:-none}"
 
 # ── Resource tier ─────────────────────────────
-# Sized for macOS hosts — pick based on Docker Desktop memory available.
-#   Low       2C/3G  per node →  9 GB cluster  ~12 GB Docker  (16 GB Mac, stays snappy)
-#   Standard   2C/4G  per node × 3  → 12 GB cluster  ~14 GB Docker  (16 GB Mac, recommended)
-#   High       3C/5G  per node × 3  → 15 GB cluster  ~18 GB Docker  (16-32 GB Mac, full feature set)
-#   Very High  4C/7G  per node × 3  → 21 GB cluster  ~24 GB Docker  (32 GB Mac, all services + replicas)
-#   Extra High 4C/10G per node × 4  → 40 GB cluster  ~44 GB Docker  (48 GB Mac Pro / workstation)
+# Sized for macOS hosts — pick based on Colima VM memory available.
+#   Low       2C/3G  per node →  9 GB cluster  ~12 GB Colima  (16 GB Mac, stays snappy)
+#   Standard   2C/4G  per node × 3  → 12 GB cluster  ~14 GB Colima  (16 GB Mac, recommended)
+#   High       3C/5G  per node × 3  → 15 GB cluster  ~18 GB Colima  (16-32 GB Mac, full feature set)
+#   Very High  4C/7G  per node × 3  → 21 GB cluster  ~24 GB Colima  (32 GB Mac, all services + replicas)
+#   Extra High 4C/10G per node × 4  → 40 GB cluster  ~44 GB Colima  (48 GB Mac Pro / workstation)
 if [[ -n "${LAB_RESOURCE_TIER:-}" || "$CI_MODE" == "1" ]]; then
   _tier="${LAB_RESOURCE_TIER:-1}"
   [[ "$CI_MODE" == "1" ]] && log "CI mode: resource tier auto-set to Low (override with LAB_RESOURCE_TIER)"
 else
   printf "\n" >&3
   printf "  ${BOLD}Resource tier${RESET} (minikube nodes — heavy services scheduled to primary):\n" >&3
-  printf "    1) Low       — 2 CPU / 3 GB × 3 nodes  ( 9 GB cluster, ~12 GB Docker)\n" >&3
-  printf "    2) Standard  — 2 CPU / 4 GB × 3 nodes  (12 GB cluster, ~14 GB Docker) [default]\n" >&3
-  printf "    3) High      — 3 CPU / 5 GB × 3 nodes  (15 GB cluster, ~18 GB Docker, full feature set)\n" >&3
-  printf "    4) Very High — 4 CPU / 7 GB × 3 nodes  (21 GB cluster, ~24 GB Docker, 32 GB Mac)\n" >&3
-  printf "    5) Extra High — 4 CPU /10 GB × 4 nodes  (40 GB cluster, ~44 GB Docker, 48 GB Mac/workstation)\n" >&3
+  printf "    1) Low       — 2 CPU / 3 GB × 3 nodes  ( 9 GB cluster, ~12 GB Colima)\n" >&3
+  printf "    2) Standard  — 2 CPU / 4 GB × 3 nodes  (12 GB cluster, ~14 GB Colima) [default]\n" >&3
+  printf "    3) High      — 3 CPU / 5 GB × 3 nodes  (15 GB cluster, ~18 GB Colima, full feature set)\n" >&3
+  printf "    4) Very High — 4 CPU / 7 GB × 3 nodes  (21 GB cluster, ~24 GB Colima, 32 GB Mac)\n" >&3
+  printf "    5) Extra High — 4 CPU /10 GB × 4 nodes  (40 GB cluster, ~44 GB Colima, 48 GB Mac/workstation)\n" >&3
   printf "\n" >&3
   printf "  Choice [1-5, Enter=2]: " >&3
   read -r _tier <&0
@@ -708,7 +708,7 @@ case "${_tier:-2}" in
     ;;
   5)
     # 4-node cluster sized for a 12-core / 48 GB workstation.
-    # Leaves ~4 GB + 2 cores for macOS and Docker Desktop overhead.
+    # Leaves ~4 GB + 2 cores for macOS and Colima overhead.
     NODES=4
     CPUS=4; MEMORY=10240
     SAMBA_CPUS=4; SAMBA_MEM="6G"; SAMBA_DISK="60G"
@@ -867,7 +867,7 @@ fi
 # ── Preflight checks ─────────────────────────
 step "Preflight Checks"
 
-command -v docker   &>/dev/null || error "Docker not found. Install Docker Desktop first."
+command -v docker   &>/dev/null || error "Docker not found. Install Colima: brew install colima docker"
 command -v minikube &>/dev/null || error "Minikube not found. Run: brew install minikube"
 command -v kubectl  &>/dev/null || error "kubectl not found. Run: brew install kubectl"
 command -v helm     &>/dev/null || error "Helm not found. Run: brew install helm"
@@ -886,20 +886,14 @@ if feature_enabled samba-ad || feature_enabled corp-client; then
 fi
 
 if ! docker info &>/dev/null; then
-  log "Docker daemon not running — launching Docker Desktop..."
-  open -a Docker
-  log "Waiting for Docker to be ready (up to 60s)..."
-  for i in $(seq 1 60); do
-    docker info &>/dev/null && break
-    sleep 1
-  done
-  docker info &>/dev/null || error "Docker failed to start after 60s. Open Docker Desktop manually and retry."
+  log "Docker daemon not running — starting Colima..."
+  colima start || error "Colima failed to start. Run 'colima start' manually and retry."
   success "Docker daemon ready"
 fi
 
-# ── Docker memory check ───────────────────────
+# ── Colima memory check ───────────────────────
 # Each node gets $MEMORY MiB; the cluster needs NODES × MEMORY total.
-# If Docker Desktop has less, kubeadm starts but the apiserver is starved
+# If the Colima VM has less, kubeadm starts but the apiserver is starved
 # and exits — minikube then fails with K8S_APISERVER_MISSING.
 _docker_mem_bytes=$(docker info --format '{{.MemTotal}}' 2>/dev/null || echo 0)
 _docker_mem_mib=$(( _docker_mem_bytes / 1024 / 1024 ))
@@ -908,8 +902,8 @@ if [[ $_docker_mem_mib -gt 0 && $_docker_mem_mib -lt $_cluster_needed_mib ]]; th
   _docker_d10=$(( _docker_mem_mib * 10 / 1024 ))
   _cluster_gib=$(( (_cluster_needed_mib + 1023) / 1024 ))
   _rec_gib=$(( _cluster_gib + 2 ))
-  warn "Docker Desktop only has $(( _docker_d10 / 10 )).$(( _docker_d10 % 10 )) GB allocated — this tier needs ${_cluster_gib} GB for the cluster (${NODES} nodes × $(( MEMORY / 1024 )) GB each)."
-  warn "  Fix:  Docker Desktop → Settings → Resources → Memory → set to at least ${_rec_gib} GB, then Apply & Restart."
+  warn "Colima VM only has $(( _docker_d10 / 10 )).$(( _docker_d10 % 10 )) GB allocated — this tier needs ${_cluster_gib} GB for the cluster (${NODES} nodes × $(( MEMORY / 1024 )) GB each)."
+  warn "  Fix:  colima stop && colima start --memory ${_rec_gib}"
   warn "  Or:   re-run and choose a lower tier (Low: 9 GB, Standard: 12 GB, High: 15 GB, Very High: 21 GB, Extra High: 40 GB)."
   warn "  Continuing — insufficient memory may cause K8S_APISERVER_MISSING on minikube start."
 fi
@@ -920,18 +914,11 @@ fi
 
 success "All dependencies found"
 
-# ── Docker Desktop ────────────────────────────
+# ── Colima ────────────────────────────────────
 if ! docker info &>/dev/null; then
-  warn "Docker Desktop is not running — starting it..."
-  open -a Docker
-  for i in $(seq 1 30); do
-    docker info &>/dev/null && break
-    sleep 3
-  done
-  if ! docker info &>/dev/null; then
-    error "Docker Desktop did not start in time. Please open it manually and re-run."
-  fi
-  success "Docker Desktop ready"
+  warn "Colima is not running — starting it..."
+  colima start || error "Colima failed to start. Run 'colima start' manually and re-run."
+  success "Colima ready"
 fi
 
 # ── Step 1: Cluster ──────────────────────────
@@ -1029,8 +1016,8 @@ kubectl wait --for=condition=Ready nodes --all --timeout=300s
 success "Cluster is up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes ready"
 
 # ── Multipass NAT restore ─────────────────────
-# Starting minikube causes Docker Desktop to reconfigure its network bridges,
-# which corrupts multipass NAT rules on macOS. Proactively cycle any running
+# Starting minikube can disrupt network bridge configuration on macOS,
+# which corrupts multipass NAT rules. Proactively cycle any running
 # multipass VMs now so NAT is healthy before the samba-ad provisioner runs.
 if $CLUSTER_NEEDS_START && command -v multipass &>/dev/null; then
   if feature_enabled samba-ad || feature_enabled corp-client; then
@@ -1185,7 +1172,7 @@ success "cert-manager ready"
 step "Step 4 — Enabling Persistent Storage"
 
 # minikube addons apply manifests via the in-node kubectl; if the apiserver is
-# flickering (common on resource-constrained Docker Desktop), the apply gets
+# flickering (common on resource-constrained Colima VMs), the apply gets
 # `connection refused`. Retry each addon a few times and warn — not error — so
 # one flap doesn't kill the whole run.
 _minikube_addon_retry() {
@@ -1792,8 +1779,8 @@ SAMBA_IP=""
 if feature_enabled samba-ad; then
   step "Step 11b — SambaAD Active Directory"
 
-  # Docker Desktop reconfigures network bridges when minikube starts, which can
-  # corrupt multipass's NAT rules on macOS — VMs launch but have no internet.
+  # Minikube startup can disrupt network bridge configuration on macOS, which
+  # may corrupt multipass's NAT rules — VMs launch but have no internet.
   # Check now and auto-recover by cycling existing VMs to force NAT re-establishment.
   # Uses python3 subprocess with a hard timeout so a hung multipass exec (e.g. after
   # a daemon restart) can never block the script indefinitely.
@@ -1820,7 +1807,7 @@ except Exception:
 
   log "Checking Multipass NAT connectivity..."
   if ! _mp_check_nat; then
-    warn "Multipass NAT is broken (Docker Desktop disrupted routing when minikube started)."
+    warn "Multipass NAT is broken (network bridge disrupted when minikube started)."
     log "Cycling Multipass VMs to restore NAT rules..."
     for _vm in $(multipass list --format csv 2>/dev/null | tail -n +2 \
                    | grep -v "^samba-ad," | cut -d, -f1); do

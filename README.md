@@ -133,12 +133,12 @@ Dex + OAuth2 Proxy ship enabled by default with a **static admin user** (`admin@
 
 ## Quick Start
 
-> **Docker Desktop memory** — the 3-node cluster needs at least **12 GB** (Low) · **14 GB** (Standard, default) · **18 GB** (High) · **24 GB** (Very High — 32 GB Mac).  
-> Set it in Docker Desktop → Settings → Resources → Memory before running. The script warns you if there isn't enough.
+> **Colima VM memory** — the 3-node cluster needs at least **12 GB** (Low) · **14 GB** (Standard, default) · **18 GB** (High) · **24 GB** (Very High — 32 GB Mac).  
+> Start Colima with enough memory before running, e.g. `colima start --memory 14`. The script warns you if there isn't enough.
 
 ```bash
 # Install dependencies (first time only)
-brew install minikube kubectl helm fluxcd/tap/flux \
+brew install colima docker minikube kubectl helm fluxcd/tap/flux \
              hashicorp/tap/vault terraform multipass packer
 
 # Clone and run (--recurse-submodules also fetches the ADO bicep/pipelines repo)

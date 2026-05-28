@@ -3,22 +3,22 @@
 ## Prerequisites
 
 ```bash
-brew install minikube kubectl helm fluxcd/tap/flux hashicorp/tap/vault terraform multipass packer
+brew install colima docker minikube kubectl helm fluxcd/tap/flux hashicorp/tap/vault terraform multipass packer
 ```
 
-Docker Desktop must be running before any lab script is started.
+Colima must be running before any lab script is started. Start it with the memory your chosen tier needs (see table below), then leave it running — the lab scripts will detect it automatically.
 
-**Docker Desktop memory** — the cluster runs 3 nodes; each tier allocates:
+**Colima VM memory** — the cluster runs 3 nodes; each tier allocates:
 
-| Tier | Per node | Total cluster | Docker setting | Recommended host |
-|------|----------|---------------|----------------|-----------------|
-| Low | 3 GB | 9 GB | 12 GB minimum | 16 GB Mac |
-| Standard *(default)* | 4 GB | 12 GB | **14 GB minimum** | 16 GB Mac |
-| High | 5 GB | 15 GB | 18 GB minimum | 16–32 GB Mac |
-| Very High | 7 GB | 21 GB | **24 GB minimum** | 32 GB Mac |
+| Tier | Per node | Total cluster | `colima start --memory` | Recommended host |
+|------|----------|---------------|-------------------------|-----------------|
+| Low | 3 GB | 9 GB | 12 minimum | 16 GB Mac |
+| Standard *(default)* | 4 GB | 12 GB | **14 minimum** | 16 GB Mac |
+| High | 5 GB | 15 GB | 18 minimum | 16–32 GB Mac |
+| Very High | 7 GB | 21 GB | **24 minimum** | 32 GB Mac |
 
-Set memory in **Docker Desktop → Settings → Resources → Memory**, then Apply & Restart.  
-The setup script will warn and prompt before starting if Docker has less memory than the selected tier needs. Running below the minimum causes `K8S_APISERVER_MISSING` — the apiserver is starved and never starts.
+Start Colima with enough memory before running the lab, e.g. `colima start --memory 14`. To change allocation, stop and restart: `colima stop && colima start --memory 18`.  
+The setup script will warn and prompt before starting if the VM has less memory than the selected tier needs. Running below the minimum causes `K8S_APISERVER_MISSING` — the apiserver is starved and never starts.
 
 Heavy services (Rancher, Grafana/Prometheus, ArgoCD, Dex, MSSQL, Cosmos DB) are pinned to the **primary node** via soft node-affinity; light services land on workers naturally. This concentrates the memory pressure on one node so workers can be shrunk after the cluster settles — see [Resize the lab](#resize-the-lab) below.
 
@@ -119,7 +119,7 @@ Deletes the minikube cluster, Multipass VMs, Terraform state, /etc/hosts entries
 
 ## Resize the lab
 
-After setup finishes the cluster sits well below its peak memory — image pulls, Helm installs, and the initial Flux reconcile are all done. You can reclaim that headroom from Docker Desktop with:
+After setup finishes the cluster sits well below its peak memory — image pulls, Helm installs, and the initial Flux reconcile are all done. You can resize cluster nodes with:
 
 ```bash
 ./aks-lab resize

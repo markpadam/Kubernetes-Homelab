@@ -172,14 +172,8 @@ fi
 step "Checking Docker"
 
 if ! docker info &>/dev/null; then
-  log "Docker daemon not running — launching Docker Desktop..."
-  open -a Docker
-  log "Waiting for Docker to be ready (up to 60s)..."
-  for i in $(seq 1 60); do
-    docker info &>/dev/null && break
-    sleep 1
-  done
-  docker info &>/dev/null || error "Docker failed to start after 60s. Open Docker Desktop manually and retry."
+  log "Docker daemon not running — starting Colima..."
+  colima start || error "Colima failed to start after 60s. Run 'colima start' manually and retry."
   success "Docker daemon ready"
 else
   success "Docker daemon already running"

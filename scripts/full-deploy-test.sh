@@ -295,7 +295,7 @@ if $DO_SETUP; then
     _setup_log=$(ls -t /tmp/lab-setup-*.log 2>/dev/null | head -1 || true)
     echo
     error "Setup failed — cluster did not start.
-  Check Docker Desktop is running and has enough memory (≥10 GB for 2×5 GB).
+  Check Colima is running with enough memory (≥10 GB for 2×5 GB): colima start --memory 12
   Log: ${_setup_log:-/tmp/lab-setup-*.log}"
   fi
 
@@ -305,7 +305,7 @@ if $DO_SETUP; then
   if ! kubectl cluster-info &>/dev/null; then
     _setup_log=$(ls -t /tmp/lab-setup-*.log 2>/dev/null | head -1 || true)
     error "Cluster API not responding after setup.
-  Possible causes: Docker Desktop not running, insufficient memory (need ≥10 GB),
+  Possible causes: Colima not running, insufficient memory (need ≥10 GB for 2×5 GB nodes),
   or setup was interrupted. Check:
     kubectl get nodes
     Log: ${_setup_log:-/tmp/lab-setup-*.log}"

@@ -2,11 +2,11 @@
 
 ## Quick Reference
 
-| Mac RAM | Docker RAM | Cluster tier | What fits |
-|---------|------------|--------------|-----------|
-| 8 GB    | 4–5 GB     | Low / 1-node | Core cluster + 3–4 lightweight services |
-| 16 GB   | 12–14 GB   | Standard     | Full lab minus Istio + Cilium |
-| 32 GB   | 18–24 GB   | High / Very High | Everything including Istio, Cilium, Falco |
+| Mac RAM | Colima --memory | Cluster tier | What fits |
+|---------|-----------------|--------------|-----------|
+| 8 GB    | 4–5             | Low / 1-node | Core cluster + 3–4 lightweight services |
+| 16 GB   | 12–14           | Standard     | Full lab minus Istio + Cilium |
+| 32 GB   | 18–24           | High / Very High | Everything including Istio, Cilium, Falco |
 
 ---
 
@@ -16,15 +16,15 @@
 
 A 16 GB MacBook can run the full default lab comfortably with one caveat: the heavy optional services (Istio, Cilium, Falco together) push memory usage to the limit. Enable them one at a time and monitor pressure.
 
-- **Docker Desktop RAM**: set to at least 12 GB (Docker Desktop → Settings → Resources → Memory)
+- **Colima VM RAM**: `colima start --memory 12` (minimum for Standard tier)
 - **Cluster tier**: Standard (2 CPU / 4 GB per node × 3 nodes = 12 GB)
-- **Swap**: Docker Desktop swap of 2–4 GB buys headroom; the cluster will survive brief spikes, but sustained swap use causes latency and pod evictions
+- **Swap**: `colima start --swap 2` adds 2 GB swap; buys headroom for brief spikes, but sustained swap use causes latency and pod evictions
 
 ### Comfortable — 32 GB Mac
 
 You can run the entire lab including all optional components without compromise.
 
-- **Docker Desktop RAM**: 18–20 GB leaves headroom for macOS and Chrome
+- **Colima VM RAM**: `colima start --memory 18` leaves headroom for macOS and Chrome
 - **Cluster tier**: High (3 CPU / 5 GB per node) or Very High (4 CPU / 7 GB per node)
 - **All optional services** — Istio, Cilium, Falco, Kyverno, Reflector — can run simultaneously
 
@@ -34,7 +34,7 @@ You can run the entire lab including all optional components without compromise.
 
 An 8 GB Mac can host a cut-down version of the lab. Expect trade-offs.
 
-**Docker Desktop RAM**: 4–5 GB maximum (macOS needs ~3 GB headroom)
+**Colima VM RAM**: `colima start --memory 4` or `--memory 5` (macOS needs ~3 GB headroom)
 
 **Recommended setup**:
 ```bash
@@ -209,7 +209,7 @@ Used by `./aks-lab test-all` to validate the full deploy path from scratch. Uses
 - **Master**: 3 CPU / 5 GB — carries control plane + most services
 - **Worker**: 3 CPU / 5 GB initially, immediately resized to 2 GB — takes overflow scheduling only
 
-Total Docker RAM required: **~10 GB** (7 GB nodes + 3 GB Docker/OS overhead).
+Total Colima VM RAM required: **~10 GB** (7 GB nodes + 3 GB Colima/OS overhead).
 
 ```bash
 ./aks-lab test-all              # full run (~45–60 min)
@@ -219,17 +219,22 @@ Total Docker RAM required: **~10 GB** (7 GB nodes + 3 GB Docker/OS overhead).
 
 ---
 
-## Docker Desktop Settings
+## Colima VM Settings
 
-Open **Docker Desktop → Settings → Resources**:
+Start Colima with `--memory` and `--swap` flags matched to your Mac's RAM:
 
-| Mac RAM | Recommended Docker RAM | Recommended Swap |
-|---------|----------------------|-----------------|
-| 8 GB    | 4–5 GB               | 2 GB            |
-| 16 GB   | 12–13 GB             | 2 GB            |
-| 32 GB   | 18–20 GB             | 2 GB            |
+| Mac RAM | `--memory` | `--swap` |
+|---------|-----------|---------|
+| 8 GB    | 4–5       | 2       |
+| 16 GB   | 12–13     | 2       |
+| 32 GB   | 18–20     | 2       |
 
-> **Tip**: After changing memory, click **Apply & Restart**. Then run `./aks-lab setup` — Docker Desktop's memory allocation is the single most impactful setting for lab stability.
+```bash
+# Example — 16 GB Mac, Standard tier
+colima start --memory 14 --swap 2 --cpu 4
+```
+
+> **Tip**: To change allocation, stop and restart Colima: `colima stop && colima start --memory 18`. Then run `./aks-lab setup` — Colima's memory allocation is the single most impactful setting for lab stability.
 
 ---
 
