@@ -17,11 +17,17 @@ try:
     import rich  # noqa: F401
 except ImportError:
     import subprocess
+    import importlib
+    import site
     subprocess.check_call(
         [sys.executable, "-m", "pip", "install", "--quiet", "rich"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+    importlib.invalidate_caches()
+    user_site = site.getusersitepackages()
+    if user_site not in sys.path:
+        sys.path.insert(0, user_site)
 
 from rich.console import Console
 from rich.layout import Layout

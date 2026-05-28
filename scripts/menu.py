@@ -29,6 +29,14 @@ try:
     from rich import box
 except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "rich"])
+    # After a fresh install the new package may not yet be visible to this
+    # process if user site-packages is not in sys.path — add it and refresh.
+    import importlib
+    import site
+    importlib.invalidate_caches()
+    user_site = site.getusersitepackages()
+    if user_site not in sys.path:
+        sys.path.insert(0, user_site)
     from rich.console import Console
     from rich.panel import Panel
     from rich.table import Table

@@ -37,6 +37,14 @@ for tap in "${TAPS[@]}"; do
   fi
 done
 
+# ── macOS version check ──────────────────────────────────────────────────────
+MACOS_MAJOR=$(sw_vers -productVersion | cut -d. -f1)
+# Multipass requires macOS 13 (Ventura) or later
+MULTIPASS_OK=false
+if [[ "$MACOS_MAJOR" -ge 13 ]]; then
+  MULTIPASS_OK=true
+fi
+
 # ── CLI tools ───────────────────────────────────────────────────────────────
 # Format: "formula   display-name"
 FORMULAE=(
@@ -48,24 +56,42 @@ FORMULAE=(
   "fluxcd/tap/flux   Flux CLI"
   "hashicorp/tap/vault  Vault CLI"
   "terraform         Terraform"
-  "multipass         Multipass"
-  "packer            Packer"
+)
+
+# Multipass and Packer (used for identity VMs) require macOS 13+
+VENTURA_FORMULAE=(
+  "multipass         Multipass (identity VMs)"
+  "packer            Packer (VM image pre-build)"
 )
 
 INSTALLED=()
 SKIPPED=()
+WARNED=()
 
-for entry in "${FORMULAE[@]}"; do
-  formula=$(echo "$entry" | awk '{print $1}')
-  label=$(echo "$entry" | sed 's/^[^ ]* \+//')
-  binary="${formula##*/}"   # last path component as the binary name
-
+_install_formula() {
+  local formula label binary
+  formula=$(echo "$1" | awk '{print $1}')
+  label=$(echo "$1" | sed 's/^[^ ]* \+//')
+  binary="${formula##*/}"
   if command -v "$binary" &>/dev/null; then
     SKIPPED+=("$label")
   else
     info "Installing ${label}..."
     brew install "$formula"
     INSTALLED+=("$label")
+  fi
+}
+
+for entry in "${FORMULAE[@]}"; do
+  _install_formula "$entry"
+done
+
+for entry in "${VENTURA_FORMULAE[@]}"; do
+  if $MULTIPASS_OK; then
+    _install_formula "$entry"
+  else
+    label=$(echo "$entry" | sed 's/^[^ ]* \+//')
+    WARNED+=("$label")
   fi
 done
 
@@ -96,8 +122,22 @@ if [[ ${#SKIPPED[@]} -gt 0 ]]; then
   done
 fi
 
+if [[ ${#WARNED[@]} -gt 0 ]]; then
+  echo ""
+  warn "Skipped (macOS $(sw_vers -productVersion) — Ventura 13+ required):"
+  for item in "${WARNED[@]}"; do
+    echo -e "     ${YELLOW}·${RESET} ${item}"
+  done
+  echo -e "     ${DIM}The identity stack (samba-ad, corp-client) needs these tools."
+  echo -e "     Upgrade to macOS Ventura or later to use those features.${RESET}"
+fi
+
 echo ""
-ok "All prerequisites satisfied."
+if [[ ${#WARNED[@]} -gt 0 ]]; then
+  warn "Core prerequisites satisfied. Identity stack tools unavailable on this OS."
+else
+  ok "All prerequisites satisfied."
+fi
 echo ""
 echo -e "  Next steps:"
 echo -e "    ${CYAN}colima start --memory 14${RESET}   # start the container runtime"
