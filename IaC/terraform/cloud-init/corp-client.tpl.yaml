@@ -75,14 +75,8 @@ write_files:
       # after the VM is up (lab-feature.sh _setup_corp_client_kubeconfig).
       set -euo pipefail
 
-      # Detect architecture so we pick the right binary on arm64 and amd64.
-      ARCH=$(dpkg --print-architecture)   # arm64 | amd64
-      case "$ARCH" in
-        arm64) GH_ARCH=arm64 ;;
-        amd64) GH_ARCH=amd64 ;;
-        *)     echo "[k8s-tools] Unsupported architecture: $ARCH"; exit 1 ;;
-      esac
-      echo "[k8s-tools] Detected architecture: $ARCH"
+      ARCH=amd64
+      GH_ARCH=amd64
 
       # ── kubectl (apt) ─────────────────────────────────────────────
       echo "[k8s-tools] Adding Kubernetes apt repo..."

@@ -147,7 +147,7 @@ if [[ "$REFRESH_IMAGES" == "1" ]]; then
   fi
 
   if component_enabled azdo-agent; then
-    log "Building azdo-agent image (arm64)..."
+    log "Building azdo-agent image..."
     docker build -t azdo-agent:local flux/apps/base/azdo-agent/ >/dev/null
     minikube -p "$PROFILE" image load azdo-agent:local
     success "azdo-agent image built and loaded"

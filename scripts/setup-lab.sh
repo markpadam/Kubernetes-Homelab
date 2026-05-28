@@ -2067,7 +2067,7 @@ if feature_enabled azdo-agent; then
     --namespace azdo-agent \
     --dry-run=client -o yaml | kubectl apply --validate=false -f -
 
-  log "Building azdo-agent image (arm64-compatible)..."
+  log "Building azdo-agent image..."
   docker build -t azdo-agent:local flux/apps/base/azdo-agent/ >/dev/null
   minikube -p "$PROFILE" image load azdo-agent:local
 

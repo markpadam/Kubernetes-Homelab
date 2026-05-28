@@ -130,10 +130,8 @@ AZCLI
 # ── azcopy ────────────────────────────────────────────────────────────────────
 echo "[packer/corp-client-base] Installing azcopy..."
 limactl shell "$VM_NAME" -- sudo bash -s << 'AZCOPY'
-ARCH=$(dpkg --print-architecture)
-case "$ARCH" in arm64) AZ_ARCH=arm64 ;; *) AZ_ARCH=amd64 ;; esac
-TARBALL=$(curl -fsSL "https://aka.ms/downloadazcopy-v10-linux-${AZ_ARCH}" -w '%{url_effective}' -o /dev/null 2>/dev/null \
-          || echo "https://azcopyvnext.azureedge.net/releases/release-10/azcopy_linux_${AZ_ARCH}_latest.tar.gz")
+TARBALL=$(curl -fsSL "https://aka.ms/downloadazcopy-v10-linux-amd64" -w '%{url_effective}' -o /dev/null 2>/dev/null \
+          || echo "https://azcopyvnext.azureedge.net/releases/release-10/azcopy_linux_amd64_latest.tar.gz")
 curl -fsSL "$TARBALL" | tar -xz -C /tmp --wildcards '*/azcopy' --strip-components=1 2>/dev/null \
   && mv /tmp/azcopy /usr/local/bin/azcopy \
   || echo "[azcopy] skipping — download failed"
@@ -146,13 +144,8 @@ echo "[packer/corp-client-base] Installing kubectl, helm, flux, vault, argocd, a
 limactl shell "$VM_NAME" -- sudo bash -s << 'K8STOOLS'
 set -euo pipefail
 
-ARCH=$(dpkg --print-architecture)
-case "$ARCH" in
-  arm64) GH_ARCH=arm64 ;;
-  amd64) GH_ARCH=amd64 ;;
-  *)     echo "[k8s-tools] Unsupported architecture: $ARCH"; exit 1 ;;
-esac
-echo "[k8s-tools] Architecture: $ARCH"
+ARCH=amd64
+GH_ARCH=amd64
 
 mkdir -p -m 755 /etc/apt/keyrings
 

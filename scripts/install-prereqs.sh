@@ -16,12 +16,7 @@ fail() { echo -e "${RED}${BOLD}[✗]${RESET} $*" >&2; exit 1; }
 if ! command -v brew &>/dev/null; then
   warn "Homebrew not found. Installing..."
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  # Add brew to PATH — Intel Macs use /usr/local, Apple Silicon uses /opt/homebrew
-  if [[ -f /usr/local/bin/brew ]]; then
-    eval "$(/usr/local/bin/brew shellenv)"
-  elif [[ -f /opt/homebrew/bin/brew ]]; then
-    eval "$(/opt/homebrew/bin/brew shellenv)"
-  fi
+  eval "$(/usr/local/bin/brew shellenv)"
 fi
 ok "Homebrew $(brew --version | head -1)"
 
