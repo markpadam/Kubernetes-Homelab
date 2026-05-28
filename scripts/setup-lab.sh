@@ -840,14 +840,13 @@ echo -e "  ${GREEN}${BOLD}[✓]${RESET} Sudo credentials cached" >&3
 # DNS is now handled by dnsmasq on the host (IaC/macos/dnsmasq-aks-lab.conf).
 # *.aks-lab.local resolves to the NGINX Ingress MetalLB IP (172.16.3.1).
 # No /etc/hosts entries or pfctl redirects are needed.
+# Canonical assignment is near the Vault step; set default here so the echos
+# below don't trip set -u before that section is reached.
+LAB_HOST_IP="${LAB_HOST_IP:-172.16.0.10}"
 echo -e "  ${GREEN}${BOLD}[✓]${RESET} DNS via dnsmasq — *.aks-lab.local → 172.16.3.1 (NGINX Ingress MetalLB IP)" >&3
 echo -e "  ${DIM}  MacBook: ensure /etc/resolver/aks-lab.local points to ${LAB_HOST_IP}${RESET}" >&3
 
 printf "\n" >&3
-
-# Needed here (set -u): canonical assignment is near the Vault step, but
-# LAB_HOST_IP is echoed on the line above before that section is reached.
-LAB_HOST_IP="${LAB_HOST_IP:-172.16.0.10}"
 
 # ── TUI bootstrap ─────────────────────────────────────────────────────────────
 # Start the Python rich TUI companion now that all input is collected.
