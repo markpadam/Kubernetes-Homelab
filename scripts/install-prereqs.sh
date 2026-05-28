@@ -16,11 +16,11 @@ fail() { echo -e "${RED}${BOLD}[✗]${RESET} $*" >&2; exit 1; }
 if ! command -v brew &>/dev/null; then
   warn "Homebrew not found. Installing..."
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  # Add brew to PATH for Apple Silicon / standard Intel paths
-  if [[ -f /opt/homebrew/bin/brew ]]; then
-    eval "$(/opt/homebrew/bin/brew shellenv)"
-  elif [[ -f /usr/local/bin/brew ]]; then
+  # Add brew to PATH — Intel Macs use /usr/local, Apple Silicon uses /opt/homebrew
+  if [[ -f /usr/local/bin/brew ]]; then
     eval "$(/usr/local/bin/brew shellenv)"
+  elif [[ -f /opt/homebrew/bin/brew ]]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
   fi
 fi
 ok "Homebrew $(brew --version | head -1)"
@@ -56,7 +56,6 @@ FORMULAE=(
 
 INSTALLED=()
 SKIPPED=()
-WARNED=()
 
 _install_formula() {
   local formula label binary
@@ -104,22 +103,8 @@ if [[ ${#SKIPPED[@]} -gt 0 ]]; then
   done
 fi
 
-if [[ ${#WARNED[@]} -gt 0 ]]; then
-  echo ""
-  warn "Skipped (macOS $(sw_vers -productVersion) — Ventura 13+ required):"
-  for item in "${WARNED[@]}"; do
-    echo -e "     ${YELLOW}·${RESET} ${item}"
-  done
-  echo -e "     ${DIM}The identity stack (samba-ad, corp-client) needs these tools."
-  echo -e "     Upgrade to macOS Ventura or later to use those features.${RESET}"
-fi
-
 echo ""
-if [[ ${#WARNED[@]} -gt 0 ]]; then
-  warn "Core prerequisites satisfied. Identity stack tools unavailable on this OS."
-else
-  ok "All prerequisites satisfied."
-fi
+ok "All prerequisites satisfied."
 echo ""
 echo -e "  Next steps:"
 echo -e "    ${CYAN}limactl sudoers | sudo tee /etc/sudoers.d/lima${RESET}   # grant Lima vmnet access (one-time)"

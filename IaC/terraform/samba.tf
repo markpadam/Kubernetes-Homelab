@@ -106,14 +106,17 @@ LIMAYAML
       sleep 10
 
       # Configure a static IP on the Lima shared network interface so samba-ad
-      # is always reachable at a predictable address.
+      # is always reachable at a predictable address. Match by driver so we
+      # don't have to guess the exact interface name (enp0s1, eth0, ens3, …).
       if [[ -n "${var.samba_vm_static_ip}" ]]; then
-        echo "[samba] Configuring static IP ${var.samba_vm_static_ip}/24 on enp0s1..."
+        echo "[samba] Configuring static IP ${var.samba_vm_static_ip}/24 on virtio_net interface..."
         limactl shell samba-ad -- sudo bash -c "cat > /etc/netplan/61-static-lima.yaml << 'NETPLAN'
 network:
   version: 2
   ethernets:
-    enp0s1:
+    shared-net:
+      match:
+        driver: virtio_net
       dhcp4: false
       addresses: [${var.samba_vm_static_ip}/24]
       routes:
@@ -271,14 +274,17 @@ LIMAYAML
       echo "[client] Waiting 10s for network interface to settle..."
       sleep 10
 
-      # Configure static IP if specified.
+      # Configure static IP if specified. Match by driver so interface naming
+      # variations (enp0s1, eth0, ens3, …) don't break the config.
       if [[ -n "${var.corp_client_static_ip}" ]]; then
-        echo "[client] Configuring static IP ${var.corp_client_static_ip}/24 on enp0s1..."
+        echo "[client] Configuring static IP ${var.corp_client_static_ip}/24 on virtio_net interface..."
         timeout 30 limactl shell corp-client -- sudo bash -c "cat > /etc/netplan/61-static-lima.yaml << 'NETPLAN'
 network:
   version: 2
   ethernets:
-    enp0s1:
+    shared-net:
+      match:
+        driver: virtio_net
       dhcp4: false
       addresses: [${var.corp_client_static_ip}/24]
       routes:

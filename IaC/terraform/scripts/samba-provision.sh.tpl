@@ -1,26 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# ── Pin routing: use bridged interface (enp0s2) for internet, not Multipass NAT ──
-# Multipass NAT (enp0s1, metric 100) beats bridged (enp0s2, metric 200) by default.
-# Override via netplan so the preference survives reboots.
-if ip link show enp0s2 &>/dev/null; then
-  cat > /etc/netplan/60-bridged-routing.yaml << 'EOF'
-network:
-  version: 2
-  ethernets:
-    enp0s1:
-      dhcp4: true
-      dhcp4-overrides:
-        use-routes: false
-        route-metric: 1000
-EOF
-  netplan apply 2>/dev/null || true
-  # netplan apply triggers systemd-networkd DHCP re-negotiation which can
-  # restore the NAT default route before UseRoutes=false takes effect.
-  sleep 3
-  ip route del default via 192.168.252.1 2>/dev/null || true
-fi
 echo "[samba] Active default routes: $(ip route show default)"
 
 # ── Force apt to use IPv4 and configure retries ───────────────────────────
@@ -72,8 +52,6 @@ EOF
 echo "[samba] Installing packages..."
 _pkg_ok=false
 for _attempt in 1 2 3 4 5; do
-  # Re-delete NAT route each attempt in case systemd-networkd restored it.
-  ip route del default via 192.168.252.1 2>/dev/null || true
   if apt-get update -qq; then
     if apt-get install -y \
         samba samba-ad-provision samba-dsdb-modules samba-vfs-modules winbind attr dnsutils ldap-utils acl socat; then

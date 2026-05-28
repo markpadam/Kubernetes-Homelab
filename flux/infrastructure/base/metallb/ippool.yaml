@@ -1,11 +1,11 @@
 ---
 # Subnet layout — 172.16.0.0/16
 #
-#   172.16.0.0/24  Management (Mac Pro physical, dnsmasq, router)
-#   172.16.1.0/24  Clients / Workstations (MacBook, etc.)
-#   172.16.2.0/24  Multipass VMs (samba-ad, corp-client)
-#   172.16.3.0/24  MetalLB pool — Kubernetes LoadBalancer IPs (this file)
-#   172.16.4.0/24  Reserved — Kubernetes node IPs (future bare-metal)
+#   172.16.0.0/24    Management (Mac Pro physical, dnsmasq, router)
+#   172.16.1.0/24    Clients / Workstations (MacBook, etc.)
+#   172.16.3.0/24    MetalLB pool — Kubernetes LoadBalancer IPs (this file)
+#   172.16.4.0/24    Reserved — Kubernetes node IPs (future bare-metal)
+#   192.168.105.0/24 Lima shared (samba-ad, corp-client) — NAT'd via Mac Pro
 #
 # Fixed allocations within 172.16.3.0/24:
 #   .1  NGINX Ingress (all web UIs via host-based routing)
