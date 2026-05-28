@@ -4,6 +4,8 @@ metadata:
   name: cosmosdb
   namespace: cosmos-db
 spec:
+  type: LoadBalancer
+  loadBalancerIP: 172.16.3.6
   selector:
     app: cosmosdb
   ports:

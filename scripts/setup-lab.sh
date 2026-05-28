@@ -837,45 +837,11 @@ echo -e "  ${GREEN}${BOLD}[✓]${RESET} Sudo credentials cached" >&3
 # Write all /etc/hosts entries NOW while sudo is definitely cached.
 # The "Configuring Local DNS" step near the end just verifies they exist.
 # Doing it here avoids a 40-minute sudo cache expiry race with the TUI running.
-_HOSTS_BLOCK=""
-_maybe_add() { grep -qF "127.0.0.1 $1" /etc/hosts 2>/dev/null || _HOSTS_BLOCK+="127.0.0.1 $1"$'\n'; }
-feature_enabled taskflow             && _maybe_add "taskflow.aks-lab.local"
-feature_enabled monitoring           && _maybe_add "grafana.aks-lab.local"
-feature_enabled kubernetes-dashboard && _maybe_add "dashboard.aks-lab.local"
-feature_enabled argocd               && _maybe_add "argocd.aks-lab.local"
-feature_enabled blob-explorer        && _maybe_add "blob-explorer.aks-lab.local"
-feature_enabled vault                && _maybe_add "vault.aks-lab.local"
-feature_enabled rancher              && _maybe_add "rancher.aks-lab.local"
-feature_enabled argo-workflows       && _maybe_add "argo-workflows.aks-lab.local"
-feature_enabled dex                  && _maybe_add "dex.aks-lab.local"
-feature_enabled oauth2-proxy         && _maybe_add "oauth2-proxy.aks-lab.local"
-if [[ -n "$_HOSTS_BLOCK" ]]; then
-  printf "%s" "$_HOSTS_BLOCK" | sudo tee -a /etc/hosts > /dev/null \
-    && echo -e "  ${GREEN}${BOLD}[✓]${RESET} /etc/hosts entries written" >&3 \
-    || echo -e "  ${YELLOW}${BOLD}[!]${RESET} /etc/hosts update failed — web UIs may not resolve" >&3
-else
-  echo -e "  ${GREEN}${BOLD}[✓]${RESET} /etc/hosts entries already present" >&3
-fi
-unset _HOSTS_BLOCK _maybe_add
-
-# pfctl anchor — write file + update pf.conf now while sudo is definitely cached.
-# The actual pfctl -f reload happens here; _setup_lab_pfctl() later just reports success.
-echo -e "  ${BOLD}Setting up pfctl port redirects${RESET} (80→9980, 443→9444)..." >&3
-sudo tee /etc/pf.anchors/aks-lab > /dev/null << 'EOF'
-rdr pass on lo0 proto tcp from any to 127.0.0.1 port 80  -> 127.0.0.1 port 9980
-rdr pass on lo0 proto tcp from any to 127.0.0.1 port 443 -> 127.0.0.1 port 9444
-EOF
-if ! grep -q 'aks-lab' /etc/pf.conf 2>/dev/null; then
-  sudo sed -i '' '/^rdr-anchor "com\.apple\/\*"/a\
-rdr-anchor "aks-lab"
-' /etc/pf.conf
-  echo 'load anchor "aks-lab" from "/etc/pf.anchors/aks-lab"' \
-    | sudo tee -a /etc/pf.conf > /dev/null
-fi
-sudo pfctl -e 2>/dev/null || true
-sudo pfctl -f /etc/pf.conf 2>/dev/null \
-  && echo -e "  ${GREEN}${BOLD}[✓]${RESET} pfctl: 80→9980 and 443→9444 redirects active" >&3 \
-  || echo -e "  ${YELLOW}${BOLD}[!]${RESET} pfctl reload failed — run: sudo pfctl -f /etc/pf.conf" >&3
+# DNS is now handled by dnsmasq on the host (IaC/macos/dnsmasq-aks-lab.conf).
+# *.aks-lab.local resolves to the NGINX Ingress MetalLB IP (172.16.3.1).
+# No /etc/hosts entries or pfctl redirects are needed.
+echo -e "  ${GREEN}${BOLD}[✓]${RESET} DNS via dnsmasq — *.aks-lab.local → 172.16.3.1 (NGINX Ingress MetalLB IP)" >&3
+echo -e "  ${DIM}  MacBook: ensure /etc/resolver/aks-lab.local points to ${LAB_HOST_IP}${RESET}" >&3
 
 printf "\n" >&3
 
@@ -1132,21 +1098,6 @@ else
   log "No images to build — all present on cluster or loaded from cache"
 fi
 
-# ── pfctl port redirects ─────────────────────
-# Redirect standard ports 80 and 443 on loopback to the lab's kubectl
-# port-forwards (9980 and 9444).  Without this, browsers always try port 80/443
-# and never reach the lab ingress.  Uses a named pf anchor so the rules are
-# isolated from system pf config.
-_setup_lab_pfctl() {
-  # pfctl anchor file + pf.conf are written before the TUI starts (sudo already done).
-  # This function just confirms they're in place and reports status.
-  if [[ -f /etc/pf.anchors/aks-lab ]] && grep -q 'aks-lab' /etc/pf.conf 2>/dev/null; then
-    success "pfctl: 80→9980 and 443→9444 redirects active"
-  else
-    warn "pfctl anchor missing — port 80/443 redirects not active (run: sudo pfctl -f /etc/pf.conf)"
-  fi
-}
-
 # ── Step 3: Ingress ──────────────────────────
 step "Step 3 — Enabling Ingress"
 
@@ -1170,14 +1121,13 @@ for _i in $(seq 1 150); do
 done
 
 if [[ "$_INGRESS_READY" == "1" ]]; then
-  success "Ingress controller ready"
-  # macOS cannot bind ports <1024 without root, so the lab uses port-forwards:
-  #   HTTP  → localhost:9980 → ingress:80
-  #   HTTPS → localhost:9444 → ingress:443
-  # pfctl redirects the standard ports (80, 443) to these port-forwards so
-  # browsers can use plain URLs (http://hostname, https://hostname) and links
-  # in the Kubernetes Dashboard resolve correctly.
-  _setup_lab_pfctl
+  # Patch the minikube ingress addon service to LoadBalancer so MetalLB assigns
+  # a real routable IP (172.16.3.1) instead of keeping it as a NodePort.
+  log "Patching ingress-nginx service to LoadBalancer (MetalLB IP 172.16.3.1)..."
+  kubectl patch svc ingress-nginx-controller -n ingress-nginx \
+    -p '{"spec":{"type":"LoadBalancer","loadBalancerIP":"172.16.3.1"}}' \
+    && success "Ingress controller ready — MetalLB IP 172.16.3.1 (http/https, no port suffix)" \
+    || warn "ingress-nginx patch failed — MetalLB IP may not be assigned; check: kubectl get svc -n ingress-nginx"
 else
   warn "Ingress admission webhook never became ready in 5 min — dependent components may fail. Diagnostics dumped to log."
   {
@@ -1746,7 +1696,11 @@ kubectl wait gitrepository/homelab \
 success "Flux installed — watching ${GITHUB_REPO} @ ${FLUX_APPS_PATH}"
 
 # ── Step 11: Vault ───────────────────────────
-VAULT_ADDR="http://127.0.0.1:8200"
+# LAB_HOST_IP: the Mac Pro's physical LAN IP. Vault binds to this so it is
+# reachable from the MacBook and from in-cluster pods (via host routing).
+# Override with: export LAB_HOST_IP=<your-ip> before running setup.
+LAB_HOST_IP="${LAB_HOST_IP:-172.16.0.10}"
+VAULT_ADDR="http://${LAB_HOST_IP}:8200"
 VAULT_TOKEN="root"
 VAULT_KV_PATH="kv"
 VAULT_AUTH_PATH="kubernetes"
@@ -2254,35 +2208,38 @@ if feature_enabled blob-explorer; then
   [[ $_BE_RC -eq 0 ]] || warn "blob-explorer apply failed — use 'lab-feature.sh enable blob-explorer' to retry"
 fi
 
-# ── Port-Forwards ────────────────────────────
-step "Starting Port-Forwards"
-
-# Wraps lab_start_port_forward (from scripts/lib-common.sh) with the
-# user-facing log line. lib-common is sourced at the top of this script.
+# ── K8s API Port-Forward ─────────────────────
+# Services use real MetalLB IPs — no port-forwards needed for them.
+# The Kubernetes API server is not a standard service, so we expose it via a
+# port-forward so kubectl works from the MacBook at https://<LAB_HOST_IP>:8443.
+step "Exposing K8s API"
 _pf() {
   local name="$1" port="$2" cmd="$3" log="$4"
   if lab_start_port_forward "$name" "$port" "$cmd" "$log"; then
-    success "$name port-forward running (self-healing) — localhost:$port"
+    success "$name port-forward running — ${LAB_HOST_IP}:$port"
   else
     warn "$name port-forward may have failed — check $log"
   fi
 }
+_pf "K8s API" 8443 "kubectl port-forward svc/kubernetes 8443:443 -n default --address 0.0.0.0" /tmp/k8s-api-portforward.log
 
-# Web apps route through NGINX Ingress: HTTP on 9980, HTTPS on 9444.
-_pf "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-portforward.log
-_pf "Ingress (HTTPS)"    9444 "kubectl port-forward svc/ingress-nginx-controller 9444:443 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-https-portforward.log
-feature_enabled toolbox            && _pf "Toolbox SSH"       2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"             /tmp/toolbox-portforward.log
-feature_enabled argo-workflows     && _pf "Argo Workflows"    2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"             /tmp/argo-workflows-portforward.log
-feature_enabled azure-sql          && _pf "Azure SQL"         1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"              /tmp/azure-sql-portforward.log
-feature_enabled service-bus        && _pf "Service Bus AMQP"  5672 "kubectl port-forward svc/servicebus 5672:5672 -n service-bus"       /tmp/servicebus-portforward.log
-feature_enabled service-bus        && _pf "Service Bus Mgmt"  5300 "kubectl port-forward svc/servicebus 5300:5300 -n service-bus"       /tmp/servicebus-mgmt-portforward.log
-feature_enabled container-registry && _pf "Registry"          5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"  /tmp/registry-portforward.log
-feature_enabled cosmos-db          && _pf "Cosmos DB"         8081 "kubectl port-forward svc/cosmosdb 8081:8081 -n cosmos-db"           /tmp/cosmosdb-portforward.log
-feature_enabled cosmos-db          && _pf "Cosmos Explorer"   1234 "kubectl port-forward svc/cosmosdb 1234:1234 -n cosmos-db"           /tmp/cosmosdb-explorer-portforward.log
-# Bind to 0.0.0.0 so the corp-client VM (on the multipass bridge) can reach
-# the cluster API at https://<mac-ip>:8443. Only started when corp-client
-# is enabled — no need to expose the API otherwise.
-feature_enabled corp-client        && _pf "K8s API (corp-client)" 8443 "kubectl port-forward svc/kubernetes 8443:443 -n default --address 0.0.0.0" /tmp/k8s-api-portforward.log
+# ── minikube tunnel ───────────────────────────
+# Creates host routes so MetalLB IPs (172.16.3.0/24) are reachable from this
+# machine. With IP forwarding enabled and a router static route pointing
+# 172.16.3.0/24 → ${LAB_HOST_IP}, these IPs become reachable network-wide.
+step "Starting minikube tunnel"
+if [[ -f /Library/LaunchDaemons/com.lab.minikube-tunnel.plist ]]; then
+  sudo launchctl kickstart -k system/com.lab.minikube-tunnel 2>/dev/null || true
+  success "minikube tunnel daemon restarted via launchd"
+else
+  # Start inline for this session; install the launchd plist for persistence.
+  pkill -f "minikube tunnel" 2>/dev/null || true
+  sudo minikube tunnel -p "$PROFILE" >> /tmp/minikube-tunnel.log 2>&1 &
+  echo $! > /tmp/minikube-tunnel.pid
+  sleep 3
+  success "minikube tunnel started (PID $(cat /tmp/minikube-tunnel.pid 2>/dev/null || echo '?'))"
+  warn "For persistence across reboots: sudo cp IaC/macos/com.lab.minikube-tunnel.plist /Library/LaunchDaemons/ && sudo launchctl load /Library/LaunchDaemons/com.lab.minikube-tunnel.plist"
+fi
 
 # ── Schedule heavy services across the cluster ──────────────────────
 # minikube can't size nodes asymmetrically, so we approximate a
@@ -2346,33 +2303,6 @@ for _t in "${_HEAVY_AVOID_PRIMARY[@]}"; do
   fi
 done
 success "Node affinity applied"
-
-# ── Local DNS (/etc/hosts) ───────────────────
-step "Configuring Local DNS"
-
-_add_hosts_entry() {
-  local host="$1"
-  if grep -qF "127.0.0.1 $host" /etc/hosts 2>/dev/null; then
-    log "$host → /etc/hosts ✓"
-  else
-    # Fallback: entry wasn't written upfront (e.g. feature enabled mid-run).
-    echo "127.0.0.1 $host" | sudo tee -a /etc/hosts > /dev/null \
-      && success "Added $host → /etc/hosts" \
-      || warn "$host could not be added to /etc/hosts"
-  fi
-}
-
-log "Verifying aks-lab.local entries in /etc/hosts..."
-feature_enabled taskflow             && _add_hosts_entry "taskflow.aks-lab.local"
-feature_enabled monitoring           && _add_hosts_entry "grafana.aks-lab.local"
-feature_enabled kubernetes-dashboard && _add_hosts_entry "dashboard.aks-lab.local"
-feature_enabled argocd          && _add_hosts_entry "argocd.aks-lab.local"
-feature_enabled blob-explorer   && _add_hosts_entry "blob-explorer.aks-lab.local"
-feature_enabled vault           && _add_hosts_entry "vault.aks-lab.local"
-feature_enabled rancher         && _add_hosts_entry "rancher.aks-lab.local"
-feature_enabled argo-workflows  && _add_hosts_entry "argo-workflows.aks-lab.local"
-feature_enabled dex             && _add_hosts_entry "dex.aks-lab.local"
-feature_enabled oauth2-proxy    && _add_hosts_entry "oauth2-proxy.aks-lab.local"
 
 # ── Dashboard ─────────────────────────────────
 step "Generating Dashboard"
@@ -2487,11 +2417,11 @@ _run_health_checks() {
 
   _chk_section "Infrastructure"
   if feature_enabled vault; then
-    if curl -sf http://127.0.0.1:8200/v1/sys/health 2>/dev/null \
+    if curl -sf "${VAULT_ADDR}/v1/sys/health" 2>/dev/null \
         | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if not d.get('sealed') else 1)" 2>/dev/null; then
-      _chk_ok "vault" "dev server unsealed at :8200"
+      _chk_ok "vault" "dev server unsealed at ${VAULT_ADDR}"
     else
-      _chk_fail "vault" "not reachable at http://127.0.0.1:8200"
+      _chk_fail "vault" "not reachable at ${VAULT_ADDR}"
     fi
   fi
   feature_enabled monitoring           && _check_ns "monitoring"  monitoring

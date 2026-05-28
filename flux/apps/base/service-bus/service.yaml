@@ -4,6 +4,8 @@ metadata:
   name: servicebus
   namespace: service-bus
 spec:
+  type: LoadBalancer
+  loadBalancerIP: 172.16.3.4
   selector:
     app: servicebus
   ports:

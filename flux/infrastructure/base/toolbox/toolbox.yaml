@@ -68,18 +68,18 @@ spec:
           configMap:
             name: toolbox-ssh-keys
 ---
-# ── Service — NodePort so minikube service can proxy it ──────────────────────
+# ── Service — LoadBalancer so the toolbox is reachable at a real network IP ──
 apiVersion: v1
 kind: Service
 metadata:
   name: toolbox-ssh
   namespace: toolbox
 spec:
+  type: LoadBalancer
+  loadBalancerIP: 172.16.3.8
   selector:
     app: toolbox
   ports:
     - name: ssh
       port: 22
       targetPort: 22
-      nodePort: 30022
-  type: NodePort

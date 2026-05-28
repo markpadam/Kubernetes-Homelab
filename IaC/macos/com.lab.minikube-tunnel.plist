@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd daemon — runs minikube tunnel at boot so MetalLB IPs (172.16.3.0/24)
+  are always routable from this host and (via IP forwarding + router static route)
+  from the rest of the 172.16.0.0/16 network.
+
+  Install:
+    sudo cp IaC/macos/com.lab.minikube-tunnel.plist /Library/LaunchDaemons/
+    sudo launchctl load /Library/LaunchDaemons/com.lab.minikube-tunnel.plist
+
+  Uninstall:
+    sudo launchctl unload /Library/LaunchDaemons/com.lab.minikube-tunnel.plist
+    sudo rm /Library/LaunchDaemons/com.lab.minikube-tunnel.plist
+
+  Logs:  /tmp/minikube-tunnel.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.lab.minikube-tunnel</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/minikube</string>
+    <string>tunnel</string>
+    <string>-p</string>
+    <string>aks-lab</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/minikube-tunnel.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/minikube-tunnel.log</string>
+
+  <!-- minikube tunnel requires root to manipulate routing tables -->
+  <key>UserName</key>
+  <string>root</string>
+</dict>
+</plist>

@@ -4,6 +4,8 @@ metadata:
   name: mssql
   namespace: azure-sql
 spec:
+  type: LoadBalancer
+  loadBalancerIP: 172.16.3.3
   selector:
     app: mssql
   ports:

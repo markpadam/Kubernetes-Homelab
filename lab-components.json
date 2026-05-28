@@ -23,6 +23,19 @@
   },
   "components": [
     {
+      "id": "metallb",
+      "name": "MetalLB",
+      "group": "infrastructure",
+      "default": true,
+      "type": "flux",
+      "ns": "metallb-system",
+      "flux_dir": "flux/infrastructure/base/metallb",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [],
+      "desc": "Layer 2 load balancer — assigns real routable IPs (172.16.3.0/24) to LoadBalancer services via MetalLB. Requires minikube tunnel to route those IPs from the host into the cluster."
+    },
+    {
       "id": "cert-manager",
       "name": "cert-manager + Vault PKI",
       "group": "infrastructure",

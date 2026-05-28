@@ -1,0 +1,39 @@
+---
+# Subnet layout — 172.16.0.0/16
+#
+#   172.16.0.0/24  Management (Mac Pro physical, dnsmasq, router)
+#   172.16.1.0/24  Clients / Workstations (MacBook, etc.)
+#   172.16.2.0/24  Multipass VMs (samba-ad, corp-client)
+#   172.16.3.0/24  MetalLB pool — Kubernetes LoadBalancer IPs (this file)
+#   172.16.4.0/24  Reserved — Kubernetes node IPs (future bare-metal)
+#
+# Fixed allocations within 172.16.3.0/24:
+#   .1  NGINX Ingress (all web UIs via host-based routing)
+#   .2  Vault (reserved; Vault currently runs on Mac Pro host at 172.16.0.10:8200)
+#   .3  Azure SQL Edge (1433)
+#   .4  Service Bus / RabbitMQ (5672, 5300)
+#   .5  Container Registry (5000)
+#   .6  Cosmos DB (8081, 1234)
+#   .7  Argo Workflows (2746)
+#   .8  Toolbox SSH (22)
+#   .9  Azurite blob storage (10000-10002)
+#  .10  Kubernetes Dashboard (443)
+# .11-254  Available
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: lab-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - 172.16.3.0/24
+  autoAssign: false
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: lab-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - lab-pool

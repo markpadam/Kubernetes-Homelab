@@ -99,6 +99,27 @@ resource "null_resource" "samba_vm" {
       echo "[samba] Removing Multipass NAT default route to force traffic via bridged interface..."
       multipass exec samba-ad -- sudo ip route del default via 192.168.252.1 2>/dev/null || true
 
+      # Assign static IP to the bridged interface (enp0s2) so samba-ad is always
+      # reachable at a predictable address within 172.16.2.0/24.
+      if [[ -n "${var.samba_vm_static_ip}" ]]; then
+        echo "[samba] Configuring static IP ${var.samba_vm_static_ip}/24 on enp0s2..."
+        multipass exec samba-ad -- sudo bash -c "cat > /etc/netplan/61-static-bridge.yaml << 'NETPLAN'
+network:
+  version: 2
+  ethernets:
+    enp0s2:
+      addresses: [${var.samba_vm_static_ip}/24]
+      routes:
+        - to: default
+          via: ${var.vm_subnet_gateway}
+      nameservers:
+        addresses: [${var.vm_subnet_gateway}, 8.8.8.8]
+NETPLAN
+chmod 600 /etc/netplan/61-static-bridge.yaml
+netplan apply 2>/dev/null || true"
+        echo "[samba] Static IP configured — samba-ad is at ${var.samba_vm_static_ip}"
+      fi
+
       echo "[samba] Verifying HTTP connectivity via bridged interface..."
       _vm_http_ok=false
       for _i in $(seq 1 12); do
@@ -223,6 +244,27 @@ resource "null_resource" "corp_client_vm" {
 
       echo "[client] Removing Multipass NAT default route (prefer bridged interface)..."
       timeout 30 multipass exec corp-client -- sudo ip route del default via 192.168.252.1 2>/dev/null || true
+
+      # Assign static IP to the bridged interface so corp-client is reachable at a
+      # predictable address within 172.16.2.0/24.
+      if [[ -n "${var.corp_client_static_ip}" ]]; then
+        echo "[client] Configuring static IP ${var.corp_client_static_ip}/24 on enp0s2..."
+        timeout 30 multipass exec corp-client -- sudo bash -c "cat > /etc/netplan/61-static-bridge.yaml << 'NETPLAN'
+network:
+  version: 2
+  ethernets:
+    enp0s2:
+      addresses: [${var.corp_client_static_ip}/24]
+      routes:
+        - to: default
+          via: ${var.vm_subnet_gateway}
+      nameservers:
+        addresses: [${var.vm_subnet_gateway}, 8.8.8.8]
+NETPLAN
+chmod 600 /etc/netplan/61-static-bridge.yaml
+netplan apply 2>/dev/null || true" || true
+        echo "[client] Static IP configured — corp-client is at ${var.corp_client_static_ip}"
+      fi
 
       echo "[client] Streaming cloud-init log..."
       multipass exec corp-client -- bash -c '

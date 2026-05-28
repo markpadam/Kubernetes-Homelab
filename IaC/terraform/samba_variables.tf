@@ -101,3 +101,21 @@ variable "vnc_password" {
   default     = "AksLab1!"
   sensitive   = true
 }
+
+variable "samba_vm_static_ip" {
+  description = "Static IP for samba-ad VM on the bridged interface (172.16.2.0/24 subnet). Leave empty to use DHCP."
+  type        = string
+  default     = "172.16.2.10"
+}
+
+variable "corp_client_static_ip" {
+  description = "Static IP for corp-client VM on the bridged interface (172.16.2.0/24 subnet). Leave empty to use DHCP."
+  type        = string
+  default     = "172.16.2.11"
+}
+
+variable "vm_subnet_gateway" {
+  description = "Default gateway for the 172.16.2.0/24 VM subnet."
+  type        = string
+  default     = "172.16.0.1"
+}

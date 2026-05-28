@@ -4,6 +4,8 @@ metadata:
   name: azurite
   namespace: azure-storage
 spec:
+  type: LoadBalancer
+  loadBalancerIP: 172.16.3.9
   selector:
     app: azurite
   ports:

@@ -18,7 +18,8 @@ GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
 LAB_ENV="${LAB_ENV:-dev}"
 case "$LAB_ENV" in dev|prd) ;; *) echo "Invalid LAB_ENV='$LAB_ENV' (expected: dev|prd)" >&2; exit 1 ;; esac
 FLUX_APPS_PATH="${FLUX_APPS_PATH:-./flux/clusters/${LAB_ENV}}"
-VAULT_ADDR="http://127.0.0.1:8200"
+LAB_HOST_IP="${LAB_HOST_IP:-172.16.0.10}"
+VAULT_ADDR="http://${LAB_HOST_IP}:8200"
 VAULT_TOKEN="root"
 VAULT_KV_PATH="kv"
 VAULT_AUTH_PATH="kubernetes"
@@ -284,45 +285,33 @@ if feature_enabled vault; then
   fi
 fi
 
-# ── pfctl port redirects ──────────────────────
-# Ensure 80→9980 and 443→9444 are active after a Mac reboot (pfctl rules
-# don't survive reboots unless the LaunchDaemon reloads pf.conf).
-step "Restoring pfctl Port Redirects"
-if [[ -f /etc/pf.anchors/aks-lab ]]; then
-  sudo pfctl -e 2>/dev/null || true
-  sudo pfctl -f /etc/pf.conf 2>/dev/null \
-    && success "pfctl: 80→9980 and 443→9444 redirects active" \
-    || warn "pfctl reload failed — web UIs may not load at standard ports (run: sudo pfctl -f /etc/pf.conf)"
-else
-  warn "pfctl anchor not found — run ./aks-lab setup to install port redirects"
-fi
-
-# ── Port-forwards ─────────────────────────────
-step "Restoring Port-Forwards"
-
-# Wraps lab_start_port_forward with a one-line user-facing log message.
+# ── K8s API Port-Forward ─────────────────────
+# Services reach the network via MetalLB real IPs — no port-forwards needed.
+# Only the K8s API server requires a port-forward (it is not a standard service).
+step "Exposing K8s API"
 _pf() {
   local name="$1" port="$2" cmd="$3" log="$4"
   if lab_start_port_forward "$name" "$port" "$cmd" "$log"; then
-    success "$name port-forward running (self-healing) — localhost:$port"
+    success "$name port-forward running — ${LAB_HOST_IP}:$port"
   else
     warn "$name port-forward may have failed — check $log"
   fi
 }
+_pf "K8s API" 8443 "kubectl port-forward svc/kubernetes 8443:443 -n default --address 0.0.0.0" /tmp/k8s-api-portforward.log
 
-log "Clearing stale port-forwards and starting fresh..."
-_pf "Ingress (web apps)" 9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-portforward.log
-_pf "Ingress (HTTPS)"    9444 "kubectl port-forward svc/ingress-nginx-controller 9444:443 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-https-portforward.log
-feature_enabled toolbox            && _pf "Toolbox SSH"       2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"             /tmp/toolbox-portforward.log
-feature_enabled argo-workflows     && _pf "Argo Workflows"    2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"             /tmp/argo-workflows-portforward.log
-feature_enabled azure-sql          && _pf "Azure SQL"         1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"              /tmp/azure-sql-portforward.log
-feature_enabled service-bus        && _pf "Service Bus AMQP"  5672 "kubectl port-forward svc/servicebus 5672:5672 -n service-bus"       /tmp/servicebus-portforward.log
-feature_enabled service-bus        && _pf "Service Bus Mgmt"  5300 "kubectl port-forward svc/servicebus 5300:5300 -n service-bus"       /tmp/servicebus-mgmt-portforward.log
-feature_enabled container-registry && _pf "Registry"          5000 "kubectl port-forward svc/registry 5000:5000 -n container-registry"  /tmp/registry-portforward.log
-feature_enabled cosmos-db          && _pf "Cosmos DB"         8081 "kubectl port-forward svc/cosmosdb 8081:8081 -n cosmos-db"           /tmp/cosmosdb-portforward.log
-feature_enabled cosmos-db          && _pf "Cosmos Explorer"   1234 "kubectl port-forward svc/cosmosdb 1234:1234 -n cosmos-db"           /tmp/cosmosdb-explorer-portforward.log
-# Bind to 0.0.0.0 so the corp-client VM can reach https://<mac-ip>:8443.
-feature_enabled corp-client        && _pf "K8s API (corp-client)" 8443 "kubectl port-forward svc/kubernetes 8443:443 -n default --address 0.0.0.0" /tmp/k8s-api-portforward.log
+# ── minikube tunnel ───────────────────────────
+# Routes MetalLB IPs (172.16.3.0/24) from this host into the cluster.
+step "Restoring minikube tunnel"
+if [[ -f /Library/LaunchDaemons/com.lab.minikube-tunnel.plist ]]; then
+  sudo launchctl kickstart -k system/com.lab.minikube-tunnel 2>/dev/null || true
+  success "minikube tunnel daemon restarted via launchd"
+else
+  pkill -f "minikube tunnel" 2>/dev/null || true
+  sudo minikube tunnel -p "$PROFILE" >> /tmp/minikube-tunnel.log 2>&1 &
+  echo $! > /tmp/minikube-tunnel.pid
+  sleep 3
+  success "minikube tunnel started (PID $(cat /tmp/minikube-tunnel.pid 2>/dev/null || echo '?'))"
+fi
 
 # ── Retrieve runtime values for dashboard ────
 ARGOCD_PASSWORD=""
@@ -411,11 +400,11 @@ _run_health_checks() {
 
   _chk_section "Infrastructure"
   if feature_enabled vault; then
-    if curl -sf http://127.0.0.1:8200/v1/sys/health 2>/dev/null \
+    if curl -sf "${VAULT_ADDR}/v1/sys/health" 2>/dev/null \
         | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if not d.get('sealed') else 1)" 2>/dev/null; then
-      _chk_ok "vault" "dev server unsealed at :8200"
+      _chk_ok "vault" "dev server unsealed at ${VAULT_ADDR}"
     else
-      _chk_fail "vault" "not reachable at http://127.0.0.1:8200"
+      _chk_fail "vault" "not reachable at ${VAULT_ADDR}"
     fi
   fi
   feature_enabled monitoring           && _check_ns "monitoring"    monitoring
