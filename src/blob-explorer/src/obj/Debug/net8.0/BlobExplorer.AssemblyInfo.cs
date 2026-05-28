@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BlobExplorer")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e6607f6fb4344cffb50e245ae6a73eada24d11ac")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+74c42408f9ca417f7d1f8a4509410d123f3954d1")]
 [assembly: System.Reflection.AssemblyProductAttribute("BlobExplorer")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BlobExplorer")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
