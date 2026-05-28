@@ -78,14 +78,17 @@ output "azure_services_secret_path" {
 
 # ── SambaAD / Active Directory outputs ────────────────────────────────────────
 
-# multipass returns a list of IPs (one per interface). The first is the
-# primary VM IP. We use `external` data sources so the IP is captured at
-# apply time rather than baked in as a hint string.
+# Lima IP is captured at apply time via limactl list --format json.
 data "external" "samba_ad_ip" {
   depends_on = [null_resource.samba_vm]
   program = ["bash", "-c", <<-EOT
-    ip=$(multipass info samba-ad --format json 2>/dev/null \
-      | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" 2>/dev/null) || ip=""
+    ip=$(limactl list --format json 2>/dev/null | python3 -c "
+import json,sys
+vms=json.load(sys.stdin)
+vm=next((v for v in vms if v['name']=='samba-ad'),{})
+nets=vm.get('network') or vm.get('networks') or []
+print(next((n.get('localIPV4','') for n in nets if n.get('localIPV4') and not n.get('localIPV4','').startswith('127.')),''))
+" 2>/dev/null) || ip=""
     printf '{"ip": "%s"}' "$ip"
   EOT
   ]
@@ -94,8 +97,13 @@ data "external" "samba_ad_ip" {
 data "external" "corp_client_ip" {
   depends_on = [null_resource.corp_client_vm]
   program = ["bash", "-c", <<-EOT
-    ip=$(multipass info corp-client --format json 2>/dev/null \
-      | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['ipv4'][0])" 2>/dev/null) || ip=""
+    ip=$(limactl list --format json 2>/dev/null | python3 -c "
+import json,sys
+vms=json.load(sys.stdin)
+vm=next((v for v in vms if v['name']=='corp-client'),{})
+nets=vm.get('network') or vm.get('networks') or []
+print(next((n.get('localIPV4','') for n in nets if n.get('localIPV4') and not n.get('localIPV4','').startswith('127.')),''))
+" 2>/dev/null) || ip=""
     printf '{"ip": "%s"}' "$ip"
   EOT
   ]

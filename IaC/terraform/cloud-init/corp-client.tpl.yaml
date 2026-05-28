@@ -10,20 +10,6 @@ write_files:
     owner: root:root
     content: 'Acquire::ForceIPv4 "true";'
 
-  # Suppress Multipass NAT default route so the bridged interface (enp0s2)
-  # carries all internet traffic — same approach as samba-ad.
-  - path: /etc/netplan/60-bridged-routing.yaml
-    owner: root:root
-    content: |
-      network:
-        version: 2
-        ethernets:
-          enp0s1:
-            dhcp4: true
-            dhcp4-overrides:
-              use-routes: false
-              route-metric: 1000
-
   - path: /etc/systemd/system/vncserver@.service
     owner: root:root
     content: |
@@ -85,14 +71,11 @@ write_files:
       #   k9s       — github release .deb
       #   jq, yq    — JSON / YAML processing
       #
-      # No kubeconfig is set up here — that needs to be copied in by the user
-      # (e.g. multipass transfer ~/.kube/config corp-client:/home/ubuntu/.kube/config)
-      # because the cluster API lives on the Mac host and the server URL has
-      # to be rewritten to the corp-client's view of the host.
+      # No kubeconfig is set up here — setup-lab.sh installs it via limactl copy
+      # after the VM is up (lab-feature.sh _setup_corp_client_kubeconfig).
       set -euo pipefail
 
-      # Multipass inherits the host architecture. Detect once so we pick the
-      # right binary on both Apple Silicon (arm64) and Intel (amd64) Macs.
+      # Detect architecture so we pick the right binary on arm64 and amd64.
       ARCH=$(dpkg --print-architecture)   # arm64 | amd64
       case "$ARCH" in
         arm64) GH_ARCH=arm64 ;;
@@ -284,14 +267,6 @@ write_files:
 
 runcmd:
   - |
-    # ── Pin routing: prefer bridged interface (enp0s2) over Multipass NAT ──
-    # 60-bridged-routing.yaml was written by write_files; apply it now and
-    # immediately remove the NAT default route before networkd re-adds it.
-    if ip link show enp0s2 >/dev/null 2>&1; then
-      netplan apply 2>/dev/null || true
-      sleep 3
-      ip route del default via 192.168.252.1 2>/dev/null || true
-    fi
     echo "[client] Active default routes: $(ip route show default)"
 
     echo "[client] Waiting for apt lock (unattended-upgrades holds it at boot)..."
@@ -306,7 +281,6 @@ runcmd:
     echo "[client] Installing packages..."
     _pkg_ok=false
     for _attempt in 1 2 3; do
-      ip route del default via 192.168.252.1 2>/dev/null || true
       if apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y \
           realmd sssd sssd-tools adcli ldap-utils \
           curl wget dnsutils net-tools \

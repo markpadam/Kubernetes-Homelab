@@ -37,14 +37,6 @@ for tap in "${TAPS[@]}"; do
   fi
 done
 
-# ── macOS version check ──────────────────────────────────────────────────────
-MACOS_MAJOR=$(sw_vers -productVersion | cut -d. -f1)
-# Multipass requires macOS 13 (Ventura) or later
-MULTIPASS_OK=false
-if [[ "$MACOS_MAJOR" -ge 13 ]]; then
-  MULTIPASS_OK=true
-fi
-
 # ── CLI tools ───────────────────────────────────────────────────────────────
 # Format: "formula   display-name"
 FORMULAE=(
@@ -56,11 +48,9 @@ FORMULAE=(
   "fluxcd/tap/flux   Flux CLI"
   "hashicorp/tap/vault  Vault CLI"
   "terraform         Terraform"
-)
-
-# Multipass and Packer (used for identity VMs) require macOS 13+
-VENTURA_FORMULAE=(
-  "multipass         Multipass (identity VMs)"
+  "qemu              QEMU (Colima VM backend on Intel Macs)"
+  "lima              Lima (identity VMs — replaces Multipass)"
+  "socket_vmnet      socket_vmnet (Lima shared network)"
   "packer            Packer (VM image pre-build)"
 )
 
@@ -86,14 +76,6 @@ for entry in "${FORMULAE[@]}"; do
   _install_formula "$entry"
 done
 
-for entry in "${VENTURA_FORMULAE[@]}"; do
-  if $MULTIPASS_OK; then
-    _install_formula "$entry"
-  else
-    label=$(echo "$entry" | sed 's/^[^ ]* \+//')
-    WARNED+=("$label")
-  fi
-done
 
 # ── Python rich (needed by tui.py) ──────────────────────────────────────────
 if python3 -c "import rich" &>/dev/null 2>&1; then
@@ -140,5 +122,6 @@ else
 fi
 echo ""
 echo -e "  Next steps:"
-echo -e "    ${CYAN}colima start --memory 14${RESET}   # start the container runtime"
-echo -e "    ${CYAN}./aks-lab setup${RESET}             # provision the cluster"
+echo -e "    ${CYAN}limactl sudoers | sudo tee /etc/sudoers.d/lima${RESET}   # grant Lima vmnet access (one-time)"
+echo -e "    ${CYAN}colima start --memory 14${RESET}                         # start the container runtime"
+echo -e "    ${CYAN}./aks-lab setup${RESET}                                  # provision the cluster"

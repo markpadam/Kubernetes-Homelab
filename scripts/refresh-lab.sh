@@ -18,6 +18,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+# shellcheck source=lib-common.sh
+source "$SCRIPT_DIR/lib-common.sh"
 
 PROFILE="${LAB_PROFILE:-aks-lab}"
 GRAFANA_PASSWORD="admin123"
@@ -341,9 +343,7 @@ if [[ -z "$ONLY_COMPONENT" ]]; then
   ARGOCD_PASSWORD=""
   ARGO_WORKFLOWS_TOKEN=""
   BIND9_IP=$(kubectl get svc bind9 -n dns-lab -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "unavailable")
-  SAMBA_IP=$(multipass info samba-ad --format json 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" \
-    2>/dev/null || echo "")
+  SAMBA_IP=$(_lima_ip samba-ad)
 
   feature_enabled argocd         && ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
     -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<password-already-changed>")

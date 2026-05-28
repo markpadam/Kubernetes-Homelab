@@ -1,17 +1,19 @@
 # ── Prerequisite check ────────────────────────────────────────────────────────
-# Fail fast with a clear message if multipass is not installed.
-# Install with: brew install multipass
-resource "null_resource" "multipass_check" {
+# Fail fast with a clear message if lima is not installed.
+# Install: brew install lima socket_vmnet
+# One-time setup: limactl sudoers | sudo tee /etc/sudoers.d/lima
+resource "null_resource" "lima_check" {
   provisioner "local-exec" {
     command = <<-BASH
-      if ! command -v multipass &>/dev/null; then
+      if ! command -v limactl &>/dev/null; then
         echo ""
-        echo "ERROR: multipass is not installed."
-        echo "  Install with: brew install multipass"
+        echo "ERROR: limactl is not installed."
+        echo "  Install with: brew install lima socket_vmnet"
+        echo "  One-time:     limactl sudoers | sudo tee /etc/sudoers.d/lima"
         echo ""
         exit 1
       fi
-      echo "[multipass] $(multipass version | head -1) — OK"
+      echo "[lima] $(limactl --version) — OK"
     BASH
   }
 }
@@ -21,11 +23,8 @@ resource "null_resource" "multipass_check" {
 # Samba 4 implements the full AD DS protocol stack — LDAP, Kerberos, DNS, SMB —
 # making it wire-compatible with Windows AD clients and tools.
 #
-# Provisioned via multipass transfer + exec: the provisioning script is rendered
-# locally by Terraform, transferred into the VM, and run via "multipass exec".
-# This bypasses cloud-init entirely, avoiding cloud-init 25.x schema validation
-# failures that silently skip runcmd when the YAML round-trip converts quoted
-# octal permission strings to integers.
+# Provisioned via limactl copy + shell: the provisioning script is rendered
+# locally by Terraform, copied into the VM, and run via "limactl shell".
 
 locals {
   # "corp.internal" → "DC=corp,DC=internal"
@@ -33,7 +32,6 @@ locals {
 }
 
 # Render the provisioning script with domain/credential variables.
-# Written to a temp file and transferred into the VM via multipass transfer.
 resource "local_file" "samba_provision_script" {
   filename        = "/tmp/samba-provision.sh"
   file_permission = "0600"
@@ -49,7 +47,7 @@ resource "local_file" "samba_provision_script" {
 
 resource "null_resource" "samba_vm" {
   depends_on = [
-    null_resource.multipass_check,
+    null_resource.lima_check,
     local_file.samba_provision_script,
   ]
 
@@ -64,66 +62,76 @@ resource "null_resource" "samba_vm" {
       set -euo pipefail
 
       echo "[samba] Removing any pre-existing samba-ad VM..."
-      multipass delete samba-ad --purge 2>/dev/null || true
+      limactl delete --force samba-ad 2>/dev/null || true
 
       # Use the Packer-built base image if it exists — packages are already
       # installed so the provisioning script only needs to run domain setup.
       # Fall back to plain Ubuntu 24.04 if the cache is missing.
-      _SAMBA_BASE="$${HOME}/.lab-cache/images/samba-base.tar.gz"
+      _SAMBA_BASE="$${HOME}/.lab-cache/images/samba-base.qcow2"
       if [[ -f "$_SAMBA_BASE" ]]; then
         _LAUNCH_IMAGE="file://$_SAMBA_BASE"
         echo "[samba] Using Packer base image — packages pre-installed ($${_SAMBA_BASE})"
       else
-        _LAUNCH_IMAGE="24.04"
+        _LAUNCH_IMAGE="https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
         echo "[samba] No Packer cache found — packages will install via provisioning script"
         echo "[samba] Tip: run IaC/packer/build.sh samba to pre-build the image"
       fi
 
-      echo "[samba] Launching samba-ad VM (bridged to en0 for direct internet)..."
-      multipass launch "$_LAUNCH_IMAGE" \
-        --name samba-ad \
-        --cpus "${var.samba_vm_cpus}" \
-        --memory "${var.samba_vm_memory}" \
-        --disk "${var.samba_vm_disk}" \
-        --network en0 \
-        --timeout 300
+      # Convert Lima size format
+      _mem_lima=$(echo "${var.samba_vm_memory}" | sed 's/G$/GiB/; s/M$/MiB/')
+      _disk_lima=$(echo "${var.samba_vm_disk}"   | sed 's/G$/GiB/; s/M$/MiB/')
 
-      echo "[samba] Waiting 15s for bridged interface DHCP..."
-      sleep 15
+      echo "[samba] Generating Lima instance config..."
+      cat > /tmp/lima-samba-ad.yaml << LIMAYAML
+images:
+  - location: "$_LAUNCH_IMAGE"
+    arch: "x86_64"
+vmType: "qemu"
+os: "Linux"
+cpus: ${var.samba_vm_cpus}
+memory: "$_mem_lima"
+disk: "$_disk_lima"
+networks:
+  - lima: "shared"
+mounts: []
+ssh:
+  localPort: 0
+  loadDotSSHPubKeys: false
+LIMAYAML
 
-      # The Multipass NAT interface (enp0s1) gets metric 100 and the bridged
-      # interface (enp0s2) gets metric 200, so Linux prefers the broken NAT
-      # default route. Remove it so internet traffic falls through to the
-      # bridged default route. The connected 192.168.252.0/24 route stays,
-      # keeping multipass exec working.
-      echo "[samba] Removing Multipass NAT default route to force traffic via bridged interface..."
-      multipass exec samba-ad -- sudo ip route del default via 192.168.252.1 2>/dev/null || true
+      echo "[samba] Launching samba-ad Lima VM..."
+      limactl start --name samba-ad --timeout 300s /tmp/lima-samba-ad.yaml
 
-      # Assign static IP to the bridged interface (enp0s2) so samba-ad is always
-      # reachable at a predictable address within 172.16.2.0/24.
+      echo "[samba] Waiting 10s for network interface to settle..."
+      sleep 10
+
+      # Configure a static IP on the Lima shared network interface so samba-ad
+      # is always reachable at a predictable address.
       if [[ -n "${var.samba_vm_static_ip}" ]]; then
-        echo "[samba] Configuring static IP ${var.samba_vm_static_ip}/24 on enp0s2..."
-        multipass exec samba-ad -- sudo bash -c "cat > /etc/netplan/61-static-bridge.yaml << 'NETPLAN'
+        echo "[samba] Configuring static IP ${var.samba_vm_static_ip}/24 on enp0s1..."
+        limactl shell samba-ad -- sudo bash -c "cat > /etc/netplan/61-static-lima.yaml << 'NETPLAN'
 network:
   version: 2
   ethernets:
-    enp0s2:
+    enp0s1:
+      dhcp4: false
       addresses: [${var.samba_vm_static_ip}/24]
       routes:
         - to: default
           via: ${var.vm_subnet_gateway}
       nameservers:
-        addresses: [${var.vm_subnet_gateway}, 8.8.8.8]
+        addresses: [8.8.8.8, ${var.vm_subnet_gateway}]
 NETPLAN
-chmod 600 /etc/netplan/61-static-bridge.yaml
+chmod 600 /etc/netplan/61-static-lima.yaml
 netplan apply 2>/dev/null || true"
         echo "[samba] Static IP configured — samba-ad is at ${var.samba_vm_static_ip}"
+        sleep 5
       fi
 
-      echo "[samba] Verifying HTTP connectivity via bridged interface..."
+      echo "[samba] Verifying HTTP connectivity..."
       _vm_http_ok=false
       for _i in $(seq 1 12); do
-        if multipass exec samba-ad -- \
+        if limactl shell samba-ad -- \
             timeout 10 bash -c \
             'wget -q --spider --timeout=8 http://ports.ubuntu.com/ubuntu-ports/dists/noble/Release' \
             2>/dev/null; then
@@ -134,19 +142,26 @@ netplan apply 2>/dev/null || true"
         sleep 10
       done
       if ! $_vm_http_ok; then
-        echo "[samba] ERROR: HTTP unreachable after bridged network — check en0 DHCP"
+        echo "[samba] ERROR: HTTP unreachable — check Lima shared network (socket_vmnet)"
         exit 1
       fi
       echo "[samba] HTTP connectivity confirmed"
 
-      echo "[samba] Transferring provisioning script..."
-      multipass transfer /tmp/samba-provision.sh samba-ad:/tmp/samba-provision.sh
+      echo "[samba] Copying provisioning script..."
+      limactl copy /tmp/samba-provision.sh samba-ad:/tmp/samba-provision.sh
 
       echo "[samba] Running provisioning script (packages + domain setup)..."
-      multipass exec samba-ad -- sudo bash /tmp/samba-provision.sh
+      limactl shell samba-ad -- sudo bash /tmp/samba-provision.sh
 
-      SAMBA_IP=$(multipass info samba-ad --format json \
-        | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])")
+      SAMBA_IP=$(limactl list --format json \
+        | python3 -c "
+import json, sys
+vms = json.load(sys.stdin)
+vm = next((v for v in vms if v['name'] == 'samba-ad'), {})
+nets = vm.get('network') or vm.get('networks') or []
+ip = next((n.get('localIPV4','') for n in nets if n.get('localIPV4') and not n.get('localIPV4','').startswith('127.')), '')
+print(ip)
+" 2>/dev/null || echo "")
       echo "[samba] VM ready — IP: $SAMBA_IP"
       echo "[samba] Domain: ${var.ad_domain}"
     BASH
@@ -156,7 +171,7 @@ netplan apply 2>/dev/null || true"
     when    = destroy
     command = <<-BASH
       echo "[samba] Deleting samba-ad VM..."
-      multipass delete samba-ad --purge 2>/dev/null || true
+      limactl delete --force samba-ad 2>/dev/null || true
       echo "[samba] samba-ad VM deleted"
     BASH
   }
@@ -170,18 +185,10 @@ resource "time_sleep" "samba_stabilise" {
 
 # ── Corp Client VM ────────────────────────────────────────────────────────────
 # Azure equivalent: a corporate-managed workstation or Azure AD–joined device.
-# On-prem this would be a Windows or Linux machine domain-joined via Group Policy
-# or realmd. Here we use realmd + SSSD to join the Ubuntu VM to the Samba domain,
-# giving us AD user login, Kerberos tickets, and LDAP integration out of the box.
-#
-# Provisioned via cloud-init: packages (including XFCE4 + VNC) install during
-# boot; a single embedded script handles domain join and desktop setup.
-# SAMBA_IP is obtained at runtime from multipass info and substituted into the
-# rendered template by sed before launching the VM.
+# Provisioned via Lima with cloud-init user-data for domain join + XFCE4 + VNC.
 
 # Render the template with all Terraform-known values. SAMBA_IP is a runtime
-# value (the actual samba-ad VM IP); a placeholder is used here and swapped
-# out by sed in the provisioner once multipass info gives us the real IP.
+# value substituted by sed once the samba-ad VM IP is known.
 resource "local_file" "corp_client_cloud_init_base" {
   filename        = "/tmp/corp-client-cloud-init.tpl"
   file_permission = "0600"
@@ -207,67 +214,86 @@ resource "null_resource" "corp_client_vm" {
     command = <<-BASH
       set -euo pipefail
 
-      SAMBA_IP=$(multipass info samba-ad --format json \
-        | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])")
+      SAMBA_IP=$(limactl list --format json \
+        | python3 -c "
+import json, sys
+vms = json.load(sys.stdin)
+vm = next((v for v in vms if v['name'] == 'samba-ad'), {})
+nets = vm.get('network') or vm.get('networks') or []
+ip = next((n.get('localIPV4','') for n in nets if n.get('localIPV4') and not n.get('localIPV4','').startswith('127.')), '')
+print(ip)
+" 2>/dev/null || echo "")
       echo "[client] SambaAD IP: $SAMBA_IP"
 
       sed "s/SAMBA_IP_PLACEHOLDER/$SAMBA_IP/g" \
         /tmp/corp-client-cloud-init.tpl > /tmp/corp-client-cloud-init.yaml
 
       echo "[client] Removing any pre-existing corp-client VM..."
-      multipass delete corp-client --purge 2>/dev/null || true
+      limactl delete --force corp-client 2>/dev/null || true
 
-      # Use the Packer-built base image if cached — saves 15-20 min on first run
-      # (XFCE4, Firefox, k8s tools, Azure CLI are all pre-installed).
-      _CLIENT_BASE="$${HOME}/.lab-cache/images/corp-client-base.tar.gz"
+      # Use the Packer-built base image if cached.
+      _CLIENT_BASE="$${HOME}/.lab-cache/images/corp-client-base.qcow2"
       if [[ -f "$_CLIENT_BASE" ]]; then
         _LAUNCH_IMAGE="file://$_CLIENT_BASE"
         echo "[client] Using Packer base image — packages pre-installed ($${_CLIENT_BASE})"
       else
-        _LAUNCH_IMAGE="24.04"
+        _LAUNCH_IMAGE="https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
         echo "[client] No Packer cache found — packages will install via cloud-init (~15-20 min)"
         echo "[client] Tip: run IaC/packer/build.sh corp-client to pre-build the image"
       fi
 
-      echo "[client] Launching corp-client VM (bridged to en0 for direct internet)..."
-      multipass launch "$_LAUNCH_IMAGE" \
-        --name corp-client \
-        --cpus "${var.client_vm_cpus}" \
-        --memory "${var.client_vm_memory}" \
-        --disk "${var.client_vm_disk}" \
-        --network en0 \
-        --cloud-init /tmp/corp-client-cloud-init.yaml \
-        --timeout 900
+      _mem_lima=$(echo "${var.client_vm_memory}" | sed 's/G$/GiB/; s/M$/MiB/')
+      _disk_lima=$(echo "${var.client_vm_disk}"   | sed 's/G$/GiB/; s/M$/MiB/')
 
-      echo "[client] Waiting 15s for bridged interface DHCP..."
-      sleep 15
+      echo "[client] Generating Lima instance config..."
+      cat > /tmp/lima-corp-client.yaml << LIMAYAML
+images:
+  - location: "$_LAUNCH_IMAGE"
+    arch: "x86_64"
+vmType: "qemu"
+os: "Linux"
+cpus: ${var.client_vm_cpus}
+memory: "$_mem_lima"
+disk: "$_disk_lima"
+networks:
+  - lima: "shared"
+mounts: []
+ssh:
+  localPort: 0
+  loadDotSSHPubKeys: false
+userData:
+  location: "file:///tmp/corp-client-cloud-init.yaml"
+LIMAYAML
 
-      echo "[client] Removing Multipass NAT default route (prefer bridged interface)..."
-      timeout 30 multipass exec corp-client -- sudo ip route del default via 192.168.252.1 2>/dev/null || true
+      echo "[client] Launching corp-client Lima VM (cloud-init will run domain join + VNC setup)..."
+      limactl start --name corp-client --timeout 900s /tmp/lima-corp-client.yaml
 
-      # Assign static IP to the bridged interface so corp-client is reachable at a
-      # predictable address within 172.16.2.0/24.
+      echo "[client] Waiting 10s for network interface to settle..."
+      sleep 10
+
+      # Configure static IP if specified.
       if [[ -n "${var.corp_client_static_ip}" ]]; then
-        echo "[client] Configuring static IP ${var.corp_client_static_ip}/24 on enp0s2..."
-        timeout 30 multipass exec corp-client -- sudo bash -c "cat > /etc/netplan/61-static-bridge.yaml << 'NETPLAN'
+        echo "[client] Configuring static IP ${var.corp_client_static_ip}/24 on enp0s1..."
+        timeout 30 limactl shell corp-client -- sudo bash -c "cat > /etc/netplan/61-static-lima.yaml << 'NETPLAN'
 network:
   version: 2
   ethernets:
-    enp0s2:
+    enp0s1:
+      dhcp4: false
       addresses: [${var.corp_client_static_ip}/24]
       routes:
         - to: default
           via: ${var.vm_subnet_gateway}
       nameservers:
-        addresses: [${var.vm_subnet_gateway}, 8.8.8.8]
+        addresses: [8.8.8.8, ${var.vm_subnet_gateway}]
 NETPLAN
-chmod 600 /etc/netplan/61-static-bridge.yaml
+chmod 600 /etc/netplan/61-static-lima.yaml
 netplan apply 2>/dev/null || true" || true
         echo "[client] Static IP configured — corp-client is at ${var.corp_client_static_ip}"
       fi
 
       echo "[client] Streaming cloud-init log..."
-      multipass exec corp-client -- bash -c '
+      limactl shell corp-client -- bash -c '
         until [ -f /var/log/cloud-init-output.log ]; do sleep 1; done
         exec tail -F /var/log/cloud-init-output.log
       ' &
@@ -278,7 +304,7 @@ netplan apply 2>/dev/null || true" || true
       python3 -c "
 import subprocess, sys
 r = subprocess.run(
-    ['multipass', 'exec', 'corp-client', '--', 'cloud-init', 'status', '--wait'],
+    ['limactl', 'shell', 'corp-client', '--', 'cloud-init', 'status', '--wait'],
     timeout=900)
 sys.exit(r.returncode)
 " || _CI_RC=$?
@@ -288,22 +314,29 @@ sys.exit(r.returncode)
 
       if [[ $_CI_RC -ne 0 ]]; then
         echo "[client] ERROR: cloud-init finished with rc=$_CI_RC — last 60 lines:"
-        multipass exec corp-client -- sudo tail -60 /var/log/cloud-init-output.log 2>/dev/null || true
+        limactl shell corp-client -- sudo tail -60 /var/log/cloud-init-output.log 2>/dev/null || true
         exit 1
       fi
 
-      if ! multipass exec corp-client -- grep -q '\[client\] Client provisioning complete\.' \
+      if ! limactl shell corp-client -- grep -q '\[client\] Client provisioning complete\.' \
           /var/log/cloud-init-output.log 2>/dev/null; then
         echo "[client] ERROR: client-setup.sh did not reach completion — last 30 lines:"
-        multipass exec corp-client -- sudo tail -30 /var/log/cloud-init-output.log 2>/dev/null || true
+        limactl shell corp-client -- sudo tail -30 /var/log/cloud-init-output.log 2>/dev/null || true
         exit 1
       fi
 
-      CLIENT_IP=$(multipass info corp-client --format json \
-        | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['ipv4'][0])")
+      CLIENT_IP=$(limactl list --format json \
+        | python3 -c "
+import json, sys
+vms = json.load(sys.stdin)
+vm = next((v for v in vms if v['name'] == 'corp-client'), {})
+nets = vm.get('network') or vm.get('networks') or []
+ip = next((n.get('localIPV4','') for n in nets if n.get('localIPV4') and not n.get('localIPV4','').startswith('127.')), '')
+print(ip)
+" 2>/dev/null || echo "")
       echo "[client] corp-client ready — IP: $CLIENT_IP"
       echo "[client] VNC: open vnc://$CLIENT_IP:5901"
-      echo "[client] Shell: multipass shell corp-client"
+      echo "[client] Shell: limactl shell corp-client"
     BASH
   }
 
@@ -311,7 +344,7 @@ sys.exit(r.returncode)
     when    = destroy
     command = <<-BASH
       echo "[client] Deleting corp-client VM..."
-      multipass delete corp-client --purge 2>/dev/null || true
+      limactl delete --force corp-client 2>/dev/null || true
       echo "[client] corp-client VM deleted"
     BASH
   }

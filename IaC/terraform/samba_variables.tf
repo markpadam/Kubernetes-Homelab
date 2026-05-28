@@ -36,7 +36,7 @@ variable "ad_test_user2_pass" {
 }
 
 variable "samba_vm_cpus" {
-  description = "CPU count for the samba-ad Multipass VM."
+  description = "CPU count for the samba-ad Lima VM."
   type        = number
   default     = 2
   validation {
@@ -46,27 +46,27 @@ variable "samba_vm_cpus" {
 }
 
 variable "samba_vm_memory" {
-  description = "Memory for the samba-ad Multipass VM (Multipass size format: 2G, 1500M, etc.)."
+  description = "Memory for the samba-ad Lima VM (Lima size format: 2G, 1500M, etc.)."
   type        = string
   default     = "2G"
   validation {
     condition     = can(regex("^[0-9]+(M|G)$", var.samba_vm_memory))
-    error_message = "samba_vm_memory must be a Multipass size like 2G, 1500M."
+    error_message = "samba_vm_memory must be a Lima size like 2G, 1500M."
   }
 }
 
 variable "samba_vm_disk" {
-  description = "Disk size for the samba-ad Multipass VM."
+  description = "Disk size for the samba-ad Lima VM."
   type        = string
   default     = "20G"
   validation {
     condition     = can(regex("^[0-9]+(M|G)$", var.samba_vm_disk))
-    error_message = "samba_vm_disk must be a Multipass size like 20G, 5000M."
+    error_message = "samba_vm_disk must be a Lima size like 20G, 5000M."
   }
 }
 
 variable "client_vm_cpus" {
-  description = "CPU count for the corp-client Multipass VM."
+  description = "CPU count for the corp-client Lima VM."
   type        = number
   default     = 2
   validation {
@@ -76,22 +76,22 @@ variable "client_vm_cpus" {
 }
 
 variable "client_vm_memory" {
-  description = "Memory for the corp-client Multipass VM. XFCE + VNC needs at least 2G."
+  description = "Memory for the corp-client Lima VM. XFCE + VNC needs at least 2G."
   type        = string
   default     = "2G"
   validation {
     condition     = can(regex("^[0-9]+(M|G)$", var.client_vm_memory))
-    error_message = "client_vm_memory must be a Multipass size like 2G, 1500M."
+    error_message = "client_vm_memory must be a Lima size like 2G, 1500M."
   }
 }
 
 variable "client_vm_disk" {
-  description = "Disk size for the corp-client Multipass VM."
+  description = "Disk size for the corp-client Lima VM."
   type        = string
   default     = "10G"
   validation {
     condition     = can(regex("^[0-9]+(M|G)$", var.client_vm_disk))
-    error_message = "client_vm_disk must be a Multipass size like 10G, 5000M."
+    error_message = "client_vm_disk must be a Lima size like 10G, 5000M."
   }
 }
 
@@ -103,19 +103,19 @@ variable "vnc_password" {
 }
 
 variable "samba_vm_static_ip" {
-  description = "Static IP for samba-ad VM on the bridged interface (172.16.2.0/24 subnet). Leave empty to use DHCP."
+  description = "Static IP for samba-ad VM on the Lima shared network (192.168.105.0/24). Leave empty to use DHCP."
   type        = string
-  default     = "172.16.2.10"
+  default     = "192.168.105.10"
 }
 
 variable "corp_client_static_ip" {
-  description = "Static IP for corp-client VM on the bridged interface (172.16.2.0/24 subnet). Leave empty to use DHCP."
+  description = "Static IP for corp-client VM on the Lima shared network (192.168.105.0/24). Leave empty to use DHCP."
   type        = string
-  default     = "172.16.2.11"
+  default     = "192.168.105.11"
 }
 
 variable "vm_subnet_gateway" {
-  description = "Default gateway for the 172.16.2.0/24 VM subnet."
+  description = "Default gateway for the Lima shared network (192.168.105.0/24)."
   type        = string
-  default     = "172.16.0.1"
+  default     = "192.168.105.1"
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Provisions the corp-client-base Multipass VM.
+# Provisions the corp-client-base Lima VM.
 #
 # Baked in (no runtime variables needed):
 #   Domain toolchain  : realmd, sssd, sssd-tools, adcli, krb5-user
@@ -15,7 +15,7 @@
 # NOT baked in (requires runtime values — handled by cloud-init at apply time):
 #   DNS configuration (needs Samba IP), domain join, VNC password, /etc/hosts
 #
-# Runs on the Mac (shell-local provisioner) and drives Multipass via CLI.
+# Runs on the Mac (shell-local provisioner) and drives Lima via limactl.
 # Called by IaC/packer/corp-client-base.pkr.hcl — not intended to run directly.
 set -euo pipefail
 
@@ -24,29 +24,45 @@ CPUS="${CPUS:-2}"
 MEMORY="${MEMORY:-3G}"
 DISK="${DISK:-20G}"
 
+MEM_LIMA=$(echo "$MEMORY" | sed 's/G$/GiB/; s/M$/MiB/')
+DISK_LIMA=$(echo "$DISK"   | sed 's/G$/GiB/; s/M$/MiB/')
+
 echo "[packer/corp-client-base] Cleaning up any previous build VM..."
-multipass delete "$VM_NAME" --purge 2>/dev/null || true
+limactl delete --force "$VM_NAME" 2>/dev/null || true
+
+echo "[packer/corp-client-base] Generating Lima instance config..."
+cat > "/tmp/lima-${VM_NAME}.yaml" << LIMAYAML
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+vmType: "qemu"
+os: "Linux"
+cpus: $CPUS
+memory: "$MEM_LIMA"
+disk: "$DISK_LIMA"
+networks:
+  - lima: "shared"
+mounts: []
+ssh:
+  localPort: 0
+  loadDotSSHPubKeys: false
+LIMAYAML
 
 echo "[packer/corp-client-base] Launching Ubuntu 24.04 VM (${CPUS} CPU / ${MEMORY} RAM / ${DISK} disk)..."
-multipass launch 24.04 \
-  --name "$VM_NAME" \
-  --cpus "$CPUS" \
-  --memory "$MEMORY" \
-  --disk "$DISK" \
-  --timeout 180
+limactl start --name "$VM_NAME" --timeout 180s "/tmp/lima-${VM_NAME}.yaml"
 
 echo "[packer/corp-client-base] Waiting for cloud-init to finish initial boot..."
-multipass exec "$VM_NAME" -- cloud-init status --wait 2>/dev/null || true
+limactl shell "$VM_NAME" -- cloud-init status --wait 2>/dev/null || true
 
 echo "[packer/corp-client-base] Forcing IPv4 for apt..."
-multipass exec "$VM_NAME" -- sudo bash -c \
+limactl shell "$VM_NAME" -- sudo bash -c \
   'echo "Acquire::ForceIPv4 \"true\";" > /etc/apt/apt.conf.d/99force-ipv4'
 
 echo "[packer/corp-client-base] Updating apt cache..."
-multipass exec "$VM_NAME" -- sudo apt-get update -qq
+limactl shell "$VM_NAME" -- sudo apt-get update -qq
 
 echo "[packer/corp-client-base] Installing domain join + desktop + VNC + utility packages..."
-multipass exec "$VM_NAME" -- sudo env DEBIAN_FRONTEND=noninteractive \
+limactl shell "$VM_NAME" -- sudo env DEBIAN_FRONTEND=noninteractive \
   apt-get install -y \
     realmd \
     sssd \
@@ -74,7 +90,7 @@ multipass exec "$VM_NAME" -- sudo env DEBIAN_FRONTEND=noninteractive \
 
 # ── Firefox (Mozilla PPA — avoids snap) ───────────────────────────────────────
 echo "[packer/corp-client-base] Installing Firefox (Mozilla PPA)..."
-multipass exec "$VM_NAME" -- sudo bash -s << 'FIREFOX'
+limactl shell "$VM_NAME" -- sudo bash -s << 'FIREFOX'
 wget -qO - https://packages.mozilla.org/apt/repo-signing-key.gpg \
   | gpg --dearmor > /etc/apt/trusted.gpg.d/packages.mozilla.org.gpg
 echo "deb [signed-by=/etc/apt/trusted.gpg.d/packages.mozilla.org.gpg] https://packages.mozilla.org/apt mozilla main" \
@@ -87,7 +103,7 @@ FIREFOX
 
 # ── Sublime Text ──────────────────────────────────────────────────────────────
 echo "[packer/corp-client-base] Installing Sublime Text..."
-multipass exec "$VM_NAME" -- sudo bash -s << 'SUBLIME'
+limactl shell "$VM_NAME" -- sudo bash -s << 'SUBLIME'
 wget -qO - https://download.sublimetext.com/sublimehq-pub.gpg \
   | gpg --dearmor > /etc/apt/trusted.gpg.d/sublimehq-archive.gpg
 echo "deb https://download.sublimetext.com/ apt/stable/" \
@@ -97,11 +113,8 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y sublime-text
 SUBLIME
 
 # ── Azure CLI ─────────────────────────────────────────────────────────────────
-# Covers: Azurite blob ops (az storage), Service Bus (az servicebus),
-# Container Registry (az acr), Cosmos DB (az cosmosdb), SQL (az sql),
-# Azure DevOps pipelines (az devops / az pipelines extension)
 echo "[packer/corp-client-base] Installing Azure CLI..."
-multipass exec "$VM_NAME" -- sudo bash -s << 'AZCLI'
+limactl shell "$VM_NAME" -- sudo bash -s << 'AZCLI'
 curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
   | gpg --dearmor > /etc/apt/trusted.gpg.d/microsoft.gpg
 UBUNTU_CODENAME=$(. /etc/os-release && echo "$UBUNTU_CODENAME")
@@ -116,7 +129,7 @@ AZCLI
 
 # ── azcopy ────────────────────────────────────────────────────────────────────
 echo "[packer/corp-client-base] Installing azcopy..."
-multipass exec "$VM_NAME" -- sudo bash -s << 'AZCOPY'
+limactl shell "$VM_NAME" -- sudo bash -s << 'AZCOPY'
 ARCH=$(dpkg --print-architecture)
 case "$ARCH" in arm64) AZ_ARCH=arm64 ;; *) AZ_ARCH=amd64 ;; esac
 TARBALL=$(curl -fsSL "https://aka.ms/downloadazcopy-v10-linux-${AZ_ARCH}" -w '%{url_effective}' -o /dev/null 2>/dev/null \
@@ -130,7 +143,7 @@ AZCOPY
 
 # ── Kubernetes + GitOps + Azure toolchain ─────────────────────────────────────
 echo "[packer/corp-client-base] Installing kubectl, helm, flux, vault, argocd, argo, k9s, stern, kubectx/kubens, yq..."
-multipass exec "$VM_NAME" -- sudo bash -s << 'K8STOOLS'
+limactl shell "$VM_NAME" -- sudo bash -s << 'K8STOOLS'
 set -euo pipefail
 
 ARCH=$(dpkg --print-architecture)
@@ -171,14 +184,14 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y kubectl helm vault
 # flux
 curl -fsSL https://fluxcd.io/install.sh | bash >/dev/null
 
-# argocd CLI — ArgoCD GitOps platform (default lab component)
+# argocd CLI
 ARGOCD_VERSION=$(curl -fsSL https://api.github.com/repos/argoproj/argo-cd/releases/latest \
   | grep '"tag_name"' | head -1 | cut -d'"' -f4)
 curl -fsSL "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-${GH_ARCH}" \
   -o /usr/local/bin/argocd
 chmod +x /usr/local/bin/argocd
 
-# argo CLI — Argo Workflows (lab component)
+# argo CLI — Argo Workflows
 ARGO_VERSION=$(curl -fsSL https://api.github.com/repos/argoproj/argo-workflows/releases/latest \
   | grep '"tag_name"' | head -1 | cut -d'"' -f4)
 curl -fsSL "https://github.com/argoproj/argo-workflows/releases/download/${ARGO_VERSION}/argo-linux-${GH_ARCH}.gz" \
@@ -193,14 +206,14 @@ curl -fsSL "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s
 DEBIAN_FRONTEND=noninteractive dpkg -i /tmp/k9s.deb || apt-get -f install -y
 rm -f /tmp/k9s.deb
 
-# stern — multi-pod log tailing (essential for watching KEDA scale events)
+# stern
 STERN_VERSION=$(curl -fsSL https://api.github.com/repos/stern/stern/releases/latest \
   | grep '"tag_name"' | head -1 | cut -d'"' -f4 | tr -d 'v')
 curl -fsSL "https://github.com/stern/stern/releases/download/v${STERN_VERSION}/stern_${STERN_VERSION}_linux_${GH_ARCH}.tar.gz" \
   | tar -xz -C /usr/local/bin stern
 chmod +x /usr/local/bin/stern
 
-# kubectx / kubens — context and namespace switching
+# kubectx / kubens
 KUBECTX_VERSION=$(curl -fsSL https://api.github.com/repos/ahmetb/kubectx/releases/latest \
   | grep '"tag_name"' | head -1 | cut -d'"' -f4 | tr -d 'v')
 curl -fsSL "https://github.com/ahmetb/kubectx/releases/download/v${KUBECTX_VERSION}/kubectx_v${KUBECTX_VERSION}_linux_${GH_ARCH}.tar.gz" \
@@ -235,15 +248,15 @@ done
 K8STOOLS
 
 echo "[packer/corp-client-base] Cleaning up apt cache..."
-multipass exec "$VM_NAME" -- sudo apt-get clean
-multipass exec "$VM_NAME" -- sudo rm -rf /var/lib/apt/lists/*
+limactl shell "$VM_NAME" -- sudo apt-get clean
+limactl shell "$VM_NAME" -- sudo rm -rf /var/lib/apt/lists/*
 
 echo "[packer/corp-client-base] Resetting cloud-init so it re-runs on next launch..."
-multipass exec "$VM_NAME" -- sudo cloud-init clean --seed --logs
-multipass exec "$VM_NAME" -- sudo truncate -s 0 /etc/machine-id
-multipass exec "$VM_NAME" -- sudo rm -f /var/lib/dbus/machine-id
+limactl shell "$VM_NAME" -- sudo cloud-init clean --seed --logs
+limactl shell "$VM_NAME" -- sudo truncate -s 0 /etc/machine-id
+limactl shell "$VM_NAME" -- sudo rm -f /var/lib/dbus/machine-id
 
 echo "[packer/corp-client-base] Stopping VM before export..."
-multipass stop "$VM_NAME"
+limactl stop "$VM_NAME"
 
 echo "[packer/corp-client-base] Provisioning complete — ready for export."

@@ -1,5 +1,7 @@
 # ─────────────────────────────────────────────
 #  lib-common.sh — shared helpers for setup-lab.sh and resume-lab.sh.
+# shellcheck source=lib-lima.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib-lima.sh"
 #
 #  This file does NOT define logging functions or color variables. The
 #  calling script must define `log`, `success`, `warn`, and `error` (any

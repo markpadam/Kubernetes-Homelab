@@ -198,11 +198,10 @@ success "Cluster up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') no
 SAMBA_IP=""
 if feature_enabled samba-ad; then
   step "Restoring SambaAD VM"
-  VM_STATUS=$(multipass info samba-ad --format json 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['state'])" 2>/dev/null || echo "missing")
+  VM_STATUS=$(_lima_status samba-ad)
   if [[ "$VM_STATUS" == "Stopped" ]]; then
     log "Starting samba-ad VM..."
-    multipass start samba-ad
+    _lima_start samba-ad
     success "samba-ad started"
   elif [[ "$VM_STATUS" == "Running" ]]; then
     success "samba-ad already running"
@@ -210,9 +209,7 @@ if feature_enabled samba-ad; then
     warn "samba-ad not found — run ./aks-lab setup to recreate it"
   fi
 
-  SAMBA_IP=$(multipass info samba-ad --format json 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" \
-    2>/dev/null || echo "")
+  SAMBA_IP=$(_lima_ip samba-ad)
 
   if [[ -n "$SAMBA_IP" ]]; then
     log "Re-patching CoreDNS to forward corp.internal → SambaAD ($SAMBA_IP)..."
@@ -231,11 +228,10 @@ fi
 
 if feature_enabled corp-client; then
   step "Restoring Corp Client VM"
-  VM_STATUS=$(multipass info corp-client --format json 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['state'])" 2>/dev/null || echo "missing")
+  VM_STATUS=$(_lima_status corp-client)
   if [[ "$VM_STATUS" == "Stopped" ]]; then
     log "Starting corp-client VM..."
-    multipass start corp-client
+    _lima_start corp-client
     success "corp-client started"
   elif [[ "$VM_STATUS" == "Running" ]]; then
     success "corp-client already running"
@@ -243,9 +239,7 @@ if feature_enabled corp-client; then
     warn "corp-client not found — run ./aks-lab setup to recreate it"
   fi
 
-  CORP_CLIENT_IP=$(multipass info corp-client --format json 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['ipv4'][0])" \
-    2>/dev/null || echo "")
+  CORP_CLIENT_IP=$(_lima_ip corp-client)
   if [[ -n "$CORP_CLIENT_IP" ]]; then
     success "Corp Client desktop: open vnc://${CORP_CLIENT_IP}:5901  (password: AksLab1!)"
   fi
@@ -409,25 +403,22 @@ _run_health_checks() {
 
   _chk_section "Identity"
   if feature_enabled samba-ad; then
-    _SAMBA_STATE=$(multipass info samba-ad --format json 2>/dev/null \
-      | python3 -c "import sys,json; d=json.load(sys.stdin); i=d['info']['samba-ad']; print(i['state']+'|'+i['ipv4'][0])" \
-      2>/dev/null || echo "Error|")
-    if [[ "$_SAMBA_STATE" == Running* ]]; then
-      _chk_ok "samba-ad" "VM running — ${_SAMBA_STATE#*|}"
+    _SAMBA_STATUS=$(_lima_status samba-ad)
+    _SAMBA_IP=$(_lima_ip samba-ad)
+    if [[ "$_SAMBA_STATUS" == "Running" ]]; then
+      _chk_ok "samba-ad" "VM running — ${_SAMBA_IP:-no-ip}"
     else
-      _chk_fail "samba-ad" "VM not running (state: ${_SAMBA_STATE%|*})"
+      _chk_fail "samba-ad" "VM not running (status: $_SAMBA_STATUS)"
     fi
   fi
   feature_enabled dex          && _check_ns "dex"          dex
   feature_enabled oauth2-proxy && _check_ns "oauth2-proxy" oauth2-proxy
   if feature_enabled corp-client; then
-    _CLIENT_STATE=$(multipass info corp-client --format json 2>/dev/null \
-      | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['state'])" \
-      2>/dev/null || echo "Error")
-    if [[ "$_CLIENT_STATE" == "Running" ]]; then
+    _CLIENT_STATUS=$(_lima_status corp-client)
+    if [[ "$_CLIENT_STATUS" == "Running" ]]; then
       _chk_ok "corp-client" "VM running"
     else
-      _chk_fail "corp-client" "VM not running (state: $_CLIENT_STATE)"
+      _chk_fail "corp-client" "VM not running (status: $_CLIENT_STATUS)"
     fi
   fi
 

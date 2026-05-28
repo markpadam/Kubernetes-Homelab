@@ -10,6 +10,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+# shellcheck source=lib-common.sh
+source "$SCRIPT_DIR/lib-common.sh"
 
 PROFILE="${LAB_PROFILE:-aks-lab}"
 DELETE_IMAGES=false
@@ -112,15 +114,14 @@ else
   warn "No Terraform state found — skipping"
 fi
 
-# ── Multipass VMs ─────────────────────────────
-step "Deleting Multipass VMs"
+# ── Lima VMs ──────────────────────────────────
+step "Deleting Lima VMs"
 
 for VM in samba-ad corp-client; do
-  VM_STATUS=$(multipass info "$VM" --format json 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['$VM']['state'])" 2>/dev/null || echo "missing")
-  if [[ "$VM_STATUS" != "missing" ]]; then
-    log "Deleting Multipass VM: $VM..."
-    multipass delete --purge "$VM"
+  VM_STATUS=$(_lima_status "$VM")
+  if [[ "$VM_STATUS" != "Deleted" ]]; then
+    log "Deleting Lima VM: $VM..."
+    _lima_delete "$VM"
     success "$VM deleted"
   else
     warn "$VM not found — already deleted"

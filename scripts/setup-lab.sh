@@ -881,11 +881,9 @@ if feature_enabled vault; then
   command -v vault     &>/dev/null || error "Vault CLI required. Run: brew install hashicorp/tap/vault"
 fi
 if feature_enabled samba-ad || feature_enabled corp-client; then
-  command -v multipass &>/dev/null || error "Multipass required for AD VMs. Run: brew install multipass"
+  command -v limactl  &>/dev/null || error "Lima required for identity VMs. Run: brew install lima"
   command -v terraform &>/dev/null || error "Terraform required for AD VMs. Run: brew install terraform"
-  multipass list &>/dev/null \
-    || error "Multipass daemon is not running. Reload it with:
-    sudo launchctl load /Library/LaunchDaemons/com.canonical.multipassd.plist"
+  limactl list &>/dev/null || error "limactl not working. Check: limactl --version"
 fi
 
 if ! docker info &>/dev/null; then
@@ -1018,22 +1016,6 @@ log "Waiting for all nodes to be Ready..."
 kubectl wait --for=condition=Ready nodes --all --timeout=300s
 success "Cluster is up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes ready"
 
-# ── Multipass NAT restore ─────────────────────
-# Starting minikube can disrupt network bridge configuration on macOS,
-# which corrupts multipass NAT rules. Proactively cycle any running
-# multipass VMs now so NAT is healthy before the samba-ad provisioner runs.
-if $CLUSTER_NEEDS_START && command -v multipass &>/dev/null; then
-  if feature_enabled samba-ad || feature_enabled corp-client; then
-    _mp_vms=$(multipass list --format csv 2>/dev/null \
-      | tail -n +2 | grep -iv "^samba-ad," | grep -i ",Running," | cut -d, -f1 || true)
-    if [[ -n "$_mp_vms" ]]; then
-      log "Cycling Multipass VMs to restore NAT rules disrupted by minikube start..."
-      for _vm in $_mp_vms; do multipass stop  "$_vm" 2>/dev/null || true; done
-      for _vm in $_mp_vms; do multipass start "$_vm" 2>/dev/null || true; done
-      success "Multipass VMs cycled — NAT rules restored"
-    fi
-  fi
-fi
 
 # ── Step 2: Build Lab Images ─────────────────
 step "Step 2 — Building Lab Images"
@@ -1782,66 +1764,7 @@ SAMBA_IP=""
 if feature_enabled samba-ad; then
   step "Step 11b — SambaAD Active Directory"
 
-  # Minikube startup can disrupt network bridge configuration on macOS, which
-  # may corrupt multipass's NAT rules — VMs launch but have no internet.
-  # Check now and auto-recover by cycling existing VMs to force NAT re-establishment.
-  # Uses python3 subprocess with a hard timeout so a hung multipass exec (e.g. after
-  # a daemon restart) can never block the script indefinitely.
-  _mp_check_nat() {
-    local _vms
-    _vms=$(multipass list --format csv 2>/dev/null | tail -n +2 \
-             | grep -iv "^samba-ad," | grep -i ",Running," | cut -d, -f1)
-    # No running VMs → nothing to check; treat as OK (NAT not needed yet)
-    [[ -z "$_vms" ]] && return 0
-    for _vm in $_vms; do
-      python3 -c "
-import subprocess, sys
-try:
-    r = subprocess.run(
-        ['multipass','exec','$_vm','--','ping','-c','1','-W','2','8.8.8.8'],
-        timeout=10, capture_output=True)
-    sys.exit(r.returncode)
-except Exception:
-    sys.exit(1)
-" 2>/dev/null && return 0
-    done
-    return 1
-  }
-
-  log "Checking Multipass NAT connectivity..."
-  if ! _mp_check_nat; then
-    warn "Multipass NAT is broken (network bridge disrupted when minikube started)."
-    log "Cycling Multipass VMs to restore NAT rules..."
-    for _vm in $(multipass list --format csv 2>/dev/null | tail -n +2 \
-                   | grep -v "^samba-ad," | cut -d, -f1); do
-      multipass stop "$_vm" 2>/dev/null || true
-    done
-    for _vm in $(multipass list --format csv 2>/dev/null | tail -n +2 \
-                   | grep -v "^samba-ad," | cut -d, -f1); do
-      multipass start "$_vm" 2>/dev/null || true
-    done
-    log "Waiting for Multipass VMs to finish booting (up to 60s)..."
-    _nat_ok=false
-    for _wait in 15 15 15 15; do
-      sleep "$_wait"
-      if _mp_check_nat; then
-        _nat_ok=true
-        break
-      fi
-      log "NAT not ready yet — retrying..."
-    done
-    if ! $_nat_ok; then
-      warn "Multipass NAT still unreachable after VM cycle — proceeding anyway."
-      warn "If Samba provisioning fails with no internet, restart the daemon:"
-      warn "  sudo launchctl load /Library/LaunchDaemons/com.canonical.multipassd.plist"
-    else
-      success "Multipass NAT restored"
-    fi
-  else
-    success "Multipass NAT OK"
-  fi
-
-  log "Terraform will create the samba-ad Multipass VM."
+  log "Terraform will create the samba-ad Lima VM."
   log "This may take 8–12 minutes on first run (image download + Samba provisioning)."
   _start_progress /tmp/samba-terraform-apply.log \
     "Launching VM:Launching samba-ad VM" \
@@ -1854,7 +1777,7 @@ except Exception:
     "Domain ready:\[samba\] Provisioning complete"
   _SAMBA_RC=0
   { terraform -chdir=IaC/terraform apply -auto-approve -input=false \
-      -target=null_resource.multipass_check \
+      -target=null_resource.lima_check \
       -target=null_resource.samba_vm \
       -target=time_sleep.samba_stabilise \
       -var="minikube_profile=${PROFILE}" \
@@ -1865,9 +1788,7 @@ except Exception:
   _stop_progress
   [[ $_SAMBA_RC -eq 0 ]] || error "SambaAD VM provisioning failed. Full provisioner log: /tmp/samba-terraform-apply.log"
 
-  SAMBA_IP=$(multipass info samba-ad --format json 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" \
-    2>/dev/null || echo "")
+  SAMBA_IP=$(_lima_ip samba-ad)
 
   if [[ -z "$SAMBA_IP" ]]; then
     warn "Could not determine samba-ad VM IP — DNS and Dex config may need manual update"
@@ -1897,15 +1818,14 @@ except Exception:
     log "Registering aks-lab.local DNS in SambaAD ($SAMBA_IP → $_MAC_MP_IP)..."
     _samba_dns() {
       # samba-tool dns <verb> <server> <args...>
-      # multipass exec can hang on the Mac side even after the inner process exits
-      # (signal-killed processes don't always trigger a clean EOF on the pty).
-      # Wrap with Python subprocess so the timeout kills multipass exec itself.
+      # limactl shell can hang if the inner process exits without a clean EOF on
+      # the pty. Wrap with Python subprocess so the timeout kills limactl itself.
       local _verb="$1"; shift
       python3 -c "
 import subprocess, sys
 try:
     r = subprocess.run(
-        ['multipass','exec','samba-ad','--','sudo','samba-tool','dns'] + sys.argv[1:] +
+        ['limactl','shell','samba-ad','--','sudo','samba-tool','dns'] + sys.argv[1:] +
         ['-U','Administrator','--password=AksLab!AdDev1'],
         timeout=20, capture_output=True)
     sys.exit(r.returncode)
@@ -2040,7 +1960,7 @@ if feature_enabled corp-client; then
   # Firefox DoH. Uses /etc/hosts (wins over DNS) + disables Firefox TRR.
   if [[ -n "$_MAC_MP_IP" ]]; then
     log "Configuring corp-client hosts file and Firefox DNS..."
-    multipass exec corp-client -- bash -c "
+    _lima_exec corp-client -- bash -c "
       sudo sed -i '/aks-lab.local/d' /etc/hosts
       echo '$_MAC_MP_IP taskflow.aks-lab.local grafana.aks-lab.local argocd.aks-lab.local blob-explorer.aks-lab.local dex.aks-lab.local oauth2-proxy.aks-lab.local vault.aks-lab.local argo-workflows.aks-lab.local dashboard.aks-lab.local' | sudo tee -a /etc/hosts > /dev/null
       PROF=\$(find /home -name 'prefs.js' 2>/dev/null | head -1)
@@ -2051,11 +1971,9 @@ if feature_enabled corp-client; then
     " 2>/dev/null || warn "Could not patch corp-client hosts/Firefox — run manually if needed"
   fi
 
-  _CLIENT_IP=$(multipass info corp-client --format json 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['ipv4'][0])" \
-    2>/dev/null || echo "<corp-client-ip>")
+  _CLIENT_IP=$(_lima_ip corp-client || echo "<corp-client-ip>")
   success "Corp Client VM ready"
-  log "  Shell:   multipass shell corp-client"
+  log "  Shell:   limactl shell corp-client"
   log "  VNC:     open vnc://$_CLIENT_IP:5901"
   log "  Cockpit: https://$_CLIENT_IP:9090  (manage domain, services, logs)"
 else
@@ -2422,25 +2340,22 @@ _run_health_checks() {
 
   _chk_section "Identity"
   if feature_enabled samba-ad; then
-    _SAMBA_STATE=$(multipass info samba-ad --format json 2>/dev/null \
-      | python3 -c "import sys,json; d=json.load(sys.stdin); i=d['info']['samba-ad']; print(i['state']+'|'+i['ipv4'][0])" \
-      2>/dev/null || echo "Error|")
-    if [[ "$_SAMBA_STATE" == Running* ]]; then
-      _chk_ok "samba-ad" "VM running — ${_SAMBA_STATE#*|}"
+    _SAMBA_STATUS=$(_lima_status samba-ad)
+    _SAMBA_IP=$(_lima_ip samba-ad)
+    if [[ "$_SAMBA_STATUS" == "Running" ]]; then
+      _chk_ok "samba-ad" "VM running — ${_SAMBA_IP:-no-ip}"
     else
-      _chk_fail "samba-ad" "VM not running (state: ${_SAMBA_STATE%|*})"
+      _chk_fail "samba-ad" "VM not running (status: $_SAMBA_STATUS)"
     fi
   fi
   feature_enabled dex          && _check_ns "dex"          dex
   feature_enabled oauth2-proxy && _check_ns "oauth2-proxy" oauth2-proxy
   if feature_enabled corp-client; then
-    _CLIENT_STATE=$(multipass info corp-client --format json 2>/dev/null \
-      | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['state'])" \
-      2>/dev/null || echo "Error")
-    if [[ "$_CLIENT_STATE" == "Running" ]]; then
+    _CLIENT_STATUS=$(_lima_status corp-client)
+    if [[ "$_CLIENT_STATUS" == "Running" ]]; then
       _chk_ok "corp-client" "VM running"
     else
-      _chk_fail "corp-client" "VM not running (state: $_CLIENT_STATE)"
+      _chk_fail "corp-client" "VM not running (status: $_CLIENT_STATUS)"
     fi
   fi
 

@@ -53,9 +53,9 @@ if ! $BUILD_SAMBA && ! $BUILD_CLIENT; then
 fi
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
-command -v packer     &>/dev/null || _error "packer not found. Install with: brew install packer"
-command -v multipass  &>/dev/null || _error "multipass not found. Install with: brew install multipass"
-multipass list &>/dev/null        || _error "Multipass daemon not running. Start it or reboot."
+command -v packer   &>/dev/null || _error "packer not found. Install with: brew install packer"
+command -v limactl  &>/dev/null || _error "limactl not found. Install with: brew install lima"
+command -v qemu-img &>/dev/null || _error "qemu-img not found. Install with: brew install qemu"
 
 mkdir -p "$IMAGE_CACHE_DIR"
 

@@ -718,15 +718,13 @@ _disable_toolbox() {
 
 # ── Special: SambaAD ──────────────────────────────────────────────
 _enable_samba_ad() {
-  log "Creating SambaAD Multipass VM via Terraform (3–5 min first run)..."
+  log "Creating SambaAD Lima VM via Terraform (3–5 min first run)..."
   terraform -chdir="$TF_DIR" apply -auto-approve -input=false \
-    -target=null_resource.multipass_check \
+    -target=null_resource.lima_check \
     -target=null_resource.samba_vm \
     -target=time_sleep.samba_stabilise \
     2>&1 | tee /tmp/samba-terraform-apply.log
-  local SAMBA_IP; SAMBA_IP=$(multipass info samba-ad --format json \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" \
-    2>/dev/null || echo "")
+  local SAMBA_IP; SAMBA_IP=$(_lima_ip samba-ad)
   if [[ -n "$SAMBA_IP" ]]; then
     log "Patching CoreDNS: corp.internal → SambaAD ($SAMBA_IP)..."
     kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}' \
@@ -742,7 +740,7 @@ _enable_samba_ad() {
 }
 
 _disable_samba_ad() {
-  log "Destroying SambaAD Multipass VM..."
+  log "Destroying SambaAD Lima VM..."
   terraform -chdir="$TF_DIR" destroy -auto-approve -input=false \
     -target=null_resource.samba_vm \
     -target=time_sleep.samba_stabilise \
@@ -752,9 +750,7 @@ _disable_samba_ad() {
 
 # ── Special: Dex ─────────────────────────────────────────────────
 _enable_dex() {
-  local SAMBA_IP; SAMBA_IP=$(multipass info samba-ad --format json \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])" \
-    2>/dev/null || echo "<samba-ip>")
+  local SAMBA_IP; SAMBA_IP=$(_lima_ip samba-ad || echo "<samba-ip>")
   # DEX_CLIENT_SECRET persists in ~/.aks-lab-secrets so it stays in sync
   # with the value oauth2-proxy uses (both render from $DEX_CLIENT_SECRET).
   local DEX_CLIENT_SECRET
@@ -857,7 +853,7 @@ _disable_oauth2_proxy() {
 #
 # The API server's TLS cert doesn't include the host IP in its SAN, so we
 # set insecure-skip-tls-verify: true. Acceptable for a local lab where the
-# port-forward only exposes the API on the Mac's multipass bridge — never
+# port-forward only exposes the API on the Mac's Lima bridge — never
 # adapt this for any cluster with real users or real network exposure.
 _setup_corp_client_kubeconfig() {
   log "Provisioning kubeconfig for corp-client..."
@@ -877,7 +873,7 @@ _setup_corp_client_kubeconfig() {
 
   # The Mac's IP from the VM's perspective is the VM's default gateway.
   local MAC_IP_FROM_VM
-  MAC_IP_FROM_VM=$(multipass exec corp-client -- ip route 2>/dev/null \
+  MAC_IP_FROM_VM=$(_lima_exec corp-client -- ip route 2>/dev/null \
     | awk '/^default/ {print $3; exit}')
   [[ -z "$MAC_IP_FROM_VM" ]] && {
     warn "Could not determine Mac IP from corp-client perspective — skipping kubeconfig setup"
@@ -905,11 +901,11 @@ users:
     token: ${TOKEN}
 KUBECONFIG_EOF
 
-  multipass exec corp-client -- sudo -u ubuntu mkdir -p /home/ubuntu/.kube >/dev/null 2>&1
-  multipass transfer "$KUBECONFIG_TMP" corp-client:/tmp/kubeconfig >/dev/null
-  multipass exec corp-client -- sudo mv /tmp/kubeconfig /home/ubuntu/.kube/config
-  multipass exec corp-client -- sudo chown -R ubuntu:ubuntu /home/ubuntu/.kube
-  multipass exec corp-client -- sudo chmod 600 /home/ubuntu/.kube/config
+  _lima_exec corp-client -- sudo -u ubuntu mkdir -p /home/ubuntu/.kube >/dev/null 2>&1
+  _lima_copy "$KUBECONFIG_TMP" corp-client:/tmp/kubeconfig >/dev/null
+  _lima_exec corp-client -- sudo mv /tmp/kubeconfig /home/ubuntu/.kube/config
+  _lima_exec corp-client -- sudo chown -R ubuntu:ubuntu /home/ubuntu/.kube
+  _lima_exec corp-client -- sudo chmod 600 /home/ubuntu/.kube/config
   rm -f "$KUBECONFIG_TMP"
 
   # Also start the API port-forward so kubectl from inside the VM has
@@ -929,9 +925,7 @@ _enable_corp_client() {
   terraform -chdir="$TF_DIR" apply -auto-approve -input=false \
     -target=null_resource.corp_client_vm \
     2>&1 | tee /tmp/corp-client-terraform-apply.log
-  local CLIENT_IP; CLIENT_IP=$(multipass info corp-client --format json \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['ipv4'][0])" \
-    2>/dev/null || echo "")
+  local CLIENT_IP; CLIENT_IP=$(_lima_ip corp-client)
   _setup_corp_client_kubeconfig
   success "Corp Client ready — open vnc://${CLIENT_IP}:5901  (password: AksLab1!)"
 }
