@@ -845,6 +845,10 @@ echo -e "  ${DIM}  MacBook: ensure /etc/resolver/aks-lab.local points to ${LAB_H
 
 printf "\n" >&3
 
+# Needed here (set -u): canonical assignment is near the Vault step, but
+# LAB_HOST_IP is echoed on the line above before that section is reached.
+LAB_HOST_IP="${LAB_HOST_IP:-172.16.0.10}"
+
 # ── TUI bootstrap ─────────────────────────────────────────────────────────────
 # Start the Python rich TUI companion now that all input is collected.
 # Not used in --verbose or CI mode (those keep the traditional scrolling output).
