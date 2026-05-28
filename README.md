@@ -137,13 +137,15 @@ Dex + OAuth2 Proxy ship enabled by default with a **static admin user** (`admin@
 > Start Colima with enough memory before running, e.g. `colima start --memory 14`. The script warns you if there isn't enough.
 
 ```bash
-# Install dependencies (first time only)
-brew install colima docker minikube kubectl helm fluxcd/tap/flux \
-             hashicorp/tap/vault terraform multipass packer
-
-# Clone and run (--recurse-submodules also fetches the ADO bicep/pipelines repo)
+# Clone the repo (--recurse-submodules also fetches the ADO bicep/pipelines repo)
 git clone --recurse-submodules https://github.com/markpadam/Kubernetes-Homelab.git
 cd Kubernetes-Homelab
+
+# Install all required tools (first time only — skips anything already present)
+./aks-lab prereqs
+
+# Start Colima with enough memory for the Standard preset, then provision
+colima start --memory 14
 ./aks-lab setup
 ```
 
@@ -175,6 +177,7 @@ After setup, run `./aks-lab verify` to confirm every component and ingress is ac
 
 ```bash
 ./aks-lab                # interactive TUI menu (default if you forget the command)
+./aks-lab prereqs        # install required tools (first time only)
 ./aks-lab setup          # build and start the lab
 ./aks-lab verify         # post-setup health check (exits non-zero if anything is broken)
 ./aks-lab pause          # minikube stop -p aks-lab (keeps all state)

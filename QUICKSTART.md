@@ -2,9 +2,13 @@
 
 ## Prerequisites
 
+Install all required tools with the bundled script (handles Homebrew, taps, and Python deps):
+
 ```bash
-brew install colima docker minikube kubectl helm fluxcd/tap/flux hashicorp/tap/vault terraform multipass packer
+./aks-lab prereqs
 ```
+
+This installs: `colima`, `docker`, `minikube`, `kubectl`, `helm`, `flux`, `vault`, `terraform`, `multipass`, `packer`, and the Python `rich` package used by the setup TUI. Already-installed tools are skipped.
 
 Colima must be running before any lab script is started. Start it with the memory your chosen tier needs (see table below), then leave it running — the lab scripts will detect it automatically.
 

@@ -25,6 +25,9 @@ _usage() {
   echo -e "  ./aks-lab                          interactive menu"
   echo -e "  ./aks-lab <command> [args...]      run a command directly
 "
+  echo -e "${BOLD}Setup:${RESET}"
+  echo -e "  prereqs                            install Homebrew tools + Python deps"
+  echo -e ""
   echo -e "${BOLD}Lifecycle:${RESET}"
   echo -e "  setup [--all|--minimal|--standard|--verbose|--reconfigure-ado]"
   echo -e "                                     build and start the lab (~15 min)"
@@ -64,6 +67,10 @@ _cluster_running() {
 case "${1:-}" in
   ""|menu|tui)
     exec python3 "$SCRIPTS/menu.py" "$SCRIPT_DIR"
+    ;;
+  prereqs|install-prereqs)
+    shift
+    exec bash "$SCRIPTS/install-prereqs.sh" "$@"
     ;;
   setup)
     shift

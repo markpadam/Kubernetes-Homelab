@@ -20,7 +20,13 @@ Every resource is paired with its Azure equivalent in comments — the lab model
 
 ## Prerequisites
 
-Terraform and Multipass must both be installed:
+Terraform and Multipass must both be installed. The easiest way is to run the lab prereqs script from the repo root:
+
+```bash
+./aks-lab prereqs
+```
+
+Or install manually:
 
 ```bash
 brew install terraform multipass

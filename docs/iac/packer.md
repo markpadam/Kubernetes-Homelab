@@ -13,7 +13,13 @@ The Packer templates live in `IaC/packer/`, alongside `IaC/terraform/`. Images a
 
 ## Prerequisites
 
-Packer must be installed (it is not needed for a standard lab run):
+Packer must be installed (it is not needed for a standard lab run). It is included in the lab prereqs script:
+
+```bash
+./aks-lab prereqs
+```
+
+Or install manually:
 
 ```bash
 brew install packer
