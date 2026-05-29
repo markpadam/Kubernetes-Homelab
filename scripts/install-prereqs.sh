@@ -46,7 +46,6 @@ FORMULAE=(
   "lima              Lima (identity VMs — replaces Multipass)"
   "socket_vmnet      socket_vmnet (Lima shared network)"
   "packer            Packer (VM image pre-build)"
-  "jq                jq (JSON processor — used by lab-resize)"
 )
 
 INSTALLED=()
@@ -71,20 +70,35 @@ for entry in "${FORMULAE[@]}"; do
 done
 
 
-# ── QEMU (MacPorts — Homebrew qemu does not build on macOS 12 Intel) ────────
-if command -v qemu-system-x86_64 &>/dev/null; then
-  SKIPPED+=("QEMU")
-else
-  if ! command -v port &>/dev/null; then
-    warn "MacPorts not found — QEMU must be installed via MacPorts on macOS 12."
-    warn "Install MacPorts from https://www.macports.org, then re-run prereqs."
-    warn "  sudo port selfupdate && sudo port install qemu"
+# ── MacPorts packages (Homebrew cannot build these on macOS 12 + Xcode 13) ──
+# Both qemu and jq fail to compile via Homebrew on macOS 12 with Xcode 13.3.x.
+# Install them via MacPorts which fully supports macOS 12.
+_macports_install() {
+  local binary="$1" port_name="$2" label="$3"
+  if command -v "$binary" &>/dev/null; then
+    SKIPPED+=("$label")
   else
-    info "Installing QEMU via MacPorts..."
-    sudo port selfupdate
-    sudo port install qemu
-    INSTALLED+=("QEMU")
+    if ! command -v port &>/dev/null; then
+      warn "MacPorts not found — $label must be installed via MacPorts on macOS 12."
+      warn "Install MacPorts from https://www.macports.org, then re-run prereqs."
+      warn "  sudo port selfupdate && sudo port install ${port_name}"
+    else
+      info "Installing ${label} via MacPorts..."
+      sudo port install "$port_name"
+      INSTALLED+=("$label")
+    fi
   fi
+}
+
+if ! command -v port &>/dev/null; then
+  warn "MacPorts not found — QEMU and jq must be installed via MacPorts on macOS 12."
+  warn "Install MacPorts from https://www.macports.org, then run:"
+  warn "  sudo port selfupdate && sudo port install qemu jq"
+else
+  info "Updating MacPorts..."
+  sudo port selfupdate
+  _macports_install qemu-system-x86_64 qemu "QEMU"
+  _macports_install jq                 jq   "jq"
 fi
 
 # ── MacPorts PATH check (required for colima/limactl to find QEMU) ──────────
