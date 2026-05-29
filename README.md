@@ -145,7 +145,7 @@ cd Kubernetes-Homelab
 ./aks-lab prereqs
 
 # Start Colima with enough memory for the Standard preset, then provision
-colima start --memory 14
+colima start --memory 48
 ./aks-lab setup
 ```
 

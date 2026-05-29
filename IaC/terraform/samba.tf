@@ -91,6 +91,8 @@ os: "Linux"
 cpus: ${var.samba_vm_cpus}
 memory: "$_mem_lima"
 disk: "$_disk_lima"
+firmware:
+  legacyBIOS: true
 networks:
   - lima: "shared"
 mounts: []
@@ -258,14 +260,14 @@ os: "Linux"
 cpus: ${var.client_vm_cpus}
 memory: "$_mem_lima"
 disk: "$_disk_lima"
+firmware:
+  legacyBIOS: true
 networks:
   - lima: "shared"
 mounts: []
 ssh:
   localPort: 0
   loadDotSSHPubKeys: false
-userData:
-  location: "file:///tmp/corp-client-cloud-init.yaml"
 LIMAYAML
 
       echo "[client] Launching corp-client Lima VM (cloud-init will run domain join + VNC setup)..."
@@ -298,33 +300,28 @@ netplan apply 2>/dev/null || true" || true
         echo "[client] Static IP configured — corp-client is at ${var.corp_client_static_ip}"
       fi
 
-      echo "[client] Streaming cloud-init log..."
-      limactl shell corp-client -- bash -c '
-        until [ -f /var/log/cloud-init-output.log ]; do sleep 1; done
-        exec tail -F /var/log/cloud-init-output.log
-      ' &
-      _TAIL_PID=$!
+      echo "[client] Injecting cloud-init user-data and re-running provisioning..."
+      limactl copy /tmp/corp-client-cloud-init.yaml corp-client:/tmp/user-data.yaml
 
-      echo "[client] Waiting for cloud-init to complete (domain join + VNC setup)..."
-      _CI_RC=0
-      python3 -c "
-import subprocess, sys
-r = subprocess.run(
-    ['limactl', 'shell', 'corp-client', '--', 'cloud-init', 'status', '--wait'],
-    timeout=900)
-sys.exit(r.returncode)
-" || _CI_RC=$?
+      cat > /tmp/corp-client-init.sh << 'CINIT'
+#!/bin/bash
+set -euo pipefail
+mkdir -p /var/lib/cloud/seed/nocloud
+cp /tmp/user-data.yaml /var/lib/cloud/seed/nocloud/user-data
+cloud-init clean --logs
+cloud-init init --local 2>/dev/null || true
+cloud-init init 2>/dev/null || true
+cloud-init modules --mode=config 2>/dev/null || true
+cloud-init modules --mode=final
+CINIT
 
-      kill $_TAIL_PID 2>/dev/null || true
-      wait $_TAIL_PID 2>/dev/null || true
+      limactl copy /tmp/corp-client-init.sh corp-client:/tmp/corp-client-init.sh
+      limactl shell corp-client -- sudo bash /tmp/corp-client-init.sh
 
-      if [[ $_CI_RC -ne 0 ]]; then
-        echo "[client] ERROR: cloud-init finished with rc=$_CI_RC — last 60 lines:"
-        limactl shell corp-client -- sudo tail -60 /var/log/cloud-init-output.log 2>/dev/null || true
-        exit 1
-      fi
+      echo "[client] Streaming cloud-init log (last 30 lines)..."
+      limactl shell corp-client -- sudo tail -30 /var/log/cloud-init-output.log 2>/dev/null || true
 
-      if ! limactl shell corp-client -- grep -q '\[client\] Client provisioning complete\.' \
+      if ! limactl shell corp-client -- sudo grep -q '\[client\] Client provisioning complete\.' \
           /var/log/cloud-init-output.log 2>/dev/null; then
         echo "[client] ERROR: client-setup.sh did not reach completion — last 30 lines:"
         limactl shell corp-client -- sudo tail -30 /var/log/cloud-init-output.log 2>/dev/null || true

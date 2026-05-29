@@ -12,6 +12,7 @@
 #    list-json                machine-readable registry + state (for dashboard)
 # ─────────────────────────────────────────────────────────────────
 set -euo pipefail
+export PATH="/usr/local/bin:/usr/local/sbin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

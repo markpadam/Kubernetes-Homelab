@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export PATH="/usr/local/bin:/usr/local/sbin:$PATH"
 
 # ─────────────────────────────────────────────
 #  AKS Lab — Minikube Setup Script

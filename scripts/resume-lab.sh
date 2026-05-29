@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export PATH="/usr/local/bin:/usr/local/sbin:$PATH"
 
 # ─────────────────────────────────────────────
 #  AKS Lab — Resume Script
@@ -256,6 +257,7 @@ if feature_enabled vault; then
     if lab_vault_dev_start; then
       success "Vault ready"
       log "Reconfiguring Vault (KV v2, PKI, policies, Kubernetes auth)..."
+      terraform -chdir=IaC/terraform init -input=false >>/tmp/vault-terraform-apply.log 2>&1
       terraform -chdir=IaC/terraform apply -auto-approve -input=false \
         -var="minikube_profile=${PROFILE}" \
         2>&1 | tee /tmp/vault-terraform-apply.log
