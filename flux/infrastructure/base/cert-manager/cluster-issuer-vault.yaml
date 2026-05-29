@@ -13,7 +13,7 @@ spec:
   vault:
     # Vault dev server is on the Mac host — reachable from cluster pods
     # via the minikube host gateway alias.
-    server: http://host.minikube.internal:8200
+    server: http://vault-host.vault.svc.cluster.local:8200
     # Role restricts issuance to *.aks-lab.local subdomains only.
     path: pki_int/sign/web
     auth:

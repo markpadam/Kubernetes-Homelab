@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export PATH="/usr/local/bin:/usr/local/sbin:$PATH"
+export PATH="/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/local/bin:/opt/local/sbin:$PATH"
 
 # ─────────────────────────────────────────────
 #  AKS Lab — Minikube Setup Script
@@ -813,7 +813,10 @@ if docker info &>/dev/null 2>&1 && [[ -d "$HOME/.minikube/profiles/$PROFILE" ]];
   if docker inspect "$PROFILE" 2>/dev/null \
       | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d[0]['State']['Running'] else 1)" \
       2>/dev/null; then
-    if [[ "$CI_MODE" == "1" ]]; then
+    if [[ "${LAB_KEEP_CLUSTER:-}" == "1" ]]; then
+      log "LAB_KEEP_CLUSTER=1: keeping existing cluster '$PROFILE'"
+      _PRE_RECREATE_CLUSTER="n"
+    elif [[ "$CI_MODE" == "1" ]]; then
       log "CI mode: cluster '$PROFILE' is running — will delete and recreate"
       _PRE_RECREATE_CLUSTER="y"
     else

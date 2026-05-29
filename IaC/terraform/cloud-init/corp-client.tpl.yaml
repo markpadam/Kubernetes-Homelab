@@ -194,6 +194,9 @@ write_files:
 
       echo "[client] Configuring SSSD to allow short usernames..."
       sed -i 's/^use_fully_qualified_names.*/use_fully_qualified_names = False/' /etc/sssd/sssd.conf || true
+      # Point SSSD directly at the lima0 IP of samba-ad so it avoids the eth0 IP
+      # (192.168.5.x) which is not routable from the corp-client's shared network.
+      sed -i '/^access_provider = ad/a ad_server = SAMBA_IP_PLACEHOLDER' /etc/sssd/sssd.conf || true
       systemctl restart sssd
 
       echo "[client] Verifying domain join..."
@@ -232,19 +235,32 @@ write_files:
       done
 
       echo "[client] Setting up XFCE4 VNC desktop..."
-      mkdir -p /home/ubuntu/.vnc
-      chmod 700 /home/ubuntu/.vnc
-      chown ubuntu:ubuntu /home/ubuntu/.vnc
+      # Use UID 1000 user (may be ubuntu or the Lima host username)
+      _VNC_USER=$(getent passwd | awk -F: '$3 >= 500 && $3 != 65534 {print $1; exit}' || ls /home | head -1 || echo ubuntu)
+      _VNC_HOME=$(getent passwd "$_VNC_USER" | cut -d: -f6 || echo "/home/$_VNC_USER")
+      _VNC_GROUP=$(id -gn "$_VNC_USER" || echo "$_VNC_USER")
+
+      # Ensure hostname resolves (required by TigerVNC)
+      _HOSTNAME=$(hostname -s)
+      grep -qF "$_HOSTNAME" /etc/hosts || echo "127.0.1.1 $_HOSTNAME $_HOSTNAME.corp.internal" >> /etc/hosts
+
+      mkdir -p "$_VNC_HOME/.vnc"
+      chmod 700 "$_VNC_HOME/.vnc"
+      chown "$_VNC_USER:$_VNC_GROUP" "$_VNC_HOME/.vnc"
 
       printf '#!/bin/bash\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexec startxfce4\n' \
-        > /home/ubuntu/.vnc/xstartup
-      chmod +x /home/ubuntu/.vnc/xstartup
-      chown ubuntu:ubuntu /home/ubuntu/.vnc/xstartup
+        > "$_VNC_HOME/.vnc/xstartup"
+      chmod +x "$_VNC_HOME/.vnc/xstartup"
+      chown "$_VNC_USER:$_VNC_GROUP" "$_VNC_HOME/.vnc/xstartup"
 
       printf '%s\n' '${vnc_password}' \
-        | sudo -u ubuntu vncpasswd -f > /home/ubuntu/.vnc/passwd
-      chmod 600 /home/ubuntu/.vnc/passwd
-      chown ubuntu:ubuntu /home/ubuntu/.vnc/passwd
+        | sudo -u "$_VNC_USER" vncpasswd -f > "$_VNC_HOME/.vnc/passwd"
+      chmod 600 "$_VNC_HOME/.vnc/passwd"
+      chown "$_VNC_USER:$_VNC_GROUP" "$_VNC_HOME/.vnc/passwd"
+
+      # Update the vncserver service to use the correct user
+      sed -i "s/User=ubuntu/User=$_VNC_USER/g; s/Group=ubuntu/Group=$_VNC_GROUP/g; s|/home/ubuntu|$_VNC_HOME|g" \
+        /etc/systemd/system/vncserver@.service
 
       systemctl daemon-reload
       systemctl enable vncserver@1

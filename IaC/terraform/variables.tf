@@ -48,7 +48,7 @@ variable "minikube_k8s_host" {
         -o jsonpath='{.clusters[?(@.name=="aks-lab")].cluster.server}'
   DESC
   type        = string
-  default     = "https://192.168.49.2:8443"
+  default     = "https://127.0.0.1:32771"
 }
 
 # ── Secrets ───────────────────────────────────────────────────────────────────

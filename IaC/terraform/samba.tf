@@ -158,15 +158,8 @@ netplan apply 2>/dev/null || true"
       echo "[samba] Running provisioning script (packages + domain setup)..."
       limactl shell samba-ad -- sudo bash /tmp/samba-provision.sh
 
-      SAMBA_IP=$(limactl list --format json \
-        | python3 -c "
-import json, sys
-vms = json.load(sys.stdin)
-vm = next((v for v in vms if v['name'] == 'samba-ad'), {})
-nets = vm.get('network') or vm.get('networks') or []
-ip = next((n.get('localIPV4','') for n in nets if n.get('localIPV4') and not n.get('localIPV4','').startswith('127.')), '')
-print(ip)
-" 2>/dev/null || echo "")
+      SAMBA_IP=$(limactl shell samba-ad -- ip addr show lima0 2>/dev/null \
+        | awk '/inet /{print $2}' | cut -d/ -f1 | grep -v '^127\.' | head -1 || echo "")
       echo "[samba] VM ready — IP: $SAMBA_IP"
       echo "[samba] Domain: ${var.ad_domain}"
     BASH
@@ -219,15 +212,8 @@ resource "null_resource" "corp_client_vm" {
     command = <<-BASH
       set -euo pipefail
 
-      SAMBA_IP=$(limactl list --format json \
-        | python3 -c "
-import json, sys
-vms = json.load(sys.stdin)
-vm = next((v for v in vms if v['name'] == 'samba-ad'), {})
-nets = vm.get('network') or vm.get('networks') or []
-ip = next((n.get('localIPV4','') for n in nets if n.get('localIPV4') and not n.get('localIPV4','').startswith('127.')), '')
-print(ip)
-" 2>/dev/null || echo "")
+      SAMBA_IP=$(limactl shell samba-ad -- ip addr show lima0 2>/dev/null \
+        | awk '/inet /{print $2}' | cut -d/ -f1 | grep -v '^127\.' | head -1 || echo "")
       echo "[client] SambaAD IP: $SAMBA_IP"
 
       sed "s/SAMBA_IP_PLACEHOLDER/$SAMBA_IP/g" \
@@ -300,43 +286,59 @@ netplan apply 2>/dev/null || true" || true
         echo "[client] Static IP configured — corp-client is at ${var.corp_client_static_ip}"
       fi
 
-      echo "[client] Injecting cloud-init user-data and re-running provisioning..."
+      echo "[client] Copying rendered cloud-init user-data into VM..."
       limactl copy /tmp/corp-client-cloud-init.yaml corp-client:/tmp/user-data.yaml
 
-      cat > /tmp/corp-client-init.sh << 'CINIT'
-#!/bin/bash
-set -euo pipefail
-mkdir -p /var/lib/cloud/seed/nocloud
-cp /tmp/user-data.yaml /var/lib/cloud/seed/nocloud/user-data
-cloud-init clean --logs
-cloud-init init --local 2>/dev/null || true
-cloud-init init 2>/dev/null || true
-cloud-init modules --mode=config 2>/dev/null || true
-cloud-init modules --mode=final
-CINIT
+      cat > /tmp/corp-client-init.py << 'PYEOF2'
+#!/usr/bin/env python3
+# Execute cloud-init user-data (write_files + runcmd) without the cloud-init daemon.
+# Lima's CIDATA ISO takes precedence over a NoCloud seed, so we bypass cloud-init.
+import yaml, subprocess, os, sys
 
-      limactl copy /tmp/corp-client-init.sh corp-client:/tmp/corp-client-init.sh
-      limactl shell corp-client -- sudo bash /tmp/corp-client-init.sh
+with open('/tmp/user-data.yaml') as f:
+    cfg = yaml.safe_load(f)
 
-      echo "[client] Streaming cloud-init log (last 30 lines)..."
-      limactl shell corp-client -- sudo tail -30 /var/log/cloud-init-output.log 2>/dev/null || true
+for wf in cfg.get('write_files', []):
+    path = wf['path']
+    content = wf.get('content', '')
+    perm = wf.get('permissions', '0644')
+    owner = wf.get('owner', 'root:root')
+    os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+    with open(path, 'w') as fh:
+        fh.write(content)
+    try:
+        os.chmod(path, int(str(perm), 8))
+    except Exception:
+        pass
+    parts = str(owner).split(':', 1)
+    u, g = parts[0], parts[1] if len(parts) > 1 else parts[0]
+    subprocess.run(['chown', f'{u}:{g}', path], check=False)
+    print(f'[provision] written: {path}', flush=True)
 
-      if ! limactl shell corp-client -- sudo grep -q '\[client\] Client provisioning complete\.' \
-          /var/log/cloud-init-output.log 2>/dev/null; then
-        echo "[client] ERROR: client-setup.sh did not reach completion — last 30 lines:"
-        limactl shell corp-client -- sudo tail -30 /var/log/cloud-init-output.log 2>/dev/null || true
-        exit 1
-      fi
+OPTIONAL = ('install-extras.sh', 'install-k8s-tools.sh')
+for cmd in cfg.get('runcmd', []):
+    display = (' '.join(str(c) for c in cmd) if isinstance(cmd, list) else str(cmd))[:100]
+    optional = any(p in str(cmd) for p in OPTIONAL)
+    print(f'[provision] running: {display}...', flush=True)
+    if isinstance(cmd, list):
+        r = subprocess.run([str(c) for c in cmd])
+    else:
+        r = subprocess.run(str(cmd), shell=True, executable='/bin/bash')
+    if r.returncode != 0:
+        if optional:
+            print(f'[provision] WARNING: optional step failed (exit {r.returncode}) — skipping', flush=True)
+        else:
+            print(f'[provision] FAILED (exit {r.returncode})', flush=True)
+            sys.exit(r.returncode)
 
-      CLIENT_IP=$(limactl list --format json \
-        | python3 -c "
-import json, sys
-vms = json.load(sys.stdin)
-vm = next((v for v in vms if v['name'] == 'corp-client'), {})
-nets = vm.get('network') or vm.get('networks') or []
-ip = next((n.get('localIPV4','') for n in nets if n.get('localIPV4') and not n.get('localIPV4','').startswith('127.')), '')
-print(ip)
-" 2>/dev/null || echo "")
+print('[provision] All provisioning complete.', flush=True)
+PYEOF2
+
+      limactl copy /tmp/corp-client-init.py corp-client:/tmp/corp-client-init.py
+      limactl shell corp-client -- sudo python3 /tmp/corp-client-init.py
+
+      CLIENT_IP=$(limactl shell corp-client -- ip addr show lima0 2>/dev/null \
+        | awk '/inet /{print $2}' | cut -d/ -f1 | grep -v '^127\.' | head -1 || echo "")
       echo "[client] corp-client ready — IP: $CLIENT_IP"
       echo "[client] VNC: open vnc://$CLIENT_IP:5901"
       echo "[client] Shell: limactl shell corp-client"
