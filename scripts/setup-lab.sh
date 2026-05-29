@@ -2411,6 +2411,11 @@ cat > "$_LAUNCHAGENT_PATH" <<PLIST
         <string>/bin/bash</string>
         <string>${_REPO_ROOT}/scripts/resume-lab.sh</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/local/bin:/opt/local/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>WorkingDirectory</key>

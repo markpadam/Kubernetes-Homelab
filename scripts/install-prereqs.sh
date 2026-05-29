@@ -46,6 +46,7 @@ FORMULAE=(
   "lima              Lima (identity VMs — replaces Multipass)"
   "socket_vmnet      socket_vmnet (Lima shared network)"
   "packer            Packer (VM image pre-build)"
+  "jq                jq (JSON processor — used by lab-resize)"
 )
 
 INSTALLED=()
@@ -86,6 +87,18 @@ else
   fi
 fi
 
+# ── MacPorts PATH check (required for colima/limactl to find QEMU) ──────────
+# MacPorts standard installer writes /etc/paths.d/macports which launchd picks
+# up automatically. If it's missing from the current shell (e.g. non-login
+# session), warn the user — colima and limactl will fail silently without it.
+if [[ ":${PATH}:" != *":/opt/local/bin:"* ]]; then
+  warn "/opt/local/bin is not in your current PATH."
+  warn "colima and limactl need this to find MacPorts QEMU."
+  warn "Add to your shell profile (~/.zshrc or ~/.bash_profile):"
+  warn "  export PATH=/opt/local/bin:/opt/local/sbin:\$PATH"
+  warn "Then reload your shell before running ./aks-lab setup."
+fi
+
 # ── Python rich (needed by tui.py) ──────────────────────────────────────────
 if python3 -c "import rich" &>/dev/null 2>&1; then
   SKIPPED+=("Python rich")
@@ -118,5 +131,5 @@ ok "All prerequisites satisfied."
 echo ""
 echo -e "  Next steps:"
 echo -e "    ${CYAN}limactl sudoers | sudo tee /etc/sudoers.d/lima${RESET}   # grant Lima vmnet access (one-time)"
-echo -e "    ${CYAN}colima start --memory 14${RESET}                         # start the container runtime"
+echo -e "    ${CYAN}colima start --memory 14${RESET}                         # start the container runtime (needs /opt/local/bin in PATH)"
 echo -e "    ${CYAN}./aks-lab setup${RESET}                                  # provision the cluster"
