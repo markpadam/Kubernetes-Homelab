@@ -43,7 +43,6 @@ FORMULAE=(
   "fluxcd/tap/flux   Flux CLI"
   "hashicorp/tap/vault  Vault CLI"
   "terraform         Terraform"
-  "qemu              QEMU (Colima VM backend on Intel Macs)"
   "lima              Lima (identity VMs — replaces Multipass)"
   "socket_vmnet      socket_vmnet (Lima shared network)"
   "packer            Packer (VM image pre-build)"
@@ -71,12 +70,28 @@ for entry in "${FORMULAE[@]}"; do
 done
 
 
+# ── QEMU (MacPorts — Homebrew qemu does not build on macOS 12 Intel) ────────
+if command -v qemu-system-x86_64 &>/dev/null; then
+  SKIPPED+=("QEMU")
+else
+  if ! command -v port &>/dev/null; then
+    warn "MacPorts not found — QEMU must be installed via MacPorts on macOS 12."
+    warn "Install MacPorts from https://www.macports.org, then re-run prereqs."
+    warn "  sudo port selfupdate && sudo port install qemu"
+  else
+    info "Installing QEMU via MacPorts..."
+    sudo port selfupdate
+    sudo port install qemu
+    INSTALLED+=("QEMU")
+  fi
+fi
+
 # ── Python rich (needed by tui.py) ──────────────────────────────────────────
 if python3 -c "import rich" &>/dev/null 2>&1; then
   SKIPPED+=("Python rich")
 else
   info "Installing Python rich..."
-  python3 -m pip install --quiet rich
+  python3 -m pip install --quiet --user rich
   INSTALLED+=("Python rich")
 fi
 

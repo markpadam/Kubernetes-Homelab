@@ -28,7 +28,7 @@ try:
     from rich.prompt import Prompt
     from rich import box
 except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "rich"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "--user", "rich"])
     # After a fresh install the new package may not yet be visible to this
     # process if user site-packages is not in sys.path — add it and refresh.
     import importlib
