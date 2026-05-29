@@ -331,7 +331,10 @@ DASHBOARD_PORT=9997
 lab_serve_dashboard "$DASHBOARD_PORT" "$PWD"
 
 DASHBOARD_URL="http://localhost:${DASHBOARD_PORT}/"
-if command -v code &>/dev/null; then
+if [[ -n "${SSH_CONNECTION:-}${SSH_CLIENT:-}" ]]; then
+  success "Dashboard running — ${DASHBOARD_URL}"
+  echo -e "  ${DIM}(SSH session — tunnel with: ssh -L ${DASHBOARD_PORT}:localhost:${DASHBOARD_PORT} $(whoami)@<mac-pro-ip>)${RESET}" >&5
+elif command -v code &>/dev/null; then
   code --open-url "$DASHBOARD_URL"
   success "Dashboard open in VS Code Simple Browser — ${DASHBOARD_URL}"
 else

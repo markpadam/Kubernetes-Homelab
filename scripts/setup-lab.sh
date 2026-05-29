@@ -1292,10 +1292,13 @@ if feature_enabled rancher; then
       --timeout=3m
   fi
 
+  _RANCHER_OK=0
   if helm status rancher -n cattle-system &>/dev/null; then
     warn "Helm release 'rancher' already exists — skipping install."
+    _RANCHER_OK=1
   else
-    log "Installing Rancher via Helm (this may take several minutes)..."
+    log "Installing Rancher via Helm (first run pulls ~500 MB — allow 15 min)..."
+    _RANCHER_HELM_RC=0
     helm install rancher rancher-stable/rancher \
       --namespace cattle-system \
       --create-namespace \
@@ -1308,37 +1311,57 @@ if feature_enabled rancher; then
       --set resources.limits.memory=2Gi \
       --set auditLog.level=0 \
       --wait \
-      --timeout=10m
+      --timeout=15m || _RANCHER_HELM_RC=$?
+    if [[ $_RANCHER_HELM_RC -ne 0 ]]; then
+      warn "Rancher Helm install did not complete (exit ${_RANCHER_HELM_RC}) — capturing diagnostics..."
+      {
+        echo "── rancher pod events ──"
+        kubectl get events -n cattle-system --sort-by=.lastTimestamp 2>&1 | tail -20 || true
+        echo "── rancher pods ──"
+        kubectl get pods -n cattle-system -o wide 2>&1 || true
+        echo "── rancher pod logs (last 30 lines) ──"
+        kubectl logs -n cattle-system -l app=rancher --tail=30 2>&1 || true
+        echo "── node resources ──"
+        kubectl describe nodes 2>&1 | grep -A5 "Allocated resources" || true
+      } >> "$LAB_LOG"
+      warn "Rancher install failed — setup will continue without it."
+      warn "To retry: helm install rancher rancher-stable/rancher -n cattle-system --wait --timeout=15m ..."
+      warn "Diagnostics written to: ${LAB_LOG}"
+    else
+      _RANCHER_OK=1
+    fi
   fi
 
-  log "Applying Rancher ingress..."
-  kubectl apply -k flux/infrastructure/base/rancher/ \
-    || warn "Rancher ingress apply failed"
+  if [[ "$_RANCHER_OK" -eq 1 ]]; then
+    log "Applying Rancher ingress..."
+    kubectl apply -k flux/infrastructure/base/rancher/ \
+      || warn "Rancher ingress apply failed"
 
-  log "Waiting for Rancher to be ready (may take several minutes)..."
-  kubectl wait deployment rancher \
-    --for=condition=available \
-    --namespace=cattle-system \
-    --timeout=300s || warn "Rancher not yet ready — it may still be initialising"
+    log "Waiting for Rancher to be ready (may take several minutes)..."
+    kubectl wait deployment rancher \
+      --for=condition=available \
+      --namespace=cattle-system \
+      --timeout=300s || warn "Rancher not yet ready — it may still be initialising"
 
-  # Fleet (GitOps engine) and the cluster provisioning CAPI controller are spun
-  # up automatically by Rancher but are redundant in this single-cluster lab —
-  # Flux already covers GitOps. Scale them to 0 to reclaim ~350–450 MB RAM.
-  log "Scaling down redundant Rancher controllers (Fleet, provisioning-capi)..."
-  for _ns_dep in \
-    "cattle-fleet-system/fleet-controller" \
-    "cattle-fleet-local-system/fleet-agent" \
-    "cattle-provisioning-capi-system/capi-controller-manager"; do
-    _ns="${_ns_dep%%/*}"
-    _dep="${_ns_dep##*/}"
-    if kubectl get deployment "$_dep" -n "$_ns" &>/dev/null; then
-      kubectl scale deployment "$_dep" -n "$_ns" --replicas=0 &>/dev/null \
-        && log "  Scaled down $_dep in $_ns" \
-        || warn "  Could not scale $_dep in $_ns — it may not have started yet"
-    fi
-  done
+    # Fleet (GitOps engine) and the cluster provisioning CAPI controller are spun
+    # up automatically by Rancher but are redundant in this single-cluster lab —
+    # Flux already covers GitOps. Scale them to 0 to reclaim ~350–450 MB RAM.
+    log "Scaling down redundant Rancher controllers (Fleet, provisioning-capi)..."
+    for _ns_dep in \
+      "cattle-fleet-system/fleet-controller" \
+      "cattle-fleet-local-system/fleet-agent" \
+      "cattle-provisioning-capi-system/capi-controller-manager"; do
+      _ns="${_ns_dep%%/*}"
+      _dep="${_ns_dep##*/}"
+      if kubectl get deployment "$_dep" -n "$_ns" &>/dev/null; then
+        kubectl scale deployment "$_dep" -n "$_ns" --replicas=0 &>/dev/null \
+          && log "  Scaled down $_dep in $_ns" \
+          || warn "  Could not scale $_dep in $_ns — it may not have started yet"
+      fi
+    done
 
-  success "Rancher ready — https://rancher.aks-lab.local:9444  (bootstrap: ${RANCHER_BOOTSTRAP_PASSWORD})"
+    success "Rancher ready — https://rancher.aks-lab.local:9444  (bootstrap: ${RANCHER_BOOTSTRAP_PASSWORD})"
+  fi
 else
   log "Skipping Step 5c — Rancher not selected"
 fi
@@ -2245,7 +2268,11 @@ python3 "$PWD/dashboard-server.py" "$PWD" >> /tmp/dashboard-server.log 2>&1 &
 sleep 1
 
 DASHBOARD_URL="http://localhost:${DASHBOARD_PORT}/"
-if command -v code &>/dev/null; then
+if [[ -n "${SSH_CONNECTION:-}${SSH_CLIENT:-}" ]]; then
+  success "Dashboard running — ${DASHBOARD_URL}"
+  echo -e "  ${DIM}(SSH session detected — open in your browser via SSH tunnel:${RESET}"
+  echo -e "  ${DIM} ssh -L ${DASHBOARD_PORT}:localhost:${DASHBOARD_PORT} $(whoami)@<mac-pro-ip>)${RESET}" >&5
+elif command -v code &>/dev/null; then
   code --open-url "$DASHBOARD_URL"
   success "Dashboard open in VS Code Simple Browser — ${DASHBOARD_URL}"
 else
