@@ -249,7 +249,7 @@ fi
 if feature_enabled vault; then
   step "Restoring Vault"
 
-  if curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1; then
+  if curl -sf "http://127.0.0.1:8200/v1/sys/health" >/dev/null 2>&1; then
     success "Vault already running at ${VAULT_ADDR}"
   else
     warn "Vault not running — restarting dev server..."

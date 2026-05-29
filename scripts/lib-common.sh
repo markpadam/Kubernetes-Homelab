@@ -66,20 +66,22 @@ lab_start_port_forward() {
 #
 # Globals read: VAULT_ADDR (default http://127.0.0.1:8200), VAULT_TOKEN (default root)
 lab_vault_dev_start() {
-  local addr="${VAULT_ADDR:-http://127.0.0.1:8200}"
   local token="${VAULT_TOKEN:-root}"
-  if curl -sf "${addr}/v1/sys/health" >/dev/null 2>&1; then
+  # Health-check via loopback — reliable regardless of LAB_HOST_IP assignment.
+  if curl -sf "http://127.0.0.1:8200/v1/sys/health" >/dev/null 2>&1; then
     return 0
   fi
   pkill -f "vault server -dev" 2>/dev/null || true
+  # Always bind to 0.0.0.0 so vault starts even when LAB_HOST_IP is not yet
+  # assigned to a local interface (e.g. right after Colima starts).
   VAULT_DEV_ROOT_TOKEN_ID="${token}" \
     vault server -dev \
-    -dev-listen-address="${addr#http://}" \
+    -dev-listen-address="0.0.0.0:8200" \
     >> /tmp/vault-dev.log 2>&1 &
   echo $! > /tmp/vault-dev.pid
   local i
   for i in $(seq 1 30); do
-    curl -sf "${addr}/v1/sys/health" >/dev/null 2>&1 && return 0
+    curl -sf "http://127.0.0.1:8200/v1/sys/health" >/dev/null 2>&1 && return 0
     sleep 1
   done
   return 1
