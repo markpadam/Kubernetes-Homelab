@@ -118,7 +118,7 @@ if python3 -c "import rich" &>/dev/null 2>&1; then
   SKIPPED+=("Python rich")
 else
   info "Installing Python rich..."
-  python3 -m pip install --quiet --user rich
+  python3 -m pip install --quiet --user --break-system-packages rich
   INSTALLED+=("Python rich")
 fi
 
