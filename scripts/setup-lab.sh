@@ -842,7 +842,7 @@ echo -e "  ${GREEN}${BOLD}[✓]${RESET} Sudo credentials cached" >&3
 # No /etc/hosts entries or pfctl redirects are needed.
 # Canonical assignment is near the Vault step; set default here so the echos
 # below don't trip set -u before that section is reached.
-LAB_HOST_IP="${LAB_HOST_IP:-172.16.0.10}"
+LAB_HOST_IP="${LAB_HOST_IP:-$(route -n get default 2>/dev/null | awk '/interface:/{print $2}' | xargs -I{} ipconfig getifaddr {} 2>/dev/null)}"
 echo -e "  ${GREEN}${BOLD}[✓]${RESET} DNS via dnsmasq — *.aks-lab.local → 172.16.3.1 (NGINX Ingress MetalLB IP)" >&3
 echo -e "  ${DIM}  MacBook: ensure /etc/resolver/aks-lab.local points to ${LAB_HOST_IP}${RESET}" >&3
 
@@ -1704,7 +1704,7 @@ success "Flux installed — watching ${GITHUB_REPO} @ ${FLUX_APPS_PATH}"
 # LAB_HOST_IP: the Mac Pro's physical LAN IP. Vault binds to this so it is
 # reachable from the MacBook and from in-cluster pods (via host routing).
 # Override with: export LAB_HOST_IP=<your-ip> before running setup.
-LAB_HOST_IP="${LAB_HOST_IP:-172.16.0.10}"
+LAB_HOST_IP="${LAB_HOST_IP:-$(route -n get default 2>/dev/null | awk '/interface:/{print $2}' | xargs -I{} ipconfig getifaddr {} 2>/dev/null)}"
 VAULT_ADDR="http://${LAB_HOST_IP}:8200"
 VAULT_TOKEN="root"
 VAULT_KV_PATH="kv"
