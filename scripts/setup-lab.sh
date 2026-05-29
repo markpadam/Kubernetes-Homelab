@@ -892,6 +892,16 @@ if ! docker info &>/dev/null; then
   success "Docker daemon ready"
 fi
 
+# ── Colima CPU check ──────────────────────────
+# minikube --cpus sets the allocation per node container. The Docker VM must
+# have at least that many CPUs or minikube aborts with RSRC_INSUFFICIENT_CORES.
+_docker_cpus=$(docker info --format '{{.NCPU}}' 2>/dev/null || echo 0)
+if [[ $_docker_cpus -gt 0 && $_docker_cpus -lt $CPUS ]]; then
+  error "Colima VM only has ${_docker_cpus} CPU(s) but this tier requires ${CPUS} per node.
+       Fix:  colima stop && colima start --cpu 8 --memory 14
+       Or:   re-run and choose a lower tier (Low/Standard use 2 CPUs — safe with any Colima config)."
+fi
+
 # ── Colima memory check ───────────────────────
 # Each node gets $MEMORY MiB; the cluster needs NODES × MEMORY total.
 # If the Colima VM has less, kubeadm starts but the apiserver is starved
@@ -904,7 +914,7 @@ if [[ $_docker_mem_mib -gt 0 && $_docker_mem_mib -lt $_cluster_needed_mib ]]; th
   _cluster_gib=$(( (_cluster_needed_mib + 1023) / 1024 ))
   _rec_gib=$(( _cluster_gib + 2 ))
   warn "Colima VM only has $(( _docker_d10 / 10 )).$(( _docker_d10 % 10 )) GB allocated — this tier needs ${_cluster_gib} GB for the cluster (${NODES} nodes × $(( MEMORY / 1024 )) GB each)."
-  warn "  Fix:  colima stop && colima start --memory ${_rec_gib}"
+  warn "  Fix:  colima stop && colima start --cpu 8 --memory ${_rec_gib}"
   warn "  Or:   re-run and choose a lower tier (Low: 9 GB, Standard: 12 GB, High: 15 GB, Very High: 21 GB, Extra High: 40 GB)."
   warn "  Continuing — insufficient memory may cause K8S_APISERVER_MISSING on minikube start."
 fi
