@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("IncidentHub.Web")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e6607f6fb4344cffb50e245ae6a73eada24d11ac")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7dd454e709272c17225870a7ac42c66ffd01356a")]
 [assembly: System.Reflection.AssemblyProductAttribute("IncidentHub.Web")]
 [assembly: System.Reflection.AssemblyTitleAttribute("IncidentHub.Web")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
