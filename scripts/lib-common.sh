@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # ─────────────────────────────────────────────
 #  lib-common.sh — shared helpers for setup-lab.sh and resume-lab.sh.
 # shellcheck source=lib-lima.sh

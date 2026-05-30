@@ -172,7 +172,7 @@ class State:
             text.append(f"  {ic}  {label:<24}", style=hs)
             text.append(f" {detail}\n", style="dim")
 
-        text.append(f"\n  Dashboard → http://localhost:9997/\n", style="dim cyan")
+        text.append("\n  Dashboard → http://localhost:9997/\n", style="dim cyan")
 
         return Panel(text, title=title, box=box.DOUBLE, border_style=colour, padding=(1, 2))
 

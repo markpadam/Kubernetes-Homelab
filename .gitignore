@@ -21,6 +21,14 @@
 # macOS
 .DS_Store
 
+# Python
+__pycache__/
+*.py[cod]
+
+# script(1) session captures
+typescript
+timing.log
+
 # Rendered / temp files
 /tmp/
 

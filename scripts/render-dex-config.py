@@ -1,7 +1,10 @@
 import os, re, string
 from pathlib import Path
 
-import os; t = Path(os.environ.get("REPO_ROOT", "/Users/markpadam/Documents/Kubernetes-Homelab") + "/flux/infrastructure/base/identity/dex/config.yaml").read_text()
+# Default to the repo root inferred from this script's location (scripts/ -> repo root),
+# so the script works regardless of whether the caller exports REPO_ROOT.
+REPO_ROOT = os.environ.get("REPO_ROOT") or str(Path(__file__).resolve().parent.parent)
+t = (Path(REPO_ROOT) / "flux/infrastructure/base/identity/dex/config.yaml").read_text()
 
 samba_ip = os.environ.get("SAMBA_IP", "").strip()
 

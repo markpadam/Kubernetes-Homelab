@@ -119,7 +119,7 @@ print()
 add_to_state() {
   local id="$1"
   local current; current=$(read_enabled)
-  if [[ " $current " =~ " $id " ]]; then return; fi
+  if [[ " $current " == *" $id "* ]]; then return; fi
   local new_list; new_list=$(python3 -c "
 ids = '$current $id'.split()
 seen = []
@@ -148,7 +148,7 @@ check_dependents_enabled() {
   local id="$1"
   for cid in $(all_ids); do
     local deps; deps=$(comp_deps "$cid")
-    if [[ " $deps " =~ " $id " ]] && is_enabled "$cid"; then
+    if [[ " $deps " == *" $id "* ]] && is_enabled "$cid"; then
       echo "$cid"
     fi
   done
@@ -1181,7 +1181,7 @@ cmd_list() {
       printf "  ${CYAN}${BOLD}%s${RESET}\n" "$(echo "$grp" | tr '[:lower:]' '[:upper:]')"
       cur_group="$grp"
     fi
-    if [[ " $enabled_list " =~ " $id " ]]; then
+    if [[ " $enabled_list " == *" $id "* ]]; then
       printf "  ${GREEN}● %-20s${RESET} %-36s ${GREEN}enabled${RESET}  %s\n" "$id" "$name" "$type"
     else
       printf "  ${DIM}○ %-20s %-36s disabled${RESET} %s\n" "$id" "$name" "$type"
@@ -1313,11 +1313,11 @@ print(json.dumps(ordered))
 _show_interactive_menu() {
   local defaults="$1"
   local all_ids_str="$2"
-  local ids=($all_ids_str)
+  local ids; read -ra ids <<< "$all_ids_str"
   # checked_str: space-delimited list of currently-selected IDs (no associative array)
   local checked_str=" $defaults "
 
-  _chk_is()     { [[ " $checked_str " =~ " $1 " ]]; }
+  _chk_is()     { [[ " $checked_str " == *" $1 "* ]]; }
   _chk_set()    { _chk_is "$1" || checked_str="$checked_str$1 "; }
   _chk_unset()  { checked_str=$(echo "$checked_str" | tr ' ' '\n' | grep -vx "$1" | tr '\n' ' '); }
   _chk_toggle() { _chk_is "$1" && _chk_unset "$1" || _chk_set "$1"; }

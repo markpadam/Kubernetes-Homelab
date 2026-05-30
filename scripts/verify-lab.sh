@@ -29,7 +29,7 @@ INGRESS_PORT=9980  # local port-forward to ingress-nginx
 [[ -f "$REGISTRY" ]]   || { echo -e "${RED}✗${RESET} No lab-components.json found."; exit 1; }
 
 ENABLED=$(python3 -c "import json; print(' '.join(json.load(open('$STATE_FILE')).get('enabled',[])))")
-is_enabled() { [[ " $ENABLED " =~ " $1 " ]]; }
+is_enabled() { [[ " $ENABLED " == *" $1 "* ]]; }
 
 # Component → namespace lookup
 component_ns() {
