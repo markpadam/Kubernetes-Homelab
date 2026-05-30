@@ -58,7 +58,7 @@ spec:
             - --skip-provider-button=true
 
             # Allow post-login redirects to any *.aks-lab.local subdomain.
-            # Allow post-login redirects to any *.aks-lab.local subdomain.
+            - --approval-prompt=
             - --whitelist-domain=.aks-lab.local
 
             # Pass user identity to the backend via headers
