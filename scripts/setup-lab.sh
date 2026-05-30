@@ -1091,15 +1091,34 @@ feature_enabled blob-explorer && _lab_image blob-explorer src/blob-explorer/
 
 if [[ "${#IMAGES_TO_DISTRIBUTE[@]}" -gt 0 ]]; then
   log "Distributing newly built images to worker nodes and saving to cache..."
+  # minikube image build (Docker driver) stores images in the CP node's DinD Docker
+  # daemon. Export via stdout pipe (avoids permission issues writing inside the
+  # container), then load into each worker's DinD daemon via docker cp + docker load.
+  # minikube ssh / minikube cp are unreliable — docker exec is the stable path.
+  mapfile -t _ALL_NODES < <(minikube node list -p "$PROFILE" 2>/dev/null | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+  _CP_NODE="${_ALL_NODES[0]:-$PROFILE}"
+
   for IMAGE in "${IMAGES_TO_DISTRIBUTE[@]}"; do
     NAME="${IMAGE##*/}"; NAME="${NAME%%:*}"
     TARFILE=$(mktemp /tmp/minikube-image.XXXXXX)
-    minikube ssh -p "$PROFILE" -- "docker save ${IMAGE} -o /tmp/_img.tar"
-    minikube cp -p "$PROFILE" "${PROFILE}:/tmp/_img.tar" "$TARFILE"
+
+    log "Exporting ${NAME} from DinD on ${_CP_NODE} (stdout pipe)..."
+    docker exec "$_CP_NODE" docker save "${IMAGE}" > "$TARFILE" \
+      || { warn "docker save failed for ${NAME} — skipping distribution"; rm -f "$TARFILE"; continue; }
+
     cp "$TARFILE" "${IMAGE_CACHE_DIR}/${NAME}.tar"
-    minikube image load "$TARFILE" -p "$PROFILE"
+    log "Cached ${NAME} → ${IMAGE_CACHE_DIR}/${NAME}.tar"
+
+    for _NODE in "${_ALL_NODES[@]}"; do
+      [[ "$_NODE" == "$_CP_NODE" ]] && continue  # already has it from the build
+      log "  Loading ${NAME} → ${_NODE}..."
+      docker cp "$TARFILE" "${_NODE}:/tmp/_img.tar"
+      docker exec "$_NODE" docker load -i /tmp/_img.tar
+      docker exec "$_NODE" rm -f /tmp/_img.tar
+    done
+
     rm -f "$TARFILE"
-    success "${NAME} distributed and cached"
+    success "${NAME} distributed to ${#_ALL_NODES[@]} node(s) and cached"
   done
 else
   log "No images to build — all present on cluster or loaded from cache"
