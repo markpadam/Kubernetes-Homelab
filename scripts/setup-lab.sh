@@ -1169,7 +1169,7 @@ else
     --version v1.16.3 \
     --set installCRDs=true \
     --wait \
-    --timeout=5m
+    --timeout=10m
 fi
 
 log "Waiting for cert-manager webhook to be ready..."
@@ -1238,16 +1238,24 @@ if feature_enabled monitoring; then
   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts &>/dev/null
   helm repo update &>/dev/null
 
-  if helm status monitoring -n monitoring &>/dev/null; then
-    warn "Helm release 'monitoring' already exists — skipping install."
+  _MON_STATUS=$(helm status monitoring -n monitoring -o json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['status'])" 2>/dev/null || echo "missing")
+  if [[ "$_MON_STATUS" == "deployed" ]]; then
+    warn "Helm release 'monitoring' already deployed — skipping install."
+  elif [[ "$_MON_STATUS" == "failed" ]]; then
+    log "Helm release 'monitoring' is in failed state — running upgrade to recover..."
+    helm upgrade monitoring prometheus-community/kube-prometheus-stack \
+      --namespace monitoring \
+      --set grafana.adminPassword="$GRAFANA_PASSWORD" \
+      --wait \
+      --timeout=15m
   else
-    log "Installing kube-prometheus-stack (this takes a minute)..."
+    log "Installing kube-prometheus-stack (this takes a few minutes)..."
     helm install monitoring prometheus-community/kube-prometheus-stack \
       --namespace monitoring \
       --create-namespace \
       --set grafana.adminPassword="$GRAFANA_PASSWORD" \
       --wait \
-      --timeout=5m
+      --timeout=15m
   fi
 
   log "Applying Grafana ingress..."
