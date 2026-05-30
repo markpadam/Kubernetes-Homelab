@@ -841,14 +841,17 @@ echo -e "  ${GREEN}${BOLD}[✓]${RESET} Sudo credentials cached" >&3
 # Write all /etc/hosts entries NOW while sudo is definitely cached.
 # The "Configuring Local DNS" step near the end just verifies they exist.
 # Doing it here avoids a 40-minute sudo cache expiry race with the TUI running.
-# DNS is now handled by dnsmasq on the host (IaC/macos/dnsmasq-aks-lab.conf).
-# *.aks-lab.local resolves to the NGINX Ingress MetalLB IP (172.16.3.1).
-# No /etc/hosts entries or pfctl redirects are needed.
-# Canonical assignment is near the Vault step; set default here so the echos
-# below don't trip set -u before that section is reached.
+# minikube tunnel (running as launchd daemon) creates localhost port-forwarders
+# for each ingress, binding on 127.0.0.1:80 and :443. Write /etc/hosts entries
+# so *.aks-lab.local hostnames resolve to 127.0.0.1 on this Mac Pro.
 LAB_HOST_IP="${LAB_HOST_IP:-$(route -n get default 2>/dev/null | awk '/interface:/{print $2}' | xargs -I{} ipconfig getifaddr {} 2>/dev/null)}"
-echo -e "  ${GREEN}${BOLD}[✓]${RESET} DNS via dnsmasq — *.aks-lab.local → 172.16.3.1 (NGINX Ingress MetalLB IP)" >&3
-echo -e "  ${DIM}  MacBook: ensure /etc/resolver/aks-lab.local points to ${LAB_HOST_IP}${RESET}" >&3
+log "Configuring /etc/hosts for *.aks-lab.local → 127.0.0.1 (via minikube tunnel)..."
+sudo sed -i '' '/aks-lab\.local/d' /etc/hosts
+printf '\n# aks-lab minikube services (via minikube tunnel on 127.0.0.1)\n' | sudo tee -a /etc/hosts > /dev/null
+for _host in argocd blob-explorer rancher dex dashboard grafana oauth2-proxy taskflow vault; do
+  echo "127.0.0.1 ${_host}.aks-lab.local" | sudo tee -a /etc/hosts > /dev/null
+done
+echo -e "  ${GREEN}${BOLD}[✓]${RESET} /etc/hosts updated — *.aks-lab.local → 127.0.0.1" >&3
 
 printf "\n" >&3
 
@@ -1313,9 +1316,29 @@ if feature_enabled rancher; then
       --set resources.requests.memory=256Mi \
       --set resources.requests.cpu=250m \
       --set resources.limits.memory=2Gi \
-      --set auditLog.level=0 \
-      --wait \
-      --timeout=15m || _RANCHER_HELM_RC=$?
+      --set auditLog.level=0 || _RANCHER_HELM_RC=$?
+    # Patch probes immediately after chart creates the deployment.
+    # Default startup probe kills the pod after ~2 min; Rancher needs 10-15 min
+    # to apply CRDs on constrained hardware. Raise the threshold and extend
+    # liveness/readiness initial delays. Also pin to the node with the pre-pulled
+    # 1.9GB image to avoid ImagePullBackOff if the pod reschedules.
+    log "Patching Rancher deployment probes and node affinity..."
+    for _try in $(seq 1 20); do
+      kubectl get deployment rancher -n cattle-system &>/dev/null && break
+      sleep 3
+    done
+    kubectl patch deployment rancher -n cattle-system --type=json \
+      -p='[{"op":"replace","path":"/spec/template/spec/containers/0/startupProbe/failureThreshold","value":180},
+             {"op":"replace","path":"/spec/template/spec/containers/0/startupProbe/periodSeconds","value":30},
+             {"op":"replace","path":"/spec/template/spec/containers/0/livenessProbe/initialDelaySeconds","value":900},
+             {"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/initialDelaySeconds","value":900}]' \
+      2>/dev/null || warn "Rancher probe patch failed -- pod may restart before being ready"
+    kubectl patch deployment rancher -n cattle-system --type=merge \
+      -p='{"spec":{"template":{"spec":{"nodeSelector":{"kubernetes.io/hostname":"aks-lab"}}}}}' \
+      2>/dev/null || true
+    log "Waiting for Rancher deployment to be available (up to 20 min)..."
+    kubectl wait deployment rancher --for=condition=available \
+      --namespace=cattle-system --timeout=20m || _RANCHER_HELM_RC=$?
     if [[ $_RANCHER_HELM_RC -ne 0 ]]; then
       warn "Rancher Helm install did not complete (exit ${_RANCHER_HELM_RC}) — capturing diagnostics..."
       {
@@ -2104,6 +2127,14 @@ if feature_enabled azdo-agent; then
     --namespace azdo-agent \
     --dry-run=client -o yaml | kubectl apply --validate=false -f -
 
+  # Download agent tarball if not already present (needed by Dockerfile COPY)
+  _AZDO_TARBALL="flux/apps/base/azdo-agent/vsts-agent-linux-x64-4.273.0.tar.gz"
+  if [[ ! -f "$_AZDO_TARBALL" ]]; then
+    log "Downloading Azure Pipelines agent v4.273.0 (~208 MB)..."
+    curl -fL "https://download.agent.dev.azure.com/agent/4.273.0/vsts-agent-linux-x64-4.273.0.tar.gz" \
+      -o "$_AZDO_TARBALL" \
+      || error "Failed to download Azure Pipelines agent tarball"
+  fi
   log "Building azdo-agent image..."
   docker build -t azdo-agent:local flux/apps/base/azdo-agent/ >/dev/null
   minikube -p "$PROFILE" image load azdo-agent:local
@@ -2173,17 +2204,22 @@ _pf "K8s API" 8443 "kubectl port-forward svc/kubernetes 8443:443 -n default --ad
 # machine. With IP forwarding enabled and a router static route pointing
 # 172.16.3.0/24 → ${LAB_HOST_IP}, these IPs become reachable network-wide.
 step "Starting minikube tunnel"
-if [[ -f /Library/LaunchDaemons/com.lab.minikube-tunnel.plist ]]; then
-  sudo launchctl kickstart -k system/com.lab.minikube-tunnel 2>/dev/null || true
-  success "minikube tunnel daemon restarted via launchd"
+# Install or update the wrapper script
+if ! cmp -s IaC/macos/minikube-tunnel.sh /usr/local/bin/minikube-tunnel.sh 2>/dev/null; then
+  log "Installing minikube-tunnel wrapper script..."
+  sudo cp IaC/macos/minikube-tunnel.sh /usr/local/bin/minikube-tunnel.sh
+  sudo chmod +x /usr/local/bin/minikube-tunnel.sh
+fi
+# Install or update the launchd plist, then (re)start the daemon
+if ! cmp -s IaC/macos/com.lab.minikube-tunnel.plist /Library/LaunchDaemons/com.lab.minikube-tunnel.plist 2>/dev/null; then
+  log "Installing/updating minikube-tunnel launchd daemon..."
+  sudo launchctl bootout system/com.lab.minikube-tunnel 2>/dev/null || true
+  sudo cp IaC/macos/com.lab.minikube-tunnel.plist /Library/LaunchDaemons/
+  sudo launchctl bootstrap system /Library/LaunchDaemons/com.lab.minikube-tunnel.plist
+  success "minikube tunnel daemon installed — will start when cluster is ready"
 else
-  # Start inline for this session; install the launchd plist for persistence.
-  pkill -f "minikube tunnel" 2>/dev/null || true
-  sudo minikube tunnel -p "$PROFILE" >> /tmp/minikube-tunnel.log 2>&1 &
-  echo $! > /tmp/minikube-tunnel.pid
-  sleep 3
-  success "minikube tunnel started (PID $(cat /tmp/minikube-tunnel.pid 2>/dev/null || echo '?'))"
-  warn "For persistence across reboots: sudo cp IaC/macos/com.lab.minikube-tunnel.plist /Library/LaunchDaemons/ && sudo launchctl load /Library/LaunchDaemons/com.lab.minikube-tunnel.plist"
+  sudo launchctl kickstart -k system/com.lab.minikube-tunnel 2>/dev/null || true
+  success "minikube tunnel daemon running"
 fi
 
 # ── Schedule heavy services across the cluster ──────────────────────

@@ -1,47 +1,45 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  launchd daemon — runs minikube tunnel at boot so MetalLB IPs (172.16.3.0/24)
-  are always routable from this host and (via IP forwarding + router static route)
-  from the rest of the 172.16.0.0/16 network.
+  launchd daemon — wraps minikube tunnel with a wait-for-Docker/cluster loop.
+  Runs as root (LaunchDaemon default); wrapper script uses 'su - markpadam'
+  for Docker/minikube checks so the Colima socket is accessible.
 
-  Install:
+  Install (first time):
+    sudo cp IaC/macos/minikube-tunnel.sh /usr/local/bin/minikube-tunnel.sh
+    sudo chmod +x /usr/local/bin/minikube-tunnel.sh
     sudo cp IaC/macos/com.lab.minikube-tunnel.plist /Library/LaunchDaemons/
-    sudo launchctl load /Library/LaunchDaemons/com.lab.minikube-tunnel.plist
+    sudo launchctl bootstrap system /Library/LaunchDaemons/com.lab.minikube-tunnel.plist
 
-  Uninstall:
-    sudo launchctl unload /Library/LaunchDaemons/com.lab.minikube-tunnel.plist
-    sudo rm /Library/LaunchDaemons/com.lab.minikube-tunnel.plist
+  Update (after plist or script change):
+    sudo launchctl bootout system/com.lab.minikube-tunnel
+    sudo cp IaC/macos/minikube-tunnel.sh /usr/local/bin/minikube-tunnel.sh
+    sudo chmod +x /usr/local/bin/minikube-tunnel.sh
+    sudo cp IaC/macos/com.lab.minikube-tunnel.plist /Library/LaunchDaemons/
+    sudo launchctl bootstrap system /Library/LaunchDaemons/com.lab.minikube-tunnel.plist
 
-  Logs:  /tmp/minikube-tunnel.log
+  Logs:  /var/log/minikube-tunnel.log
+
+  NOTE: Do NOT add a UserName key — it causes "Bootstrap failed: 5" on
+  macOS Ventura+ for LaunchDaemons. The daemon runs as root by default.
 -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
   <string>com.lab.minikube-tunnel</string>
-
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/bin/minikube</string>
-    <string>tunnel</string>
-    <string>-p</string>
-    <string>aks-lab</string>
+    <string>/usr/local/bin/minikube-tunnel.sh</string>
   </array>
-
   <key>RunAtLoad</key>
   <true/>
-
   <key>KeepAlive</key>
   <true/>
-
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
   <key>StandardOutPath</key>
-  <string>/tmp/minikube-tunnel.log</string>
-
+  <string>/var/log/minikube-tunnel.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/minikube-tunnel.log</string>
-
-  <!-- minikube tunnel requires root to manipulate routing tables -->
-  <key>UserName</key>
-  <string>root</string>
+  <string>/var/log/minikube-tunnel.log</string>
 </dict>
 </plist>

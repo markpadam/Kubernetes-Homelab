@@ -29,30 +29,36 @@ cleanup() {
 
 export VSO_AGENT_IGNORE=AZP_TOKEN,AZP_TOKEN_FILE
 
-echo "Determining matching Azure Pipelines agent..."
-ARCH=$(uname -m)
-if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-  PLATFORM="linux-arm64"
+# Download agent only if not already baked into the image
+if [ ! -f "./config.sh" ]; then
+  echo "Determining matching Azure Pipelines agent..."
+  ARCH=$(uname -m)
+  if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+    PLATFORM="linux-arm64"
+  else
+    PLATFORM="linux-x64"
+  fi
+
+  AZP_AGENT_PACKAGES=$(curl -LsS \
+    -u "user:$(cat "$AZP_TOKEN_FILE")" \
+    -H 'Accept:application/json;' \
+    "${AZP_URL}/_apis/distributedtask/packages/agent?platform=${PLATFORM}&\$top=1")
+
+  AZP_AGENT_PACKAGE_LATEST_URL=$(echo "$AZP_AGENT_PACKAGES" \
+    | jq -r '.value | map([.version.major,.version.minor,.version.patch,.downloadUrl]) | sort | .[length-1] | .[3]')
+
+  if [ -z "$AZP_AGENT_PACKAGE_LATEST_URL" ] || [ "$AZP_AGENT_PACKAGE_LATEST_URL" = "null" ]; then
+    echo 1>&2 "error: could not determine a matching Azure Pipelines agent"
+    echo 1>&2 "check that AZP_URL ('${AZP_URL}') is correct and the PAT is valid"
+    exit 1
+  fi
+
+  echo "Downloading and extracting agent ($PLATFORM)..."
+  curl -LsS "$AZP_AGENT_PACKAGE_LATEST_URL" | tar -xz
 else
-  PLATFORM="linux-x64"
+  echo "Using pre-installed Azure Pipelines agent"
 fi
 
-AZP_AGENT_PACKAGES=$(curl -LsS \
-  -u "user:$(cat "$AZP_TOKEN_FILE")" \
-  -H 'Accept:application/json;' \
-  "${AZP_URL}/_apis/distributedtask/packages/agent?platform=${PLATFORM}&\$top=1")
-
-AZP_AGENT_PACKAGE_LATEST_URL=$(echo "$AZP_AGENT_PACKAGES" \
-  | jq -r '.value | map([.version.major,.version.minor,.version.patch,.downloadUrl]) | sort | .[length-1] | .[3]')
-
-if [ -z "$AZP_AGENT_PACKAGE_LATEST_URL" ] || [ "$AZP_AGENT_PACKAGE_LATEST_URL" = "null" ]; then
-  echo 1>&2 "error: could not determine a matching Azure Pipelines agent"
-  echo 1>&2 "check that AZP_URL ('${AZP_URL}') is correct and the PAT is valid"
-  exit 1
-fi
-
-echo "Downloading and extracting agent ($PLATFORM)..."
-curl -LsS "$AZP_AGENT_PACKAGE_LATEST_URL" | tar -xz
 source ./env.sh
 
 echo "Configuring Azure Pipelines agent..."

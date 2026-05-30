@@ -1,0 +1,2 @@
+# Agent tarball is downloaded by setup-lab.sh before docker build — too large for git
+vsts-agent-linux-x64-*.tar.gz
