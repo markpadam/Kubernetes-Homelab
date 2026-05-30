@@ -264,7 +264,8 @@ write_files:
 
       systemctl daemon-reload
       systemctl enable vncserver@1
-      systemctl start vncserver@1
+      systemctl start vncserver@1 \
+        || echo "[client] WARNING: VNC failed to start — service is enabled and will start on next boot. Check: journalctl -xeu vncserver@1"
 
       echo "[client] Enabling Cockpit web console (port 9090)..."
       systemctl enable --now cockpit.socket
