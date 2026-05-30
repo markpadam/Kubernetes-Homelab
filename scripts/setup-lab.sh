@@ -2076,6 +2076,19 @@ fi
 
 if feature_enabled corp-client; then
   step "Step 11c — Corp Client VM"
+
+  # If the VM is already running but the terraform resource is tainted (a previous
+  # provision failed partway through), untaint it so terraform doesn't destroy and
+  # recreate a working VM. The VNC fix below will handle any leftover issues.
+  if _lima_status corp-client 2>/dev/null | grep -qi "running"; then
+    if terraform -chdir=IaC/terraform state show null_resource.corp_client_vm 2>/dev/null \
+        | grep -q "(tainted)"; then
+      log "corp-client VM already running but terraform resource is tainted — untainting to preserve VM..."
+      terraform -chdir=IaC/terraform untaint null_resource.corp_client_vm 2>/dev/null \
+        || warn "Could not untaint corp_client_vm — terraform may attempt a rebuild"
+    fi
+  fi
+
   log "Provisioning domain-joined corp-client VM..."
   _start_progress /tmp/corp-client-terraform-apply.log \
     "Launching VM:Launching corp-client VM" \
@@ -2096,6 +2109,40 @@ if feature_enabled corp-client; then
       2>&1 | tee /tmp/corp-client-terraform-apply.log; } || _CLIENT_RC=$?
   _stop_progress
   [[ $_CLIENT_RC -eq 0 ]] || error "Corp Client VM provisioning failed — check /tmp/corp-client-terraform-apply.log"
+
+  # VNC post-provision validation: cloud-init user detection may have picked a
+  # system account (e.g. systemd-network, UID 998) instead of the real user on
+  # Ubuntu 24.04. Detect and fix the service in-place if VNC is not running.
+  log "Verifying VNC desktop on corp-client..."
+  if ! limactl shell corp-client -- sudo systemctl is-active --quiet vncserver@1.service 2>/dev/null; then
+    log "VNC not running — repairing service configuration..."
+    limactl shell corp-client -- sudo bash -c '
+      VNC_USER=$(getent passwd | awk -F: '"'"'$6 ~ /^\/home\// && $3 != 65534 {print $1; exit}'"'"' \
+        || ls /home | head -1 || echo ubuntu)
+      VNC_HOME=$(getent passwd "$VNC_USER" | cut -d: -f6 || echo "/home/$VNC_USER")
+      VNC_GROUP=$(id -gn "$VNC_USER" 2>/dev/null || echo "$VNC_USER")
+      HN=$(hostname -s)
+      grep -qF "$HN" /etc/hosts || echo "127.0.1.1 $HN $HN.corp.internal" >> /etc/hosts
+      sed -i "s/^User=.*/User=$VNC_USER/; s/^Group=.*/Group=$VNC_GROUP/; \
+        s|^WorkingDirectory=.*|WorkingDirectory=$VNC_HOME|" \
+        /etc/systemd/system/vncserver@.service
+      mkdir -p "$VNC_HOME/.vnc"
+      chmod 700 "$VNC_HOME/.vnc"
+      chown "$VNC_USER:$VNC_GROUP" "$VNC_HOME/.vnc"
+      if [[ ! -f "$VNC_HOME/.vnc/xstartup" ]]; then
+        printf "#!/bin/bash\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexec startxfce4\n" \
+          > "$VNC_HOME/.vnc/xstartup"
+        chmod +x "$VNC_HOME/.vnc/xstartup"
+        chown "$VNC_USER:$VNC_GROUP" "$VNC_HOME/.vnc/xstartup"
+      fi
+      systemctl daemon-reload
+      systemctl reset-failed vncserver@1.service 2>/dev/null || true
+      systemctl start vncserver@1.service
+    ' && log "VNC repaired and started" \
+      || warn "VNC repair failed — start manually: limactl shell corp-client -- sudo systemctl start vncserver@1"
+  else
+    log "VNC is running"
+  fi
 
   # Patch corp-client so lab hostnames resolve regardless of DNS caching or
   # Firefox DoH. Uses /etc/hosts (wins over DNS) + disables Firefox TRR.
