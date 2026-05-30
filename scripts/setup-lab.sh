@@ -1266,7 +1266,7 @@ if feature_enabled kubernetes-dashboard; then
     -n kubernetes-dashboard \
     -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || echo "")
   if [[ -n "$K8S_DASHBOARD_TOKEN" ]]; then
-    success "Kubernetes Dashboard ready — https://dashboard.aks-lab.local:9444"
+    success "Kubernetes Dashboard ready — https://dashboard.aks-lab.local"
     log "  Admin token: ${K8S_DASHBOARD_TOKEN:0:40}... (full token in lab dashboard)"
   else
     warn "Dashboard installed but could not read admin token yet"
@@ -1387,7 +1387,7 @@ if feature_enabled rancher; then
       fi
     done
 
-    success "Rancher ready — https://rancher.aks-lab.local:9444  (bootstrap: ${RANCHER_BOOTSTRAP_PASSWORD})"
+    success "Rancher ready — https://rancher.aks-lab.local  (bootstrap: ${RANCHER_BOOTSTRAP_PASSWORD})"
   fi
 else
   log "Skipping Step 5c — Rancher not selected"
@@ -1946,7 +1946,7 @@ PYEOF
     _DEX_RC=0
     kubectl wait deployment dex --for=condition=available --namespace=dex --timeout=120s || _DEX_RC=$?
     [[ $_DEX_RC -eq 0 ]] \
-      && success "Dex OIDC server ready — https://dex.aks-lab.local:9444" \
+      && success "Dex OIDC server ready — https://dex.aks-lab.local" \
       || warn "Dex deployment did not complete within 120s — check: kubectl logs -n dex deployment/dex"
   fi
 
@@ -1970,7 +1970,7 @@ Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).saf
     _OAUTH_RC=0
     kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s || _OAUTH_RC=$?
     if [[ $_OAUTH_RC -eq 0 ]]; then
-      success "OAuth2 Proxy ready — SSO gate at https://oauth2-proxy.aks-lab.local:9444"
+      success "OAuth2 Proxy ready — SSO gate at https://oauth2-proxy.aks-lab.local"
       log "Patching SSO annotations onto protected ingresses..."
       for _ing in "argocd argocd argocd.aks-lab.local" \
                   "kubernetes-dashboard kubernetes-dashboard dashboard.aks-lab.local" \
@@ -1983,7 +1983,7 @@ Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).saf
           kubectl annotate ingress -n "$1" "$2" --overwrite \
             "nginx.ingress.kubernetes.io/auth-url=http://oauth2-proxy.oauth2-proxy.svc.cluster.local:4180/oauth2/auth" \
             "nginx.ingress.kubernetes.io/auth-response-headers=X-Auth-Request-User,X-Auth-Request-Email" \
-            "nginx.ingress.kubernetes.io/auth-signin=https://oauth2-proxy.aks-lab.local:9444/oauth2/start?rd=https://${3}:9444/" \
+            "nginx.ingress.kubernetes.io/auth-signin=https://oauth2-proxy.aks-lab.local/oauth2/start?rd=https://${3}/" \
             &>/dev/null || true
       done
       success "SSO annotations applied"

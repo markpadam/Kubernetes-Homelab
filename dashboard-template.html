@@ -111,34 +111,34 @@
 
 <div class="section-title">Services</div>
 <div class="services">
-  <a class="card" href="https://taskflow.aks-lab.local:9444" target="_blank">
+  <a class="card" href="https://taskflow.aks-lab.local" target="_blank">
     <div class="card-name"><span class="card-dot" data-ns="taskapp"></span>TaskFlow</div>
-    <div class="card-url">taskflow.aks-lab.local:9444</div>
+    <div class="card-url">taskflow.aks-lab.local</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
-  <a class="card" href="https://grafana.aks-lab.local:9444" target="_blank">
+  <a class="card" href="https://grafana.aks-lab.local" target="_blank">
     <div class="card-name"><span class="card-dot" data-ns="monitoring"></span>Grafana</div>
-    <div class="card-url">grafana.aks-lab.local:9444</div>
+    <div class="card-url">grafana.aks-lab.local</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
-  <a class="card" href="https://argocd.aks-lab.local:9444" target="_blank">
+  <a class="card" href="https://argocd.aks-lab.local" target="_blank">
     <div class="card-name"><span class="card-dot" data-ns="argocd"></span>ArgoCD</div>
-    <div class="card-url">argocd.aks-lab.local:9444</div>
+    <div class="card-url">argocd.aks-lab.local</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
-  <a class="card" href="https://blob-explorer.aks-lab.local:9444" target="_blank">
+  <a class="card" href="https://blob-explorer.aks-lab.local" target="_blank">
     <div class="card-name"><span class="card-dot" data-ns="blob-explorer"></span>Blob Explorer</div>
-    <div class="card-url">blob-explorer.aks-lab.local:9444</div>
+    <div class="card-url">blob-explorer.aks-lab.local</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
-  <a class="card" href="https://dashboard.aks-lab.local:9444" target="_blank">
+  <a class="card" href="https://dashboard.aks-lab.local" target="_blank">
     <div class="card-name"><span class="card-dot" data-ns="kubernetes-dashboard"></span>K8s Dashboard</div>
-    <div class="card-url">dashboard.aks-lab.local:9444</div>
+    <div class="card-url">dashboard.aks-lab.local</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
-  <a class="card" href="https://rancher.aks-lab.local:9444" target="_blank">
+  <a class="card" href="https://rancher.aks-lab.local" target="_blank">
     <div class="card-name"><span class="card-dot" data-ns="cattle-system"></span>Rancher</div>
-    <div class="card-url">rancher.aks-lab.local:9444</div>
+    <div class="card-url">rancher.aks-lab.local</div>
     <div class="card-open">Open &#x2197;</div>
   </a>
   <div class="card">
@@ -190,7 +190,7 @@
     <div class="row" style="border:none; padding-top:10px; font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.06em; text-transform:uppercase">AD Test Users</div>
   </div>
   <div class="panel">
-    <div class="row"><span class="row-label">Issuer</span><span class="row-val" style="font-size:11px">dex.aks-lab.local:9444</span></div>
+    <div class="row"><span class="row-label">Issuer</span><span class="row-val" style="font-size:11px">dex.aks-lab.local</span></div>
     <div class="row"><span class="row-label">Client</span><span class="row-val">oauth2-proxy</span></div>
     <div class="row"><span class="row-label">LDAP</span><span class="row-val">→ SambaAD :389</span></div>
     <div class="row"><span class="row-label">Discovery</span><span class="row-val" style="font-size:11px">/.well-known/openid-configuration</span></div>
@@ -240,7 +240,7 @@
 <div class="cmd-row">export VAULT_ADDR=${VAULT_ADDR} VAULT_TOKEN=${VAULT_TOKEN}<button class="copy-btn" onclick="cp(this,'export VAULT_ADDR=${VAULT_ADDR} VAULT_TOKEN=${VAULT_TOKEN}')">copy</button></div>
 <div class="cmd-row">multipass exec samba-ad -- samba-tool user list<button class="copy-btn" onclick="cp(this,'multipass exec samba-ad -- samba-tool user list')">copy</button></div>
 <div class="cmd-row">multipass exec corp-client -- id testuser1@corp.internal<button class="copy-btn" onclick="cp(this,'multipass exec corp-client -- id testuser1@corp.internal')">copy</button></div>
-<div class="cmd-row">curl -s http://dex.aks-lab.local:9444/.well-known/openid-configuration | python3 -m json.tool<button class="copy-btn" onclick="cp(this,'curl -s http://dex.aks-lab.local:9444/.well-known/openid-configuration | python3 -m json.tool')">copy</button></div>
+<div class="cmd-row">curl -s http://dex.aks-lab.local/.well-known/openid-configuration | python3 -m json.tool<button class="copy-btn" onclick="cp(this,'curl -s http://dex.aks-lab.local/.well-known/openid-configuration | python3 -m json.tool')">copy</button></div>
 <div class="cmd-row">kubectl logs -n dex deploy/dex -f<button class="copy-btn" onclick="cp(this,'kubectl logs -n dex deploy/dex -f')">copy</button></div>
 <div class="cmd-row">kubectl logs -n oauth2-proxy deploy/oauth2-proxy -f<button class="copy-btn" onclick="cp(this,'kubectl logs -n oauth2-proxy deploy/oauth2-proxy -f')">copy</button></div>
 
