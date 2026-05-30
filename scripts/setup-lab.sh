@@ -1086,6 +1086,7 @@ _lab_image() {
 
 feature_enabled taskflow      && _lab_image backend      src/taskflow/backend/
 feature_enabled toolbox       && _lab_image toolbox       src/toolbox/
+feature_enabled exam-sim      && _lab_image exam-sim      src/exam-sim/
 feature_enabled blob-explorer && _lab_image blob-explorer src/blob-explorer/
 
 if [[ "${#IMAGES_TO_DISTRIBUTE[@]}" -gt 0 ]]; then
@@ -1456,7 +1457,7 @@ fi
 step "Step 7 — Deploying DNS Lab (bind9 + CoreDNS patch)"
 
 log "Deploying bind9 (simulated ADDS DNS server)..."
-kubectl apply -f "$DNS_DIR/01-bind9.yaml"
+_kubectl_apply_retry -f "$DNS_DIR/01-bind9.yaml"
 
 log "Waiting for bind9 to be ready..."
 kubectl wait deployment bind9 \
@@ -1613,6 +1614,61 @@ SSHCONF
   success "Toolbox ready — ssh aks-toolbox"
 else
   log "Skipping Step 8 — Toolbox not selected"
+fi
+
+# ── Exam Simulator Pod ─────────────────────────
+EXAM_SIM_DIR="flux/infrastructure/base/exam-sim"
+if feature_enabled exam-sim; then
+  step "Deploying Exam Simulator Pod"
+
+  [[ -n "$SSH_KEY_PATH" ]] || error "SSH_KEY_PATH not set — collected before TUI started."
+  PUBLIC_KEY=$(cat "$SSH_KEY_PATH")
+
+  TEMP_MANIFEST=$(mktemp /tmp/exam-sim.XXXXXX)
+  sed "s|REPLACE_WITH_YOUR_PUBLIC_KEY|${PUBLIC_KEY}|g" \
+    "$EXAM_SIM_DIR/exam-sim.yaml" > "$TEMP_MANIFEST"
+  kubectl apply -f "$TEMP_MANIFEST"
+  rm "$TEMP_MANIFEST"
+
+  log "Waiting for exam-sim pod to be ready..."
+  kubectl wait deployment exam-sim \
+    --for=condition=available --namespace=exam-sim --timeout=300s \
+    || warn "exam-sim pod not ready within 5 min — SSH may not be available yet"
+
+  success "exam-sim pod running"
+
+  log "Starting SSH port-forward: localhost:2224 → exam-sim:22 ..."
+  lsof -ti:2224 | xargs kill -9 2>/dev/null || true
+  sleep 1
+  kubectl port-forward svc/exam-sim-ssh 2224:22 -n exam-sim \
+    >> /tmp/exam-sim-portforward.log 2>&1 &
+  PF_PID=$!
+  sleep 3
+  kill -0 "$PF_PID" 2>/dev/null \
+    && success "exam-sim SSH port-forward running (PID $PF_PID)" \
+    || warn "Port-forward may have failed — check /tmp/exam-sim-portforward.log"
+
+  PRIVATE_KEY="${SSH_KEY_PATH%.pub}"
+  [[ -f "$PRIVATE_KEY" ]] || PRIVATE_KEY="$HOME/.ssh/id_ed25519"
+  SSH_CONFIG="$HOME/.ssh/config"
+  if ! grep -q "Host aks-exam-sim" "$SSH_CONFIG" 2>/dev/null; then
+    cat >> "$SSH_CONFIG" << SSHCONF
+
+Host aks-exam-sim
+    HostName localhost
+    Port 2224
+    User root
+    IdentityFile $PRIVATE_KEY
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+SSHCONF
+    chmod 600 "$SSH_CONFIG"
+    success "SSH config updated (aks-exam-sim)"
+  fi
+
+  success "Exam simulator ready — ssh aks-exam-sim  (or: ssh -p 2224 root@localhost)"
+else
+  log "Skipping exam-sim — not selected"
 fi
 
 # GITHUB_TOKEN was collected during the upfront credential phase (before TUI started).
