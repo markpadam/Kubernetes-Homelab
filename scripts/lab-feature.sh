@@ -758,12 +758,7 @@ _enable_dex() {
   DEX_CLIENT_SECRET=$(lab_secret_get_or_create DEX_CLIENT_SECRET token_urlsafe_32)
   export SAMBA_IP DEX_CLIENT_SECRET AD_ADMIN_PASSWORD="AksLab!AdDev1"
   log "Rendering Dex config (SambaAD: $SAMBA_IP)..."
-  python3 -c "
-import os, string
-from pathlib import Path
-t = Path('$REPO_ROOT/flux/infrastructure/base/identity/dex/config.yaml').read_text()
-Path('/tmp/dex-config-rendered.yaml').write_text(string.Template(t).safe_substitute(os.environ))
-"
+  python3 "$REPO_ROOT/scripts/render-dex-config.py"
   # Apply the kustomization first (creates the namespace), then overlay the rendered config.
   kubectl apply -k "$REPO_ROOT/flux/infrastructure/base/identity/dex/"
   kubectl apply -f /tmp/dex-config-rendered.yaml
