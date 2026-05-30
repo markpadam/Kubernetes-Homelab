@@ -406,6 +406,7 @@ else
   _default=$( [[ -f ".lab-state.json" ]] && echo 6 || echo 1 )
   printf "  Choice [%s]: " "$_default" >&3
   read -r _choice <&0
+  _choice="${_choice//[^0-9a-zA-Z]/}"   # strip backslashes / escape sequences from terminal
   case "${_choice:-$_default}" in
     1|s|S) bash "$(dirname "$0")/lab-feature.sh" init --standard  >&3 2>&3 ;;
     2|a|A) bash "$(dirname "$0")/lab-feature.sh" init --all       >&3 2>&3 ;;
