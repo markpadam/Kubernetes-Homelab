@@ -296,6 +296,98 @@
 </div>
 <div id="terminal"><span class="term-idle">Select a script above to run it...</span></div>
 
+<div class="section-title" style="margin-top:28px">Exam Mode</div>
+<div id="exam-launcher" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+  <select id="exam-track" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px">
+    <option value="CKA">CKA</option>
+    <option value="CKAD">CKAD</option>
+    <option value="CKS">CKS</option>
+  </select>
+  <select id="exam-duration" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px">
+    <option value="90">90 min (CKA/CKAD)</option>
+    <option value="120" selected>120 min (CKS)</option>
+    <option value="30">30 min (practice)</option>
+  </select>
+  <button onclick="startExam()" style="padding:7px 18px;background:#3b82f6;color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:14px;font-weight:600">Start Exam</button>
+</div>
+<div id="exam-active" style="display:none">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:12px">
+    <div id="exam-status-label" style="font-weight:700;font-size:15px"></div>
+    <div style="display:flex;gap:12px;align-items:center">
+      <div id="exam-timer" style="font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;color:#3b82f6"></div>
+      <button onclick="submitExam()" style="padding:6px 14px;background:#f85149;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">Submit</button>
+    </div>
+  </div>
+  <div id="exam-questions" style="display:grid;gap:10px"></div>
+</div>
+<div id="exam-report" style="display:none;padding:20px;background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:16px">
+  <div style="text-align:center;margin-bottom:16px">
+    <div id="report-score" style="font-size:48px;font-weight:800"></div>
+    <div id="report-pass" style="font-size:18px;font-weight:700;margin-top:4px"></div>
+    <div style="font-size:13px;color:var(--muted);margin-top:4px">Pass threshold: 66%</div>
+  </div>
+  <div id="report-breakdown" style="display:grid;gap:8px;margin-top:16px"></div>
+  <div style="text-align:center;margin-top:16px">
+    <button onclick="resetExam()" style="padding:8px 18px;background:var(--card);border:1px solid var(--border);border-radius:7px;cursor:pointer;font-size:13px">Start new exam</button>
+  </div>
+</div>
+
+<div class="section-title" style="margin-top:28px">Exam Scenarios</div>
+<div id="scenarios-toolbar" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+  <select id="scenario-track" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px">
+    <option value="">All tracks</option>
+    <option value="basics">Basics</option>
+    <option value="CKA">CKA</option>
+    <option value="CKAD">CKAD</option>
+    <option value="CKS">CKS</option>
+  </select>
+  <select id="scenario-type" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px">
+    <option value="">All types</option>
+    <option value="task">Task</option>
+    <option value="mcq">MCQ</option>
+  </select>
+</div>
+<div id="scenarios-list" style="display:grid;gap:10px"></div>
+
+<!-- Scenario detail panel -->
+<div id="scenario-panel" style="display:none;margin-top:16px;padding:18px 20px;background:var(--card);border:1px solid var(--border);border-radius:10px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+    <div>
+      <div id="sp-title" style="font-size:16px;font-weight:700;margin-bottom:4px"></div>
+      <div id="sp-meta" style="font-size:12px;color:var(--muted)"></div>
+    </div>
+    <button onclick="document.getElementById('scenario-panel').style.display='none'" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted)">✕</button>
+  </div>
+  <div id="sp-description" style="font-size:14px;line-height:1.6;margin-bottom:16px;white-space:pre-wrap"></div>
+
+  <!-- MCQ choices -->
+  <div id="sp-mcq" style="display:none;margin-bottom:16px">
+    <div id="sp-choices" style="display:grid;gap:8px"></div>
+    <div id="sp-explanation" style="display:none;margin-top:12px;padding:10px 14px;background:var(--bg);border-radius:6px;font-size:13px;color:var(--muted)"></div>
+  </div>
+
+  <!-- Task hints -->
+  <div id="sp-hints-wrap" style="display:none;margin-bottom:14px">
+    <button id="sp-hints-toggle" onclick="toggleHints()" style="font-size:12px;padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:none;cursor:pointer;color:var(--muted)">Show hints</button>
+    <ul id="sp-hints" style="display:none;margin:10px 0 0 0;padding-left:20px;font-size:13px;color:var(--muted);line-height:1.7"></ul>
+  </div>
+
+  <!-- Validation -->
+  <div id="sp-task-actions" style="display:none">
+    <button onclick="validateScenario()" style="padding:8px 18px;background:#3b82f6;color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:14px;font-weight:600">Check my work</button>
+    <div id="sp-results" style="margin-top:14px;display:grid;gap:6px"></div>
+  </div>
+</div>
+
+<div class="section-title" style="margin-top:28px">
+  Terminal
+  <button id="term-toggle" onclick="toggleTerminal()" style="margin-left:12px;font-size:12px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);background:none;cursor:pointer;color:var(--muted);vertical-align:middle">Show</button>
+</div>
+<div id="xterm-wrap" style="display:none;border-radius:8px;overflow:hidden;border:1px solid var(--border);margin-bottom:16px">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css"/>
+  <div id="xterm-container" style="width:100%;height:300px"></div>
+</div>
+
 <div class="section-title" style="margin-top:28px">Lab Management</div>
 <div id="feat-status">Loading components...</div>
 <div class="feat-grid" id="feat-grid"></div>
@@ -609,6 +701,310 @@
   function closeTeardownModal() {
     document.getElementById('teardown-modal').classList.remove('open');
   }
+
+  // ── Terminal (xterm.js + WebSocket PTY) ─────────────────────────────────
+  var _term = null, _termWs = null, _termOpen = false;
+
+  function toggleTerminal() {
+    var wrap = document.getElementById('xterm-wrap');
+    var btn  = document.getElementById('term-toggle');
+    _termOpen = !_termOpen;
+    wrap.style.display = _termOpen ? 'block' : 'none';
+    btn.textContent = _termOpen ? 'Hide' : 'Show';
+    if (_termOpen && !_term) initTerminal();
+  }
+
+  function initTerminal() {
+    var script1 = document.createElement('script');
+    script1.src = 'https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js';
+    script1.onload = function() {
+      var script2 = document.createElement('script');
+      script2.src = 'https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js';
+      script2.onload = function() { startTerminal(); };
+      document.head.appendChild(script2);
+    };
+    document.head.appendChild(script1);
+  }
+
+  function startTerminal() {
+    var isDark = !document.documentElement.classList.contains('light');
+    _term = new Terminal({
+      theme: isDark
+        ? { background: '#0d1117', foreground: '#c9d1d9', cursor: '#58a6ff' }
+        : { background: '#ffffff', foreground: '#24292f', cursor: '#0969da' },
+      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      fontSize: 13,
+      cursorBlink: true,
+    });
+    var fitAddon = new FitAddon.FitAddon();
+    _term.loadAddon(fitAddon);
+    _term.open(document.getElementById('xterm-container'));
+    fitAddon.fit();
+
+    var wsUrl = 'ws://localhost:9998';
+    _termWs = new WebSocket(wsUrl);
+    _termWs.onopen = function() {
+      _term.write('\r\n\x1b[32mConnected to toolbox pod.\x1b[0m\r\n');
+    };
+    _termWs.onmessage = function(e) { _term.write(e.data); };
+    _termWs.onerror = function() { _term.write('\r\n\x1b[31mConnection failed — is the toolbox pod running?\x1b[0m\r\n'); };
+    _termWs.onclose = function() { _term.write('\r\n\x1b[33mTerminal disconnected.\x1b[0m\r\n'); };
+
+    _term.onData(function(data) {
+      if (_termWs && _termWs.readyState === WebSocket.OPEN) _termWs.send(data);
+    });
+
+    new ResizeObserver(function() {
+      fitAddon.fit();
+      if (_termWs && _termWs.readyState === WebSocket.OPEN) {
+        _termWs.send(JSON.stringify({ type: 'resize', cols: _term.cols, rows: _term.rows }));
+      }
+    }).observe(document.getElementById('xterm-container'));
+  }
+
+  // ── Exam mode ───────────────────────────────────────────────────────────
+  var _examSession = null, _examAnswers = {}, _examTimer = null, _examEndTime = null;
+
+  function startExam() {
+    var track    = document.getElementById('exam-track').value;
+    var duration = parseInt(document.getElementById('exam-duration').value);
+    _authFetch('/api/exam/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track: track, duration_minutes: duration, count: 20 })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        _examSession = data;
+        _examAnswers = {};
+        _examEndTime = Date.now() + data.duration_minutes * 60 * 1000;
+        document.getElementById('exam-launcher').style.display = 'none';
+        document.getElementById('exam-active').style.display = 'block';
+        document.getElementById('exam-report').style.display = 'none';
+        document.getElementById('exam-status-label').textContent = track + ' Exam — ' + data.scenarios.length + ' questions';
+        renderExamQuestions(data.scenarios);
+        _examTimer = setInterval(tickTimer, 1000);
+        tickTimer();
+      })
+      .catch(function(e) { alert('Failed to start exam: ' + e); });
+  }
+
+  function tickTimer() {
+    var remaining = Math.max(0, _examEndTime - Date.now());
+    var m = Math.floor(remaining / 60000);
+    var s = Math.floor((remaining % 60000) / 1000);
+    var el = document.getElementById('exam-timer');
+    el.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+    el.style.color = remaining < 300000 ? '#f85149' : '#3b82f6';
+    if (remaining <= 0) { clearInterval(_examTimer); submitExam(); }
+  }
+
+  function renderExamQuestions(scenarios) {
+    var html = scenarios.map(function(s, i) {
+      var isMcq = s.type === 'mcq';
+      var choicesHtml = '';
+      if (isMcq) {
+        choicesHtml = '<div style="display:grid;gap:6px;margin-top:10px">'
+          + (s.choices || []).map(function(c) {
+            return '<label style="display:flex;gap:8px;align-items:center;cursor:pointer;font-size:13px">'
+              + '<input type="radio" name="exam-q-' + s.id + '" value="' + c.id + '" onchange="recordAnswer(\'' + s.id + '\',this.value)"> '
+              + '<strong>' + c.id.toUpperCase() + '.</strong> ' + c.text
+              + '</label>';
+          }).join('') + '</div>';
+      }
+      return '<div class="panel" style="padding:14px 18px">'
+        + '<div style="display:flex;justify-content:space-between;margin-bottom:8px">'
+        + '  <span style="font-size:13px;font-weight:700;color:var(--muted)">Q' + (i+1) + '</span>'
+        + '  <span style="font-size:12px;color:var(--muted)">' + s.weight + ' pts · ' + (isMcq ? 'MCQ' : 'Task') + '</span>'
+        + '</div>'
+        + '<div style="font-size:14px;font-weight:600;margin-bottom:6px">' + s.title + '</div>'
+        + '<div style="font-size:13px;white-space:pre-wrap;color:var(--muted);margin-bottom:8px">' + s.description + '</div>'
+        + choicesHtml
+        + (isMcq ? '' : '<div style="font-size:12px;color:var(--muted);margin-top:8px;padding:6px 10px;background:var(--bg);border-radius:5px">Complete this task in the terminal, then submit to auto-validate.</div>')
+        + '</div>';
+    }).join('');
+    document.getElementById('exam-questions').innerHTML = html;
+  }
+
+  function recordAnswer(scenarioId, value) {
+    _examAnswers[scenarioId] = value;
+  }
+
+  function submitExam() {
+    clearInterval(_examTimer);
+    if (!_examSession) return;
+    var btn = document.querySelector('#exam-active button[onclick="submitExam()"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Scoring…'; }
+    _authFetch('/api/exam/' + _examSession.session_id + '/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answers: _examAnswers })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        document.getElementById('exam-active').style.display = 'none';
+        var report = document.getElementById('exam-report');
+        report.style.display = 'block';
+        var scoreEl = document.getElementById('report-score');
+        scoreEl.textContent = data.score_pct + '%';
+        scoreEl.style.color = data.passed ? '#3fb950' : '#f85149';
+        var passEl = document.getElementById('report-pass');
+        passEl.textContent = data.passed ? '✓ PASSED' : '✗ FAILED';
+        passEl.style.color = data.passed ? '#3fb950' : '#f85149';
+        document.getElementById('report-breakdown').innerHTML = (data.results || []).map(function(r) {
+          return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--border)">'
+            + '<span>' + (r.passed ? '✓' : '✗') + ' ' + r.title + '</span>'
+            + '<span style="color:var(--muted)">' + r.weight + ' pts</span>'
+            + '</div>';
+        }).join('');
+        report.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      })
+      .catch(function(e) { alert('Submit failed: ' + e); });
+  }
+
+  function resetExam() {
+    _examSession = null; _examAnswers = {};
+    document.getElementById('exam-launcher').style.display = 'flex';
+    document.getElementById('exam-active').style.display = 'none';
+    document.getElementById('exam-report').style.display = 'none';
+  }
+
+  // ── Scenario panel ──────────────────────────────────────────────────────
+  var _scenarios = [];
+  var _activeScenario = null;
+
+  function loadScenarios() {
+    _authFetch('/api/scenarios')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        _scenarios = data;
+        renderScenarioList();
+      })
+      .catch(function() {});
+  }
+
+  function renderScenarioList() {
+    var track = document.getElementById('scenario-track').value;
+    var type  = document.getElementById('scenario-type').value;
+    var list  = document.getElementById('scenarios-list');
+    var filtered = _scenarios.filter(function(s) {
+      var trackOk = !track || (s.exam_track && s.exam_track.indexOf(track) >= 0);
+      var typeOk  = !type  || s.type === type;
+      return trackOk && typeOk;
+    });
+    if (!filtered.length) {
+      list.innerHTML = '<div style="color:var(--muted);font-size:13px">No scenarios match the selected filters.</div>';
+      return;
+    }
+    list.innerHTML = filtered.map(function(s) {
+      var diff = s.difficulty || 'medium';
+      var diffColor = diff === 'hard' ? '#f85149' : diff === 'easy' ? '#3fb950' : '#d29922';
+      var tracks = (s.exam_track || []).join(', ');
+      return '<div class="panel" style="cursor:pointer;padding:12px 16px" onclick="openScenario(\'' + s.id + '\')">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center">'
+        + '  <span style="font-size:14px;font-weight:600">' + s.title + '</span>'
+        + '  <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:' + diffColor + '22;color:' + diffColor + ';font-weight:700">' + diff.toUpperCase() + '</span>'
+        + '</div>'
+        + '<div style="font-size:12px;color:var(--muted);margin-top:4px">' + tracks + ' &nbsp;·&nbsp; ' + (s.type === 'mcq' ? 'MCQ' : 'Task') + ' &nbsp;·&nbsp; ' + (s.weight || 4) + ' pts</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  function openScenario(id) {
+    _authFetch('/api/scenarios/' + id)
+      .then(function(r) { return r.json(); })
+      .then(function(s) {
+        _activeScenario = s;
+        document.getElementById('sp-title').textContent = s.title;
+        document.getElementById('sp-meta').textContent =
+          (s.exam_track || []).join(', ') + '  ·  ' + (s.type === 'mcq' ? 'MCQ' : 'Task') + '  ·  ' + (s.weight || 4) + ' pts';
+        document.getElementById('sp-description').textContent = s.description || '';
+        document.getElementById('sp-results').innerHTML = '';
+
+        var isMcq = s.type === 'mcq';
+        document.getElementById('sp-mcq').style.display = isMcq ? 'block' : 'none';
+        document.getElementById('sp-hints-wrap').style.display = isMcq ? 'none' : 'block';
+        document.getElementById('sp-task-actions').style.display = isMcq ? 'none' : 'block';
+        document.getElementById('sp-explanation').style.display = 'none';
+        document.getElementById('sp-hints').style.display = 'none';
+        document.getElementById('sp-hints-toggle').textContent = 'Show hints';
+
+        if (isMcq) {
+          var choices = s.choices || [];
+          document.getElementById('sp-choices').innerHTML = choices.map(function(c) {
+            return '<button onclick="answerMcq(\'' + c.id + '\')" style="text-align:left;padding:10px 14px;border-radius:7px;border:1px solid var(--border);background:var(--bg);cursor:pointer;font-size:13px;color:var(--text)">'
+              + '<strong>' + c.id.toUpperCase() + '.</strong> ' + c.text + '</button>';
+          }).join('');
+        } else {
+          var hints = s.hints || [];
+          document.getElementById('sp-hints').innerHTML = hints.map(function(h) {
+            return '<li>' + h + '</li>';
+          }).join('');
+        }
+
+        document.getElementById('scenario-panel').style.display = 'block';
+        document.getElementById('scenario-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+  }
+
+  function answerMcq(choiceId) {
+    if (!_activeScenario) return;
+    var correct = _activeScenario.correct_choice;
+    var buttons = document.getElementById('sp-choices').querySelectorAll('button');
+    buttons.forEach(function(btn) {
+      var cid = btn.textContent.trim()[0].toLowerCase();
+      btn.style.background = cid === correct ? '#3fb95022' : (cid === choiceId && choiceId !== correct ? '#f8514922' : '');
+      btn.style.borderColor = cid === correct ? '#3fb950' : (cid === choiceId && choiceId !== correct ? '#f85149' : '');
+      btn.disabled = true;
+    });
+    var expl = document.getElementById('sp-explanation');
+    expl.textContent = (choiceId === correct ? '✓ Correct! ' : '✗ Incorrect. ') + (_activeScenario.explanation || '');
+    expl.style.display = 'block';
+    expl.style.color = choiceId === correct ? '#3fb950' : '#f85149';
+  }
+
+  function toggleHints() {
+    var hints = document.getElementById('sp-hints');
+    var btn   = document.getElementById('sp-hints-toggle');
+    var shown = hints.style.display !== 'none';
+    hints.style.display = shown ? 'none' : 'block';
+    btn.textContent = shown ? 'Show hints' : 'Hide hints';
+  }
+
+  function validateScenario() {
+    if (!_activeScenario) return;
+    var btn = document.querySelector('#sp-task-actions button');
+    btn.disabled = true;
+    btn.textContent = 'Checking…';
+    _authFetch('/api/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario_id: _activeScenario.id })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var html = data.checks.map(function(c) {
+          var icon = c.passed ? '✓' : '✗';
+          var col  = c.passed ? '#3fb950' : '#f85149';
+          return '<div style="display:flex;gap:8px;align-items:flex-start;font-size:13px">'
+            + '<span style="color:' + col + ';font-weight:700;flex-shrink:0">' + icon + '</span>'
+            + '<span style="color:' + (c.passed ? 'var(--text)' : col) + '">' + c.message + '</span>'
+            + '</div>';
+        }).join('');
+        document.getElementById('sp-results').innerHTML = html;
+      })
+      .catch(function(e) {
+        document.getElementById('sp-results').innerHTML = '<span style="color:#f85149">Request failed: ' + e + '</span>';
+      })
+      .finally(function() {
+        btn.disabled = false;
+        btn.textContent = 'Check my work';
+      });
+  }
+
+  document.getElementById('scenario-track').addEventListener('change', renderScenarioList);
+  document.getElementById('scenario-type').addEventListener('change', renderScenarioList);
+  loadScenarios();
 
   function connectCorpDesktop() {
     var btn = document.getElementById('corp-connect-btn');

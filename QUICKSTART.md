@@ -168,6 +168,7 @@ Components can also be toggled from the **Lab Management** section of the dashbo
 | `argocd` | ArgoCD GitOps UI |
 | `kubernetes-dashboard` | Official Kubernetes web UI |
 | `toolbox` | SSH-accessible debug pod |
+| `exam-sim` | CKA/CKAD/CKS exam simulator terminal — Ubuntu 22.04 with exam aliases, etcdctl, crictl, trivy, 5 kubeconfig contexts |
 | `vault` | HashiCorp Vault (Azure Key Vault equivalent) |
 | `cert-manager` | TLS cert lifecycle via Vault PKI (auto-issues `*.aks-lab.local` certs) |
 | `keda` | Kubernetes Event-driven Autoscaling — scale-to-zero on external triggers |
@@ -267,6 +268,7 @@ Most web services are protected by OAuth2 SSO (Dex + oauth2-proxy). Sign in once
 | Cosmos DB | http://localhost:8081 | well-known emulator key |
 | Registry | localhost:5000 | no auth |
 | Toolbox SSH | `ssh aks-toolbox` | key-based |
+| Exam Simulator | `ssh aks-exam-sim` (port 2224) | key-based |
 
 > When `samba-ad` is enabled the SSO login uses your Active Directory credentials instead of the static account above.
 

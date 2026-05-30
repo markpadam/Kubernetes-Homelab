@@ -207,6 +207,21 @@
       "desc": "In-cluster Ubuntu pod — SSH access for debugging"
     },
     {
+      "id": "exam-sim",
+      "name": "Exam Simulator Terminal",
+      "group": "infrastructure",
+      "default": false,
+      "type": "special",
+      "ns": "exam-sim",
+      "flux_dir": "",
+      "manifest": "flux/infrastructure/base/exam-sim/exam-sim.yaml",
+      "depends": ["toolbox"],
+      "port_forwards": [
+        {"local": 2224, "svc": "exam-sim-ssh", "ns": "exam-sim", "remote": 22}
+      ],
+      "desc": "Ubuntu 22.04 SSH pod matching the official CKA/CKAD/CKS PSI exam terminal — 5 kubeconfig contexts, exam aliases, etcdctl, crictl, trivy"
+    },
+    {
       "id": "samba-ad",
       "name": "SambaAD (Active Directory DC)",
       "group": "identity",

@@ -23,3 +23,6 @@
 
 # Rendered / temp files
 /tmp/
+
+# Lab progress database (user-specific, not committed)
+.lab-data/

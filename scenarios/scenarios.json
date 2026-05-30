@@ -1,0 +1,879 @@
+[
+
+  {
+    "id": "basics-pod-create",
+    "title": "Create and inspect a Pod",
+    "exam_track": ["basics", "CKAD"],
+    "type": "task",
+    "difficulty": "easy",
+    "weight": 4,
+    "namespace": "basics",
+    "description": "Create a namespace `basics`. In that namespace, create a Pod named `nginx` using the image `nginx:stable` with the label `app=web`. Verify the pod is Running.",
+    "hints": [
+      "Use `kubectl run nginx --image=nginx:stable --labels=app=web -n basics`",
+      "Check pod status with `kubectl get pod nginx -n basics`"
+    ],
+    "setup_commands": ["kubectl create namespace basics --dry-run=client -o yaml | kubectl apply -f -"],
+    "validation_checks": [
+      {
+        "command": "kubectl get pod nginx -n basics -o jsonpath='{.status.phase}'",
+        "match_type": "exact",
+        "expected": "Running",
+        "message": "Pod 'nginx' is not Running in namespace 'basics'"
+      },
+      {
+        "command": "kubectl get pod nginx -n basics -o jsonpath='{.metadata.labels.app}'",
+        "match_type": "exact",
+        "expected": "web",
+        "message": "Pod 'nginx' missing label app=web"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace basics --ignore-not-found"],
+    "source": "kubecosh"
+  },
+
+  {
+    "id": "basics-deployment-scale",
+    "title": "Create and scale a Deployment",
+    "exam_track": ["basics", "CKAD"],
+    "type": "task",
+    "difficulty": "easy",
+    "weight": 4,
+    "namespace": "basics",
+    "description": "Create a Deployment named `web` in namespace `basics` with image `nginx:stable` and 1 replica. Then scale it to 3 replicas.",
+    "hints": [
+      "Use `kubectl create deployment web --image=nginx:stable -n basics`",
+      "Scale with `kubectl scale deployment web --replicas=3 -n basics`"
+    ],
+    "setup_commands": ["kubectl create namespace basics --dry-run=client -o yaml | kubectl apply -f -"],
+    "validation_checks": [
+      {
+        "command": "kubectl get deployment web -n basics -o jsonpath='{.spec.replicas}'",
+        "match_type": "exact",
+        "expected": "3",
+        "message": "Deployment 'web' does not have 3 replicas"
+      },
+      {
+        "command": "kubectl get deployment web -n basics -o jsonpath='{.status.readyReplicas}'",
+        "match_type": "exact",
+        "expected": "3",
+        "message": "Deployment 'web' does not have 3 ready replicas"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace basics --ignore-not-found"],
+    "source": "kubecosh"
+  },
+
+  {
+    "id": "basics-service-expose",
+    "title": "Expose a Deployment as a ClusterIP Service",
+    "exam_track": ["basics", "CKAD"],
+    "type": "task",
+    "difficulty": "easy",
+    "weight": 4,
+    "namespace": "basics",
+    "description": "In namespace `basics`, expose the Deployment `web` as a ClusterIP Service named `web-svc` on port 80, targeting container port 80.",
+    "hints": ["Use `kubectl expose deployment web --name=web-svc --port=80 --target-port=80 -n basics`"],
+    "setup_commands": [
+      "kubectl create namespace basics --dry-run=client -o yaml | kubectl apply -f -",
+      "kubectl create deployment web --image=nginx:stable -n basics --dry-run=client -o yaml | kubectl apply -f -"
+    ],
+    "validation_checks": [
+      {
+        "command": "kubectl get svc web-svc -n basics -o jsonpath='{.spec.type}'",
+        "match_type": "exact",
+        "expected": "ClusterIP",
+        "message": "Service 'web-svc' not found or wrong type"
+      },
+      {
+        "command": "kubectl get svc web-svc -n basics -o jsonpath='{.spec.ports[0].port}'",
+        "match_type": "exact",
+        "expected": "80",
+        "message": "Service 'web-svc' port is not 80"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace basics --ignore-not-found"],
+    "source": "kubecosh"
+  },
+
+  {
+    "id": "basics-configmap-env",
+    "title": "ConfigMap as environment variables",
+    "exam_track": ["basics", "CKAD"],
+    "type": "task",
+    "difficulty": "easy",
+    "weight": 4,
+    "namespace": "basics",
+    "description": "In namespace `basics`, create a ConfigMap named `app-config` with key `APP_ENV=production`. Create a Pod named `app` using image `busybox:stable` that reads this ConfigMap and sets the environment variable `APP_ENV` from it. The pod should run `sleep 3600`.",
+    "hints": [
+      "Use `kubectl create configmap app-config --from-literal=APP_ENV=production -n basics`",
+      "In the pod spec use `envFrom` or `env[].valueFrom.configMapKeyRef`"
+    ],
+    "setup_commands": ["kubectl create namespace basics --dry-run=client -o yaml | kubectl apply -f -"],
+    "validation_checks": [
+      {
+        "command": "kubectl get configmap app-config -n basics -o jsonpath='{.data.APP_ENV}'",
+        "match_type": "exact",
+        "expected": "production",
+        "message": "ConfigMap 'app-config' missing key APP_ENV=production"
+      },
+      {
+        "command": "kubectl exec -n basics app -- env 2>/dev/null | grep APP_ENV",
+        "match_type": "contains",
+        "expected": "APP_ENV=production",
+        "message": "Pod 'app' does not have APP_ENV=production in its environment"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace basics --ignore-not-found"],
+    "source": "kubecosh"
+  },
+
+
+  {
+    "id": "cka-rbac-role",
+    "title": "RBAC: Role and RoleBinding",
+    "exam_track": ["CKA", "CKS"],
+    "type": "task",
+    "difficulty": "medium",
+    "weight": 6,
+    "namespace": "rbac-test",
+    "description": "Create a namespace `rbac-test`. In that namespace:\n1. Create a ServiceAccount named `app-sa`.\n2. Create a Role named `pod-reader` that allows `get`, `list`, and `watch` on `pods`.\n3. Create a RoleBinding named `app-sa-pod-reader` that binds `pod-reader` to `app-sa`.",
+    "hints": [
+      "Use `kubectl create serviceaccount`, `kubectl create role`, and `kubectl create rolebinding` for speed.",
+      "RoleBinding subject kind is `ServiceAccount`."
+    ],
+    "setup_commands": ["kubectl create namespace rbac-test --dry-run=client -o yaml | kubectl apply -f -"],
+    "validation_checks": [
+      {
+        "command": "kubectl get serviceaccount app-sa -n rbac-test -o name",
+        "match_type": "contains",
+        "expected": "serviceaccount/app-sa",
+        "message": "ServiceAccount 'app-sa' not found in rbac-test"
+      },
+      {
+        "command": "kubectl get role pod-reader -n rbac-test -o jsonpath='{.rules[0].verbs}'",
+        "match_type": "contains",
+        "expected": "list",
+        "message": "Role 'pod-reader' missing expected verbs (get, list, watch)"
+      },
+      {
+        "command": "kubectl get rolebinding app-sa-pod-reader -n rbac-test -o jsonpath='{.subjects[0].name}'",
+        "match_type": "exact",
+        "expected": "app-sa",
+        "message": "RoleBinding 'app-sa-pod-reader' not bound to app-sa"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace rbac-test --ignore-not-found"],
+    "source": "kubecosh"
+  },
+
+  {
+    "id": "cka-node-drain",
+    "title": "Cordon and drain a node",
+    "exam_track": ["CKA"],
+    "type": "task",
+    "difficulty": "medium",
+    "weight": 6,
+    "description": "Cordon the node `aks-lab-m02` so no new pods are scheduled on it, then safely drain it (ignoring DaemonSets, deleting emptyDir data).",
+    "hints": [
+      "`kubectl cordon <node>` marks it unschedulable.",
+      "`kubectl drain <node> --ignore-daemonsets --delete-emptydir-data`"
+    ],
+    "setup_commands": [],
+    "validation_checks": [
+      {
+        "command": "kubectl get node aks-lab-m02 -o jsonpath='{.spec.unschedulable}'",
+        "match_type": "exact",
+        "expected": "true",
+        "message": "Node 'aks-lab-m02' is not cordoned (spec.unschedulable != true)"
+      }
+    ],
+    "teardown_commands": ["kubectl uncordon aks-lab-m02 2>/dev/null || true"]
+  },
+
+  {
+    "id": "cka-pv-pvc",
+    "title": "PersistentVolume and PersistentVolumeClaim",
+    "exam_track": ["CKA"],
+    "type": "task",
+    "difficulty": "medium",
+    "weight": 6,
+    "namespace": "storage-test",
+    "description": "Create a namespace `storage-test`. Create a PersistentVolume named `lab-pv` with 1Gi capacity, `ReadWriteOnce` access mode, `Retain` reclaim policy, and `hostPath` at `/mnt/lab-pv`. Then create a PersistentVolumeClaim named `lab-pvc` in `storage-test` that binds to it requesting 500Mi.",
+    "hints": [
+      "PV is cluster-scoped (no namespace). PVC is namespaced.",
+      "The PVC will bind to the PV because 500Mi <= 1Gi and access mode matches."
+    ],
+    "setup_commands": ["kubectl create namespace storage-test --dry-run=client -o yaml | kubectl apply -f -"],
+    "validation_checks": [
+      {
+        "command": "kubectl get pv lab-pv -o jsonpath='{.spec.capacity.storage}'",
+        "match_type": "exact",
+        "expected": "1Gi",
+        "message": "PersistentVolume 'lab-pv' not found or capacity is not 1Gi"
+      },
+      {
+        "command": "kubectl get pvc lab-pvc -n storage-test -o jsonpath='{.status.phase}'",
+        "match_type": "exact",
+        "expected": "Bound",
+        "message": "PVC 'lab-pvc' is not Bound"
+      }
+    ],
+    "teardown_commands": [
+      "kubectl delete pvc lab-pvc -n storage-test --ignore-not-found",
+      "kubectl delete pv lab-pv --ignore-not-found",
+      "kubectl delete namespace storage-test --ignore-not-found"
+    ],
+    "source": "kubecosh"
+  },
+
+  {
+    "id": "cka-network-policy",
+    "title": "NetworkPolicy: default deny + allow specific traffic",
+    "exam_track": ["CKA", "CKS"],
+    "type": "task",
+    "difficulty": "hard",
+    "weight": 8,
+    "namespace": "netpol-test",
+    "description": "In namespace `netpol-test`:\n1. Apply a default-deny NetworkPolicy named `default-deny` that denies all ingress traffic.\n2. Apply a NetworkPolicy named `allow-web` that allows ingress on port 80 only from pods with label `role=frontend`.",
+    "hints": [
+      "Default deny: `podSelector: {}` with an empty `ingress: []` array.",
+      "The allow policy uses `from.podSelector.matchLabels`."
+    ],
+    "setup_commands": ["kubectl create namespace netpol-test --dry-run=client -o yaml | kubectl apply -f -"],
+    "validation_checks": [
+      {
+        "command": "kubectl get networkpolicy default-deny -n netpol-test -o jsonpath='{.spec.podSelector}'",
+        "match_type": "contains",
+        "expected": "{}",
+        "message": "NetworkPolicy 'default-deny' not found or does not select all pods"
+      },
+      {
+        "command": "kubectl get networkpolicy allow-web -n netpol-test -o jsonpath='{.spec.ingress[0].ports[0].port}'",
+        "match_type": "exact",
+        "expected": "80",
+        "message": "NetworkPolicy 'allow-web' does not allow port 80"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace netpol-test --ignore-not-found"],
+    "source": "kubecosh"
+  },
+
+  {
+    "id": "cka-etcd-backup",
+    "title": "etcd snapshot backup and restore",
+    "exam_track": ["CKA"],
+    "type": "task",
+    "difficulty": "hard",
+    "weight": 8,
+    "description": "Take a snapshot of the etcd database and save it to `/tmp/etcd-snapshot.db`. Then verify the snapshot is valid.",
+    "hints": [
+      "`ETCDCTL_API=3 etcdctl snapshot save` — you need the cert flags.",
+      "Certs are usually in `/etc/kubernetes/pki/etcd/`. CA: `ca.crt`, cert: `server.crt`, key: `server.key`.",
+      "Verify with `etcdctl snapshot status /tmp/etcd-snapshot.db`"
+    ],
+    "setup_commands": [],
+    "validation_checks": [
+      {
+        "command": "test -f /tmp/etcd-snapshot.db && echo ok",
+        "match_type": "exact",
+        "expected": "ok",
+        "message": "Snapshot file /tmp/etcd-snapshot.db does not exist"
+      },
+      {
+        "command": "ETCDCTL_API=3 etcdctl snapshot status /tmp/etcd-snapshot.db --write-out=simple 2>/dev/null | head -1",
+        "match_type": "not_contains",
+        "expected": "Error",
+        "message": "Snapshot file is not a valid etcd snapshot"
+      }
+    ],
+    "teardown_commands": ["rm -f /tmp/etcd-snapshot.db"]
+  },
+
+  {
+    "id": "cka-kubeadm-upgrade-mcq",
+    "title": "kubeadm cluster upgrade sequence",
+    "exam_track": ["CKA"],
+    "type": "mcq",
+    "difficulty": "medium",
+    "weight": 4,
+    "description": "When upgrading a Kubernetes cluster using kubeadm, what is the correct order of operations?",
+    "choices": [
+      { "id": "a", "text": "Upgrade worker nodes first, then upgrade the control plane" },
+      { "id": "b", "text": "Run `kubeadm upgrade apply` on the control plane, drain and upgrade each worker node, then uncordon" },
+      { "id": "c", "text": "Upgrade kubelet on all nodes simultaneously, then run `kubeadm upgrade apply`" },
+      { "id": "d", "text": "Drain all nodes first, then upgrade control plane, then upgrade workers" }
+    ],
+    "correct_choice": "b",
+    "explanation": "The correct sequence is: (1) upgrade kubeadm on the control plane node, (2) run `kubeadm upgrade plan` then `kubeadm upgrade apply`, (3) upgrade kubelet/kubectl on the control plane, (4) for each worker: drain → upgrade kubeadm/kubelet/kubectl → `kubeadm upgrade node` → uncordon."
+  },
+
+  {
+    "id": "cka-troubleshoot-crashloop",
+    "title": "Troubleshoot: CrashLoopBackOff pod",
+    "exam_track": ["CKA"],
+    "type": "task",
+    "difficulty": "hard",
+    "weight": 8,
+    "namespace": "troubleshoot",
+    "description": "A pod named `broken-app` in namespace `troubleshoot` is in CrashLoopBackOff. Investigate the root cause, fix it, and ensure the pod reaches Running state.\n\n**Setup:** The pod is pre-deployed with a missing required environment variable. It expects `DATABASE_URL` to be set but it is not, causing the app to exit immediately.",
+    "hints": [
+      "`kubectl logs broken-app -n troubleshoot --previous` shows the last crash output.",
+      "`kubectl describe pod broken-app -n troubleshoot` shows environment variables.",
+      "Patch the deployment or edit the pod spec to add the missing env var: `DATABASE_URL=postgres://localhost/app`"
+    ],
+    "setup_commands": [
+      "kubectl create namespace troubleshoot --dry-run=client -o yaml | kubectl apply -f -",
+      "kubectl run broken-app --image=busybox:stable -n troubleshoot --restart=Always -- sh -c 'echo Starting; [ -z \"$DATABASE_URL\" ] && echo ERROR: DATABASE_URL not set && exit 1; sleep 3600'"
+    ],
+    "validation_checks": [
+      {
+        "command": "kubectl get pod broken-app -n troubleshoot -o jsonpath='{.status.phase}'",
+        "match_type": "exact",
+        "expected": "Running",
+        "message": "Pod 'broken-app' is not in Running state"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace troubleshoot --ignore-not-found"]
+  },
+
+  {
+    "id": "cka-troubleshoot-node-notready-mcq",
+    "title": "Troubleshoot: Node NotReady — first steps",
+    "exam_track": ["CKA"],
+    "type": "mcq",
+    "difficulty": "medium",
+    "weight": 4,
+    "description": "A node shows `NotReady` status. After `kubectl describe node <node>`, you see the `KubeletNotReady` condition with message `PLEG is not healthy`. What is the most likely cause and best first action?",
+    "choices": [
+      { "id": "a", "text": "The container runtime is unresponsive — check and restart containerd: `systemctl restart containerd`" },
+      { "id": "b", "text": "The API server is down — check `kube-apiserver` pod logs" },
+      { "id": "c", "text": "The node has a network partition — check firewall rules" },
+      { "id": "d", "text": "etcd is unreachable — run `etcdctl endpoint health`" }
+    ],
+    "correct_choice": "a",
+    "explanation": "PLEG (Pod Lifecycle Event Generator) depends on the container runtime. When PLEG is unhealthy it usually means containerd (or another runtime) has stopped responding. Restarting containerd is the correct first action. If the runtime is healthy but the kubelet itself is misconfigured, `systemctl restart kubelet` would be next."
+  },
+
+  {
+    "id": "cka-troubleshoot-dns",
+    "title": "Troubleshoot: CoreDNS resolution failure",
+    "exam_track": ["CKA"],
+    "type": "task",
+    "difficulty": "hard",
+    "weight": 8,
+    "namespace": "dns-test",
+    "description": "A pod in namespace `dns-test` named `dns-client` cannot resolve the Kubernetes service `kubernetes.default.svc.cluster.local`. Investigate and fix the DNS resolution issue.\n\n**Clue:** The CoreDNS ConfigMap has been tampered with — the forward rule points to an invalid upstream.",
+    "hints": [
+      "`kubectl exec -n dns-test dns-client -- nslookup kubernetes.default.svc.cluster.local` to confirm failure.",
+      "`kubectl get configmap coredns -n kube-system -o yaml` to inspect the Corefile.",
+      "The forward line should point to `8.8.8.8` or the cluster's upstream, not a broken IP.",
+      "After editing the ConfigMap, restart CoreDNS: `kubectl rollout restart deployment coredns -n kube-system`"
+    ],
+    "setup_commands": [
+      "kubectl create namespace dns-test --dry-run=client -o yaml | kubectl apply -f -",
+      "kubectl run dns-client --image=busybox:stable -n dns-test -- sleep 3600"
+    ],
+    "validation_checks": [
+      {
+        "command": "kubectl exec -n dns-test dns-client -- nslookup kubernetes.default.svc.cluster.local 2>&1 | grep -i 'address\\|Server'",
+        "match_type": "contains",
+        "expected": "Address",
+        "message": "DNS resolution of kubernetes.default.svc.cluster.local still failing"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace dns-test --ignore-not-found"]
+  },
+
+  {
+    "id": "cka-etcd-quorum-mcq",
+    "title": "etcd quorum and fault tolerance",
+    "exam_track": ["CKA"],
+    "type": "mcq",
+    "difficulty": "medium",
+    "weight": 4,
+    "description": "A production etcd cluster has 5 members. What is the maximum number of member failures it can tolerate while maintaining quorum?",
+    "choices": [
+      { "id": "a", "text": "1" },
+      { "id": "b", "text": "2" },
+      { "id": "c", "text": "3" },
+      { "id": "d", "text": "4" }
+    ],
+    "correct_choice": "b",
+    "explanation": "etcd requires a majority quorum: (n/2)+1. For 5 members, quorum is 3, so 2 failures can be tolerated before losing quorum."
+  },
+
+  {
+    "id": "cka-cert-renewal-mcq",
+    "title": "Control plane certificate renewal",
+    "exam_track": ["CKA"],
+    "type": "mcq",
+    "difficulty": "medium",
+    "weight": 4,
+    "description": "Which command checks the expiry date of all control plane certificates managed by kubeadm?",
+    "choices": [
+      { "id": "a", "text": "`openssl x509 -in /etc/kubernetes/pki/apiserver.crt -noout -dates`" },
+      { "id": "b", "text": "`kubeadm certs check-expiration`" },
+      { "id": "c", "text": "`kubectl get secrets -n kube-system | grep tls`" },
+      { "id": "d", "text": "`kubeadm token list`" }
+    ],
+    "correct_choice": "b",
+    "explanation": "`kubeadm certs check-expiration` lists all certificates managed by kubeadm with their expiry dates in one command. The openssl option works for a single cert but is slower for auditing all certs at once."
+  },
+
+
+  {
+    "id": "ckad-rolling-update",
+    "title": "Rolling update and rollback",
+    "exam_track": ["CKAD", "CKA"],
+    "type": "task",
+    "difficulty": "medium",
+    "weight": 6,
+    "namespace": "rollout-test",
+    "description": "In namespace `rollout-test`, there is a Deployment named `webapp` running `nginx:1.24`. Update the image to `nginx:1.25`. Once the rollout completes, roll it back to the previous version.",
+    "hints": [
+      "`kubectl set image deployment/webapp nginx=nginx:1.25 -n rollout-test`",
+      "`kubectl rollout status deployment/webapp -n rollout-test`",
+      "`kubectl rollout undo deployment/webapp -n rollout-test`"
+    ],
+    "setup_commands": [
+      "kubectl create namespace rollout-test --dry-run=client -o yaml | kubectl apply -f -",
+      "kubectl create deployment webapp --image=nginx:1.24 -n rollout-test --dry-run=client -o yaml | kubectl apply -f -"
+    ],
+    "validation_checks": [
+      {
+        "command": "kubectl get deployment webapp -n rollout-test -o jsonpath='{.spec.template.spec.containers[0].image}'",
+        "match_type": "exact",
+        "expected": "nginx:1.24",
+        "message": "Deployment 'webapp' image is not rolled back to nginx:1.24"
+      },
+      {
+        "command": "kubectl rollout history deployment/webapp -n rollout-test | wc -l",
+        "match_type": "regex",
+        "expected": "^[3-9]",
+        "message": "Rollout history does not show at least 2 revisions (update + rollback)"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace rollout-test --ignore-not-found"],
+    "source": "kubecosh"
+  },
+
+  {
+    "id": "ckad-cronjob",
+    "title": "CronJob with concurrency policy",
+    "exam_track": ["CKAD"],
+    "type": "task",
+    "difficulty": "medium",
+    "weight": 6,
+    "namespace": "cron-test",
+    "description": "In namespace `cron-test`, create a CronJob named `cleanup` that runs every 5 minutes. It should use image `busybox:stable` and execute `echo cleanup done`. Set `concurrencyPolicy` to `Forbid` and keep only the last 3 successful job records.",
+    "hints": [
+      "`kubectl create cronjob cleanup --image=busybox:stable --schedule='*/5 * * * *' -- echo 'cleanup done' -n cron-test`",
+      "Patch with `kubectl patch cronjob cleanup -n cron-test` or use `kubectl edit` to add `concurrencyPolicy` and `successfulJobsHistoryLimit`."
+    ],
+    "setup_commands": ["kubectl create namespace cron-test --dry-run=client -o yaml | kubectl apply -f -"],
+    "validation_checks": [
+      {
+        "command": "kubectl get cronjob cleanup -n cron-test -o jsonpath='{.spec.schedule}'",
+        "match_type": "exact",
+        "expected": "*/5 * * * *",
+        "message": "CronJob 'cleanup' schedule is not '*/5 * * * *'"
+      },
+      {
+        "command": "kubectl get cronjob cleanup -n cron-test -o jsonpath='{.spec.concurrencyPolicy}'",
+        "match_type": "exact",
+        "expected": "Forbid",
+        "message": "CronJob 'cleanup' concurrencyPolicy is not Forbid"
+      },
+      {
+        "command": "kubectl get cronjob cleanup -n cron-test -o jsonpath='{.spec.successfulJobsHistoryLimit}'",
+        "match_type": "exact",
+        "expected": "3",
+        "message": "CronJob 'cleanup' successfulJobsHistoryLimit is not 3"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace cron-test --ignore-not-found"],
+    "source": "kubecosh"
+  },
+
+  {
+    "id": "ckad-resource-limits",
+    "title": "Resource requests and limits",
+    "exam_track": ["CKAD", "CKA"],
+    "type": "task",
+    "difficulty": "medium",
+    "weight": 6,
+    "namespace": "limits-test",
+    "description": "In namespace `limits-test`, create a Pod named `resource-demo` using image `nginx:stable`. Set resource requests to `100m` CPU and `128Mi` memory, and limits to `250m` CPU and `256Mi` memory.",
+    "hints": [
+      "Use `kubectl run resource-demo --image=nginx:stable -n limits-test --dry-run=client -o yaml > pod.yaml`, edit to add resources, then apply.",
+      "Or use `kubectl set resources` after creation."
+    ],
+    "setup_commands": ["kubectl create namespace limits-test --dry-run=client -o yaml | kubectl apply -f -"],
+    "validation_checks": [
+      {
+        "command": "kubectl get pod resource-demo -n limits-test -o jsonpath='{.spec.containers[0].resources.requests.cpu}'",
+        "match_type": "exact",
+        "expected": "100m",
+        "message": "Pod 'resource-demo' CPU request is not 100m"
+      },
+      {
+        "command": "kubectl get pod resource-demo -n limits-test -o jsonpath='{.spec.containers[0].resources.limits.memory}'",
+        "match_type": "exact",
+        "expected": "256Mi",
+        "message": "Pod 'resource-demo' memory limit is not 256Mi"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace limits-test --ignore-not-found"],
+    "source": "kubecosh"
+  },
+
+  {
+    "id": "ckad-liveness-probe",
+    "title": "Liveness and readiness probes",
+    "exam_track": ["CKAD", "CKA"],
+    "type": "task",
+    "difficulty": "medium",
+    "weight": 6,
+    "namespace": "probes-test",
+    "description": "In namespace `probes-test`, create a Pod named `probed-app` using image `nginx:stable`. Configure:\n- A liveness probe: HTTP GET on port 80 at `/`, initial delay 10s, period 15s.\n- A readiness probe: HTTP GET on port 80 at `/`, initial delay 5s, period 10s.",
+    "hints": [
+      "Use `kubectl run --dry-run=client -o yaml` to generate a pod template then edit.",
+      "Both probes use `httpGet` with `path` and `port`."
+    ],
+    "setup_commands": ["kubectl create namespace probes-test --dry-run=client -o yaml | kubectl apply -f -"],
+    "validation_checks": [
+      {
+        "command": "kubectl get pod probed-app -n probes-test -o jsonpath='{.spec.containers[0].livenessProbe.httpGet.path}'",
+        "match_type": "exact",
+        "expected": "/",
+        "message": "Pod 'probed-app' liveness probe httpGet path is not '/'"
+      },
+      {
+        "command": "kubectl get pod probed-app -n probes-test -o jsonpath='{.spec.containers[0].readinessProbe.initialDelaySeconds}'",
+        "match_type": "exact",
+        "expected": "5",
+        "message": "Pod 'probed-app' readiness probe initialDelaySeconds is not 5"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace probes-test --ignore-not-found"],
+    "source": "kubecosh"
+  },
+
+  {
+    "id": "ckad-observability-logs-mcq",
+    "title": "Pod log retrieval options",
+    "exam_track": ["CKAD"],
+    "type": "mcq",
+    "difficulty": "easy",
+    "weight": 4,
+    "description": "A pod named `api` has been restarting. You want to see the logs from its **previous** container run (the one that crashed), not the current run. Which command retrieves those logs?",
+    "choices": [
+      { "id": "a", "text": "`kubectl logs api --all-containers`" },
+      { "id": "b", "text": "`kubectl logs api --previous`" },
+      { "id": "c", "text": "`kubectl logs api --since=1h`" },
+      { "id": "d", "text": "`kubectl describe pod api | tail -50`" }
+    ],
+    "correct_choice": "b",
+    "explanation": "`kubectl logs --previous` (or `-p`) retrieves logs from the terminated/previous instance of the container. `--all-containers` streams all containers in the pod. `--since` filters by time on the current run."
+  },
+
+  {
+    "id": "ckad-hpa",
+    "title": "Horizontal Pod Autoscaler",
+    "exam_track": ["CKAD", "CKA"],
+    "type": "task",
+    "difficulty": "medium",
+    "weight": 6,
+    "namespace": "hpa-test",
+    "description": "In namespace `hpa-test`, there is a Deployment named `web`. Create an HPA named `web-hpa` that scales `web` between 1 and 5 replicas, targeting 70% CPU utilisation.",
+    "hints": [
+      "`kubectl autoscale deployment web --cpu-percent=70 --min=1 --max=5 -n hpa-test --name=web-hpa`"
+    ],
+    "setup_commands": [
+      "kubectl create namespace hpa-test --dry-run=client -o yaml | kubectl apply -f -",
+      "kubectl create deployment web --image=nginx:stable -n hpa-test --dry-run=client -o yaml | kubectl apply -f -"
+    ],
+    "validation_checks": [
+      {
+        "command": "kubectl get hpa web-hpa -n hpa-test -o jsonpath='{.spec.maxReplicas}'",
+        "match_type": "exact",
+        "expected": "5",
+        "message": "HPA 'web-hpa' maxReplicas is not 5"
+      },
+      {
+        "command": "kubectl get hpa web-hpa -n hpa-test -o jsonpath='{.spec.minReplicas}'",
+        "match_type": "exact",
+        "expected": "1",
+        "message": "HPA 'web-hpa' minReplicas is not 1"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace hpa-test --ignore-not-found"],
+    "source": "kubecosh"
+  },
+
+
+  {
+    "id": "cks-pod-security-context",
+    "title": "Pod Security Context: non-root, read-only root filesystem",
+    "exam_track": ["CKS", "CKAD"],
+    "type": "task",
+    "difficulty": "medium",
+    "weight": 6,
+    "namespace": "security-test",
+    "description": "In namespace `security-test`, create a Pod named `secure-pod` using image `nginx:stable` with the following security hardening:\n- Run as user ID `1000`\n- Read-only root filesystem\n- Disallow privilege escalation\n- Drop ALL Linux capabilities",
+    "hints": [
+      "Use `securityContext` at both pod and container level.",
+      "`readOnlyRootFilesystem: true` is a container-level setting.",
+      "`runAsUser` and `runAsNonRoot` are pod-level settings.",
+      "nginx requires write access to /tmp and /var/cache/nginx — add emptyDir volumes if needed."
+    ],
+    "setup_commands": ["kubectl create namespace security-test --dry-run=client -o yaml | kubectl apply -f -"],
+    "validation_checks": [
+      {
+        "command": "kubectl get pod secure-pod -n security-test -o jsonpath='{.spec.securityContext.runAsUser}'",
+        "match_type": "exact",
+        "expected": "1000",
+        "message": "Pod 'secure-pod' is not configured to run as user 1000"
+      },
+      {
+        "command": "kubectl get pod secure-pod -n security-test -o jsonpath='{.spec.containers[0].securityContext.readOnlyRootFilesystem}'",
+        "match_type": "exact",
+        "expected": "true",
+        "message": "Pod 'secure-pod' does not have readOnlyRootFilesystem=true"
+      },
+      {
+        "command": "kubectl get pod secure-pod -n security-test -o jsonpath='{.spec.containers[0].securityContext.capabilities.drop[0]}'",
+        "match_type": "exact",
+        "expected": "ALL",
+        "message": "Pod 'secure-pod' does not drop ALL capabilities"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace security-test --ignore-not-found"],
+    "source": "kubecosh"
+  },
+
+  {
+    "id": "cks-rbac-least-privilege",
+    "title": "RBAC: Least-privilege ClusterRole",
+    "exam_track": ["CKS", "CKA"],
+    "type": "task",
+    "difficulty": "hard",
+    "weight": 8,
+    "namespace": "least-priv",
+    "description": "A ServiceAccount `monitor-sa` in namespace `least-priv` currently has a ClusterRoleBinding to `cluster-admin`. This is too permissive. Replace it with a ClusterRole named `monitor-role` that allows only `get` and `list` on `pods`, `nodes`, and `namespaces` (cluster-scoped). Bind `monitor-sa` to this new ClusterRole.",
+    "hints": [
+      "Delete the existing ClusterRoleBinding first.",
+      "`kubectl create clusterrole monitor-role --verb=get,list --resource=pods,nodes,namespaces`",
+      "`kubectl create clusterrolebinding monitor-binding --clusterrole=monitor-role --serviceaccount=least-priv:monitor-sa`"
+    ],
+    "setup_commands": [
+      "kubectl create namespace least-priv --dry-run=client -o yaml | kubectl apply -f -",
+      "kubectl create serviceaccount monitor-sa -n least-priv --dry-run=client -o yaml | kubectl apply -f -",
+      "kubectl create clusterrolebinding monitor-admin --clusterrole=cluster-admin --serviceaccount=least-priv:monitor-sa --dry-run=client -o yaml | kubectl apply -f -"
+    ],
+    "validation_checks": [
+      {
+        "command": "kubectl get clusterrolebinding monitor-admin -o name 2>&1",
+        "match_type": "not_contains",
+        "expected": "monitor-admin",
+        "message": "The cluster-admin ClusterRoleBinding 'monitor-admin' still exists — it must be removed"
+      },
+      {
+        "command": "kubectl auth can-i list pods --as=system:serviceaccount:least-priv:monitor-sa --all-namespaces",
+        "match_type": "exact",
+        "expected": "yes",
+        "message": "ServiceAccount monitor-sa cannot list pods"
+      },
+      {
+        "command": "kubectl auth can-i delete pods --as=system:serviceaccount:least-priv:monitor-sa --all-namespaces",
+        "match_type": "exact",
+        "expected": "no",
+        "message": "ServiceAccount monitor-sa can still delete pods — permissions are too broad"
+      }
+    ],
+    "teardown_commands": [
+      "kubectl delete clusterrolebinding monitor-binding monitor-admin --ignore-not-found",
+      "kubectl delete clusterrole monitor-role --ignore-not-found",
+      "kubectl delete namespace least-priv --ignore-not-found"
+    ],
+    "source": "kubecosh"
+  },
+
+  {
+    "id": "cks-psa-namespace",
+    "title": "Pod Security Admission: enforce restricted profile",
+    "exam_track": ["CKS"],
+    "type": "task",
+    "difficulty": "medium",
+    "weight": 6,
+    "namespace": "psa-test",
+    "description": "Create a namespace `psa-test` and label it to enforce the `restricted` Pod Security Standard at `latest` version. Then verify that a Pod attempting to run as root is rejected.",
+    "hints": [
+      "Label: `pod-security.kubernetes.io/enforce=restricted` and `pod-security.kubernetes.io/enforce-version=latest`",
+      "Try: `kubectl run test-root --image=nginx:stable -n psa-test` — this should be rejected because nginx runs as root by default."
+    ],
+    "setup_commands": [],
+    "validation_checks": [
+      {
+        "command": "kubectl get namespace psa-test -o jsonpath='{.metadata.labels.pod-security\\.kubernetes\\.io/enforce}'",
+        "match_type": "exact",
+        "expected": "restricted",
+        "message": "Namespace 'psa-test' does not have pod-security.kubernetes.io/enforce=restricted label"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace psa-test --ignore-not-found"],
+    "source": "kubecosh"
+  },
+
+  {
+    "id": "cks-supply-chain-trivy",
+    "title": "Supply chain: Trivy image vulnerability scan",
+    "exam_track": ["CKS"],
+    "type": "task",
+    "difficulty": "hard",
+    "weight": 8,
+    "description": "Use Trivy to scan the image `nginx:1.21` for CRITICAL severity vulnerabilities. Save the output to `/tmp/trivy-report.txt`. Then identify the total count of CRITICAL vulnerabilities found.",
+    "hints": [
+      "`trivy image --severity CRITICAL nginx:1.21 > /tmp/trivy-report.txt`",
+      "`grep -c CRITICAL /tmp/trivy-report.txt` gives a rough count.",
+      "Trivy is pre-installed in the exam-sim pod and the toolbox."
+    ],
+    "setup_commands": [],
+    "validation_checks": [
+      {
+        "command": "test -f /tmp/trivy-report.txt && echo ok",
+        "match_type": "exact",
+        "expected": "ok",
+        "message": "Trivy report not found at /tmp/trivy-report.txt"
+      },
+      {
+        "command": "grep -c 'CRITICAL' /tmp/trivy-report.txt 2>/dev/null || echo 0",
+        "match_type": "regex",
+        "expected": "^[1-9]",
+        "message": "No CRITICAL vulnerabilities found — check if the scan ran correctly against nginx:1.21"
+      }
+    ],
+    "teardown_commands": ["rm -f /tmp/trivy-report.txt"]
+  },
+
+  {
+    "id": "cks-supply-chain-kyverno",
+    "title": "Supply chain: Kyverno policy to block latest tag",
+    "exam_track": ["CKS"],
+    "type": "task",
+    "difficulty": "hard",
+    "weight": 8,
+    "description": "Create a Kyverno ClusterPolicy named `disallow-latest-tag` that blocks any Pod using an image tagged `:latest` (or with no tag, which defaults to latest). Test it by attempting to create a pod with `nginx:latest` — it should be rejected.",
+    "hints": [
+      "Use a `validate` rule with `pattern` matching on `spec.containers[].image`.",
+      "The pattern should use `!(*:latest)` or a regex to catch untagged images.",
+      "Kyverno is pre-installed in the lab."
+    ],
+    "setup_commands": [],
+    "validation_checks": [
+      {
+        "command": "kubectl get clusterpolicy disallow-latest-tag -o jsonpath='{.spec.rules[0].name}' 2>/dev/null",
+        "match_type": "regex",
+        "expected": ".+",
+        "message": "ClusterPolicy 'disallow-latest-tag' not found"
+      },
+      {
+        "command": "kubectl run test-latest --image=nginx:latest --dry-run=server -n default 2>&1",
+        "match_type": "contains",
+        "expected": "denied",
+        "message": "Kyverno policy did not block a pod using nginx:latest"
+      }
+    ],
+    "teardown_commands": ["kubectl delete clusterpolicy disallow-latest-tag --ignore-not-found"]
+  },
+
+  {
+    "id": "cks-falco-rule-mcq",
+    "title": "Falco: detect shell spawned in container",
+    "exam_track": ["CKS"],
+    "type": "mcq",
+    "difficulty": "hard",
+    "weight": 6,
+    "description": "You want Falco to alert when a shell binary (`/bin/sh`, `/bin/bash`) is executed inside any running container. Which Falco rule condition correctly matches this behaviour?",
+    "choices": [
+      { "id": "a", "text": "`evt.type=execve and container.id != host and proc.name in (sh, bash)`" },
+      { "id": "b", "text": "`evt.type=open and fd.name contains /bin/sh`" },
+      { "id": "c", "text": "`container.id != host and proc.cmdline contains shell`" },
+      { "id": "d", "text": "`evt.type=connect and proc.name=bash`" }
+    ],
+    "correct_choice": "a",
+    "explanation": "Falco uses `evt.type=execve` to catch process execution events. `container.id != host` excludes the host namespace. `proc.name in (sh, bash)` matches the common shell binaries. Option B catches file opens (not execution). Option C and D use incorrect field/event combinations."
+  },
+
+  {
+    "id": "cks-audit-policy-mcq",
+    "title": "Kubernetes audit policy: log secret access",
+    "exam_track": ["CKS"],
+    "type": "mcq",
+    "difficulty": "hard",
+    "weight": 6,
+    "description": "You need to configure an audit policy that logs all `get` and `list` requests for `secrets` at `RequestResponse` level (including the response body), while logging everything else at `Metadata` level only. Which policy structure achieves this?",
+    "choices": [
+      { "id": "a", "text": "One rule for secrets at RequestResponse, one catch-all rule at Metadata — secrets rule must come first" },
+      { "id": "b", "text": "One catch-all rule at RequestResponse, with secrets excluded using `omitStages`" },
+      { "id": "c", "text": "Two rules at RequestResponse — one for secrets, one for everything else" },
+      { "id": "d", "text": "One rule at Metadata with secrets overridden via a separate `secretsLevel` field" }
+    ],
+    "correct_choice": "a",
+    "explanation": "Kubernetes audit policy rules are evaluated in order and the first matching rule applies. The secrets rule at `RequestResponse` must appear before the catch-all `Metadata` rule, otherwise the catch-all matches first and secrets requests are only logged at Metadata level. There is no `secretsLevel` field — that is not a real API field."
+  },
+
+  {
+    "id": "cks-immutable-configmap",
+    "title": "Immutable Secret",
+    "exam_track": ["CKS"],
+    "type": "task",
+    "difficulty": "easy",
+    "weight": 4,
+    "namespace": "immutable-test",
+    "description": "In namespace `immutable-test`, create a Secret named `db-creds` with key `password=S3cr3t!` and mark it as immutable.",
+    "hints": [
+      "`kubectl create secret generic db-creds --from-literal=password=S3cr3t! -n immutable-test --dry-run=client -o yaml`",
+      "Add `immutable: true` to the Secret manifest before applying."
+    ],
+    "setup_commands": ["kubectl create namespace immutable-test --dry-run=client -o yaml | kubectl apply -f -"],
+    "validation_checks": [
+      {
+        "command": "kubectl get secret db-creds -n immutable-test -o jsonpath='{.immutable}'",
+        "match_type": "exact",
+        "expected": "true",
+        "message": "Secret 'db-creds' is not marked as immutable"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace immutable-test --ignore-not-found"],
+    "source": "kubecosh"
+  },
+
+  {
+    "id": "cks-network-policy-metadata",
+    "title": "NetworkPolicy: protect kube-system metadata",
+    "exam_track": ["CKS"],
+    "type": "task",
+    "difficulty": "hard",
+    "weight": 8,
+    "namespace": "metadata-test",
+    "description": "Create a NetworkPolicy named `block-metadata` in namespace `metadata-test` that prevents all pods in that namespace from reaching the cloud metadata API at `169.254.169.254` (port 80).\n\nNote: Use an egress rule with `ipBlock` CIDR `169.254.169.254/32` and an `except` block, or a deny-all approach.",
+    "hints": [
+      "Use an egress NetworkPolicy on all pods in the namespace.",
+      "Use `ipBlock.cidr: 0.0.0.0/0` with `except: [169.254.169.254/32]` to allow all egress except the metadata endpoint.",
+      "Or use a default-deny egress policy and explicitly allow only needed traffic."
+    ],
+    "setup_commands": ["kubectl create namespace metadata-test --dry-run=client -o yaml | kubectl apply -f -"],
+    "validation_checks": [
+      {
+        "command": "kubectl get networkpolicy block-metadata -n metadata-test -o jsonpath='{.spec.egress}' 2>/dev/null",
+        "match_type": "regex",
+        "expected": ".+",
+        "message": "NetworkPolicy 'block-metadata' not found or has no egress rules"
+      }
+    ],
+    "teardown_commands": ["kubectl delete namespace metadata-test --ignore-not-found"],
+    "source": "kubecosh"
+  }
+]

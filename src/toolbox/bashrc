@@ -1,0 +1,19 @@
+# CKA/CKAD/CKS exam aliases (official PSI environment)
+alias k='kubectl'
+alias kx='kubectl config use-context'
+alias kn='kubectl config set-context --current --namespace'
+
+# Convenience aliases
+alias kgp='kubectl get pods -o wide'
+alias kgn='kubectl get nodes -o wide'
+alias kgs='kubectl get svc'
+alias kgd='kubectl get deployments'
+alias kgns='kubectl get namespaces'
+alias kd='kubectl describe'
+alias kl='kubectl logs'
+
+# Bash completion
+source /usr/share/bash-completion/bash_completion 2>/dev/null || true
+source <(kubectl completion bash) 2>/dev/null || true
+complete -F __start_kubectl k
+source <(helm completion bash) 2>/dev/null || true

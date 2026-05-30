@@ -7,10 +7,76 @@ line-by-line back to the browser.
 Usage (called by setup-lab.sh / resume-lab.sh):
   python3 dashboard-server.py <repo-root>
 """
-import http.server, subprocess, os, re, secrets, threading, sys, json, time
+import http.server, subprocess, os, re, secrets, threading, sys, json, time, sqlite3, uuid
 from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
+
+SCENARIOS_FILE = Path(__file__).parent / "scenarios" / "scenarios.json"
+DB_FILE = Path(__file__).parent / ".lab-data" / "lab-progress.db"
+
+def _db():
+    DB_FILE.parent.mkdir(exist_ok=True)
+    conn = sqlite3.connect(str(DB_FILE))
+    conn.row_factory = sqlite3.Row
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS progress (
+            scenario_id  TEXT PRIMARY KEY,
+            status       TEXT,
+            attempts     INTEGER DEFAULT 0,
+            completed_at TEXT,
+            score_pct    REAL
+        );
+        CREATE TABLE IF NOT EXISTS exam_sessions (
+            id               TEXT PRIMARY KEY,
+            track            TEXT,
+            started_at       TEXT,
+            duration_minutes INTEGER,
+            submitted_at     TEXT,
+            score_pct        REAL,
+            passed           INTEGER,
+            snapshot         TEXT
+        );
+    """)
+    conn.commit()
+    return conn
+
+def _load_scenarios():
+    if not SCENARIOS_FILE.exists():
+        return []
+    try:
+        return json.loads(SCENARIOS_FILE.read_text())
+    except Exception:
+        return []
+
+def _run_check(check: dict, timeout: int = 15) -> dict:
+    """Run a single validation check and return {passed, message, output}."""
+    cmd = check.get("command", "")
+    match_type = check.get("match_type", "contains")
+    expected = check.get("expected", "")
+    msg = check.get("message", "Check failed")
+    try:
+        result = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=timeout
+        )
+        output = (result.stdout or result.stderr or "").strip()
+    except subprocess.TimeoutExpired:
+        return {"passed": False, "message": f"Timed out after {timeout}s", "output": ""}
+    except Exception as e:
+        return {"passed": False, "message": str(e), "output": ""}
+
+    if match_type == "exact":
+        passed = output == expected
+    elif match_type == "contains":
+        passed = expected in output
+    elif match_type == "not_contains":
+        passed = expected not in output
+    elif match_type == "regex":
+        passed = bool(re.search(expected, output))
+    else:
+        passed = False
+
+    return {"passed": passed, "message": msg if not passed else "OK", "output": output}
 
 PORT = 9997
 REPO_ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).parent.resolve()
@@ -260,6 +326,48 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._stream(name, COMMANDS[name])
             return
 
+        # ── Progress ───────────────────────────────────────────────
+        if path == "/api/progress":
+            with _db() as conn:
+                rows = conn.execute("SELECT * FROM progress").fetchall()
+            data = json.dumps([dict(r) for r in rows]).encode()
+            self._send_json(200, data)
+            return
+
+        # ── Exam session report ────────────────────────────────────
+        if path.startswith("/api/exam/") and path.endswith("/report"):
+            sid = path[len("/api/exam/"):-len("/report")]
+            with _db() as conn:
+                row = conn.execute("SELECT * FROM exam_sessions WHERE id=?", (sid,)).fetchone()
+            if not row:
+                self._text(404, "Session not found")
+                return
+            self._send_json(200, json.dumps(dict(row)).encode())
+            return
+
+        # ── Scenarios list ─────────────────────────────────────────
+        if path == "/api/scenarios":
+            scenarios = _load_scenarios()
+            summary = [
+                {k: s[k] for k in ("id", "title", "exam_track", "type", "difficulty", "weight")
+                 if k in s}
+                for s in scenarios
+            ]
+            data = json.dumps(summary).encode()
+            self._send_json(200, data)
+            return
+
+        # ── Single scenario ────────────────────────────────────────
+        if path.startswith("/api/scenarios/"):
+            sid = path[len("/api/scenarios/"):]
+            scenarios = _load_scenarios()
+            match = next((s for s in scenarios if s.get("id") == sid), None)
+            if not match:
+                self._text(404, f"Scenario '{sid}' not found")
+                return
+            self._send_json(200, json.dumps(match).encode())
+            return
+
         # ── Feature enable/disable (SSE) ───────────────────────────
         if path.startswith("/api/feature/enable/") or path.startswith("/api/feature/disable/"):
             parts = path.split("/")
@@ -282,6 +390,140 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         if not self._check_auth():
+            return
+
+        # ── Record progress ────────────────────────────────────────
+        if path == "/api/progress":
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            try:
+                req = json.loads(body)
+            except Exception:
+                self._text(400, "Invalid JSON")
+                return
+            sid = req.get("scenario_id", "")
+            status = req.get("status", "completed")
+            score = req.get("score_pct", 100.0)
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            with _db() as conn:
+                conn.execute("""
+                    INSERT INTO progress (scenario_id, status, attempts, completed_at, score_pct)
+                    VALUES (?, ?, 1, ?, ?)
+                    ON CONFLICT(scenario_id) DO UPDATE SET
+                        status=excluded.status,
+                        attempts=attempts+1,
+                        completed_at=excluded.completed_at,
+                        score_pct=excluded.score_pct
+                """, (sid, status, now, score))
+                conn.commit()
+            self._send_json(200, b'{"ok":true}')
+            return
+
+        # ── Start exam session ─────────────────────────────────────
+        if path == "/api/exam/start":
+            import random
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            try:
+                req = json.loads(body)
+            except Exception:
+                self._text(400, "Invalid JSON")
+                return
+            track = req.get("track", "CKA")
+            duration = int(req.get("duration_minutes", 120))
+            scenarios = _load_scenarios()
+            pool = [s for s in scenarios if track in s.get("exam_track", [])]
+            count = min(req.get("count", 20), len(pool))
+            selected = random.sample(pool, count)
+            session_id = str(uuid.uuid4())[:8]
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            with _db() as conn:
+                conn.execute(
+                    "INSERT INTO exam_sessions (id, track, started_at, duration_minutes) VALUES (?,?,?,?)",
+                    (session_id, track, now, duration)
+                )
+                conn.commit()
+            self._send_json(200, json.dumps({
+                "session_id": session_id,
+                "track": track,
+                "duration_minutes": duration,
+                "scenarios": [
+                    {k: s[k] for k in ("id","title","type","difficulty","weight","exam_track","description","hints","validation_checks","choices","correct_choice","explanation") if k in s}
+                    for s in selected
+                ]
+            }).encode())
+            return
+
+        # ── Submit exam session ────────────────────────────────────
+        if path.startswith("/api/exam/") and path.endswith("/submit"):
+            session_id = path[len("/api/exam/"):-len("/submit")]
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            try:
+                req = json.loads(body)
+            except Exception:
+                self._text(400, "Invalid JSON")
+                return
+            answers = req.get("answers", {})
+            scenarios = _load_scenarios()
+            scenario_map = {s["id"]: s for s in scenarios}
+            total_weight = 0
+            earned_weight = 0
+            results = []
+            for sid, answer in answers.items():
+                s = scenario_map.get(sid)
+                if not s:
+                    continue
+                w = s.get("weight", 4)
+                total_weight += w
+                if s.get("type") == "mcq":
+                    correct = answer == s.get("correct_choice")
+                    if correct:
+                        earned_weight += w
+                    results.append({"id": sid, "title": s.get("title",""), "passed": correct, "weight": w})
+                else:
+                    checks = s.get("validation_checks", [])
+                    check_results = [_run_check(c) for c in checks]
+                    passed = all(r["passed"] for r in check_results)
+                    if passed:
+                        earned_weight += w
+                    results.append({"id": sid, "title": s.get("title",""), "passed": passed, "weight": w, "checks": check_results})
+            score_pct = round((earned_weight / total_weight * 100) if total_weight else 0, 1)
+            passed = score_pct >= 66
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            with _db() as conn:
+                conn.execute("""
+                    UPDATE exam_sessions SET submitted_at=?, score_pct=?, passed=?, snapshot=?
+                    WHERE id=?
+                """, (now, score_pct, int(passed), json.dumps(results), session_id))
+                conn.commit()
+            self._send_json(200, json.dumps({
+                "session_id": session_id,
+                "score_pct": score_pct,
+                "passed": passed,
+                "results": results
+            }).encode())
+            return
+
+        # ── Scenario validation ────────────────────────────────────
+        if path == "/api/validate":
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            try:
+                req = json.loads(body)
+            except Exception:
+                self._text(400, "Invalid JSON")
+                return
+            scenario_id = req.get("scenario_id", "")
+            scenarios = _load_scenarios()
+            scenario = next((s for s in scenarios if s.get("id") == scenario_id), None)
+            if not scenario:
+                self._text(404, f"Scenario '{scenario_id}' not found")
+                return
+            checks = scenario.get("validation_checks", [])
+            results = [_run_check(c) for c in checks]
+            passed = all(r["passed"] for r in results)
+            self._send_json(200, json.dumps({"passed": passed, "checks": results}).encode())
             return
 
         # ── Corp Client VNC connect ────────────────────────────────
@@ -372,8 +614,100 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 _running.pop(name, None)
 
 
+WS_PORT = 9998
+
+def _start_terminal_ws():
+    """WebSocket PTY server on WS_PORT. Each connection spawns a kubectl exec
+    shell into the toolbox pod. Messages from the browser are stdin; PTY output
+    goes back as text. A JSON resize message {type:'resize',cols:N,rows:N}
+    adjusts the PTY window size."""
+    try:
+        import ptyprocess
+    except ImportError:
+        print("[terminal] ptyprocess not installed — terminal disabled. Run: pip3 install ptyprocess", flush=True)
+        return
+
+    try:
+        import asyncio, websockets
+    except ImportError:
+        print("[terminal] websockets not installed — terminal disabled. Run: pip3 install websockets", flush=True)
+        return
+
+    async def handle(ws):
+        # Find the toolbox pod name
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "pod", "-n", "toolbox", "-l", "app=toolbox",
+                 "-o", "jsonpath={.items[0].metadata.name}"],
+                capture_output=True, text=True, timeout=10,
+            )
+            pod = result.stdout.strip()
+        except Exception:
+            pod = ""
+
+        if not pod:
+            await ws.send("No toolbox pod found. Enable the toolbox feature first.\r\n")
+            await ws.close()
+            return
+
+        cmd = ["kubectl", "exec", "-it", "-n", "toolbox", pod, "--", "/bin/bash"]
+        try:
+            pty_proc = ptyprocess.PtyProcess.spawn(cmd, dimensions=(24, 200))
+        except Exception as e:
+            await ws.send(f"Failed to spawn shell: {e}\r\n")
+            await ws.close()
+            return
+
+        loop = asyncio.get_event_loop()
+
+        async def read_pty():
+            while True:
+                try:
+                    data = await loop.run_in_executor(None, pty_proc.read, 1024)
+                    await ws.send(data.decode("utf-8", errors="replace"))
+                except Exception:
+                    break
+
+        async def write_pty():
+            async for msg in ws:
+                try:
+                    parsed = json.loads(msg)
+                    if parsed.get("type") == "resize":
+                        pty_proc.setwinsize(parsed.get("rows", 24), parsed.get("cols", 200))
+                    continue
+                except (json.JSONDecodeError, TypeError):
+                    pass
+                try:
+                    pty_proc.write(msg.encode() if isinstance(msg, str) else msg)
+                except Exception:
+                    break
+
+        read_task  = asyncio.ensure_future(read_pty())
+        write_task = asyncio.ensure_future(write_pty())
+        done, pending = await asyncio.wait(
+            [read_task, write_task], return_when=asyncio.FIRST_COMPLETED
+        )
+        for t in pending:
+            t.cancel()
+        try:
+            pty_proc.terminate()
+        except Exception:
+            pass
+
+    async def main():
+        async with websockets.serve(handle, "127.0.0.1", WS_PORT):
+            print(f"[terminal] ws://localhost:{WS_PORT}", flush=True)
+            await asyncio.Future()
+
+    asyncio.run(main())
+
+
 if __name__ == "__main__":
     os.chdir(REPO_ROOT)
+
+    ws_thread = threading.Thread(target=_start_terminal_ws, daemon=True)
+    ws_thread.start()
+
     server = http.server.HTTPServer(("127.0.0.1", PORT), Handler)
     print(f"[dashboard] http://localhost:{PORT}", flush=True)
     server.serve_forever()

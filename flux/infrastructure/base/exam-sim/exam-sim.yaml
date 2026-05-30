@@ -1,0 +1,179 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exam-sim
+---
+# ── SSH key ConfigMap ─────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: exam-sim-ssh-keys
+  namespace: exam-sim
+data:
+  authorized_keys: "REPLACE_WITH_YOUR_PUBLIC_KEY"
+---
+# ── ServiceAccount + ClusterRoleBinding (cluster-admin for exam realism) ──────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: exam-sim
+  namespace: exam-sim
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: exam-sim-cluster-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: exam-sim
+    namespace: exam-sim
+---
+# ── Kubeconfig ConfigMap ───────────────────────────────────────────────────────
+# Five named contexts (k8s, wk8s, bk8s, ek8s, ik8s) all backed by the same
+# in-cluster service account, each defaulting to a different namespace.
+# This mirrors the multi-context setup of the real CKA/CKAD/CKS exam.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: exam-sim-kubeconfig
+  namespace: exam-sim
+data:
+  config: |
+    apiVersion: v1
+    kind: Config
+    clusters:
+      - name: lab-cluster
+        cluster:
+          server: https://kubernetes.default.svc
+          certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    users:
+      - name: exam-sim
+        user:
+          tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    contexts:
+      - name: k8s
+        context:
+          cluster: lab-cluster
+          user: exam-sim
+          namespace: default
+      - name: wk8s
+        context:
+          cluster: lab-cluster
+          user: exam-sim
+          namespace: workloads
+      - name: bk8s
+        context:
+          cluster: lab-cluster
+          user: exam-sim
+          namespace: backup
+      - name: ek8s
+        context:
+          cluster: lab-cluster
+          user: exam-sim
+          namespace: etcd-ops
+      - name: ik8s
+        context:
+          cluster: lab-cluster
+          user: exam-sim
+          namespace: isolated
+    current-context: k8s
+---
+# ── Deployment ────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exam-sim
+  namespace: exam-sim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: exam-sim
+  template:
+    metadata:
+      labels:
+        app: exam-sim
+    spec:
+      serviceAccountName: exam-sim
+      containers:
+        - name: exam-sim
+          image: aks-lab/exam-sim:latest
+          imagePullPolicy: Never
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              cp /etc/ssh-keys/authorized_keys /root/.ssh/authorized_keys
+              chmod 600 /root/.ssh/authorized_keys
+              cp /etc/exam-kubeconfig/config /root/.kube/config
+              chmod 600 /root/.kube/config
+              exec /usr/sbin/sshd -D -e
+          ports:
+            - containerPort: 22
+          env:
+            - name: KUBECONFIG
+              value: /root/.kube/config
+          volumeMounts:
+            - name: ssh-keys
+              mountPath: /etc/ssh-keys
+            - name: kubeconfig
+              mountPath: /etc/exam-kubeconfig
+            - name: kube-dir
+              mountPath: /root/.kube
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            tcpSocket:
+              port: 22
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: 22
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+      initContainers:
+        - name: init-namespaces
+          image: aks-lab/exam-sim:latest
+          imagePullPolicy: Never
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              for ns in workloads backup etcd-ops isolated; do
+                kubectl create namespace $ns --dry-run=client -o yaml | kubectl apply -f - || true
+              done
+      volumes:
+        - name: ssh-keys
+          configMap:
+            name: exam-sim-ssh-keys
+        - name: kubeconfig
+          configMap:
+            name: exam-sim-kubeconfig
+        - name: kube-dir
+          emptyDir: {}
+---
+# ── Service ───────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: exam-sim-ssh
+  namespace: exam-sim
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 172.16.3.9
+  selector:
+    app: exam-sim
+  ports:
+    - name: ssh
+      port: 22
+      targetPort: 22

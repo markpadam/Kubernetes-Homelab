@@ -36,8 +36,11 @@ RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm
 
 RUN mkdir -p /run/sshd /root/.ssh && chmod 700 /root/.ssh
 
+RUN apt-get update -qq && apt-get install -y -qq bash-completion && rm -rf /var/lib/apt/lists/*
+
 COPY sshd_config /etc/ssh/sshd_config
 COPY motd /etc/motd
+COPY bashrc /root/.bashrc
 
 RUN ssh-keygen -A
 

@@ -1,0 +1,19 @@
+Kubernetes Homelab - Scenario Content Attribution
+==================================================
+
+Portions of the scenario content in this directory are derived from KubeKosh
+(https://github.com/zeborg/kubekosh), Copyright 2026 The KubeKosh Project,
+licensed under the Apache License, Version 2.0.
+
+You may obtain a copy of the Apache License at:
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Modifications made to the original KubeKosh scenario content:
+- Scenarios have been restructured to use the schema defined in SCHEMA.md
+- Validation commands updated to target this lab's cluster configuration
+- Additional original scenarios added covering CKA troubleshooting, kubeadm,
+  CKS supply chain security, Falco runtime monitoring, and CKAD observability
+- Scenario difficulty calibrated to match killer.sh exam simulator standards
+
+Original scenarios not derived from KubeKosh are Copyright 2026 Mark Adam
+and are licensed under the MIT License (see the root LICENSE file).

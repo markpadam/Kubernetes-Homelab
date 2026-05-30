@@ -1,0 +1,9 @@
+" CKA/CKAD/CKS exam vim config — YAML-friendly settings
+set number
+set expandtab
+set tabstop=2
+set shiftwidth=2
+set autoindent
+set hlsearch
+set bg=dark
+set paste

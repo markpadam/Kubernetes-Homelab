@@ -455,3 +455,9 @@ Internal-only secrets (OAuth2 cookie key, Dex client secret) are generated rando
 If you fork this repo, update `GITHUB_REPO` near the top of `scripts/setup-lab.sh` (and the equivalent line in `scripts/resume-lab.sh`) to point at your fork — Flux uses that URL to sync manifests.
 
 Questions or issues: [markpadam@hotmail.com](mailto:markpadam@hotmail.com)
+
+---
+
+## Credits
+
+Scenario content in the `scenarios/` directory is partially adapted from [KubeKosh](https://github.com/zeborg/kubekosh) by the KubeKosh Project, used under the [Apache 2.0 License](https://www.apache.org/licenses/LICENSE-2.0). Scenarios have been modified and extended to integrate with this lab environment. See [`scenarios/NOTICE`](scenarios/NOTICE) for full attribution details.

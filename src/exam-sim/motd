@@ -1,0 +1,37 @@
+
+  ███████╗██╗  ██╗ █████╗ ███╗   ███╗      ███████╗██╗███╗   ███╗
+  ██╔════╝╚██╗██╔╝██╔══██╗████╗ ████║      ██╔════╝██║████╗ ████║
+  █████╗   ╚███╔╝ ███████║██╔████╔██║█████╗███████╗██║██╔████╔██║
+  ██╔══╝   ██╔██╗ ██╔══██║██║╚██╔╝██║╚════╝╚════██║██║██║╚██╔╝██║
+  ███████╗██╔╝ ██╗██║  ██║██║ ╚═╝ ██║      ███████║██║██║ ╚═╝ ██║
+  ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝      ╚══════╝╚═╝╚═╝     ╚═╝
+
+  CKA / CKAD / CKS Exam Simulator Terminal
+
+  ┌─ CONTEXTS ─────────────────────────────────────────────────────┐
+  │  k8s    — Standard cluster (default namespace)                 │
+  │  wk8s   — Workloads cluster (workloads namespace)              │
+  │  bk8s   — Backup cluster (for etcd backup scenarios)          │
+  │  ek8s   — etcd-ops cluster                                    │
+  │  ik8s   — Isolated cluster (network policy scenarios)          │
+  │                                                                 │
+  │  Switch: kx k8s    Set namespace: kn kube-system               │
+  └─────────────────────────────────────────────────────────────────┘
+
+  ┌─ ALIASES ──────────────────────────────────────────────────────┐
+  │  k = kubectl          kgp = get pods -o wide                   │
+  │  kx = config use-ctx  kgn = get nodes -o wide                  │
+  │  kn = set-ctx ns      kd  = describe                           │
+  │                                                                 │
+  │  $do  = --dry-run=client -o yaml    (generate YAML)           │
+  │  $now = --force --grace-period 0    (force delete)             │
+  └─────────────────────────────────────────────────────────────────┘
+
+  ┌─ EXAM TIPS ─────────────────────────────────────────────────────┐
+  │  • ALWAYS switch context at the start of each question          │
+  │  • vim: use 'i' to insert — INSERT key is disabled in real exam │
+  │  • sudo -i for root access on nodes                             │
+  │  • Allowed docs: kubernetes.io/docs  helm.sh/docs               │
+  │  • Target 90%+ on killer.sh before sitting the real exam        │
+  └─────────────────────────────────────────────────────────────────┘
+

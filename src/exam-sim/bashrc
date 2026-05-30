@@ -1,0 +1,35 @@
+# ── CKA/CKAD/CKS exam environment ──────────────────────────────────────────
+# These aliases match the official PSI exam terminal exactly.
+
+# Official exam aliases
+alias k='kubectl'
+alias kx='kubectl config use-context'
+alias kn='kubectl config set-context --current --namespace'
+
+# Speed shortcuts (not in official exam, useful for practice)
+alias kgp='kubectl get pods -o wide'
+alias kgn='kubectl get nodes -o wide'
+alias kgs='kubectl get svc'
+alias kgd='kubectl get deployments'
+alias kgns='kubectl get namespaces'
+alias kd='kubectl describe'
+alias kl='kubectl logs'
+alias ke='kubectl exec -it'
+alias ka='kubectl apply -f'
+
+# Bash completion
+source /usr/share/bash-completion/bash_completion 2>/dev/null || true
+source <(kubectl completion bash) 2>/dev/null || true
+complete -F __start_kubectl k
+source <(helm completion bash) 2>/dev/null || true
+
+# Exam environment variables
+export ETCDCTL_API=3
+export do='--dry-run=client -o yaml'   # usage: k run nginx --image=nginx $do
+export now='--force --grace-period 0'  # usage: k delete pod nginx $now
+
+# Handy exam one-liners
+# Switch context: kx k8s
+# Set default namespace: kn kube-system
+# Generate YAML: k create deployment web --image=nginx $do
+# Force delete: k delete pod stuck-pod $now

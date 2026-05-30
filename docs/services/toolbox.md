@@ -41,6 +41,24 @@ ssh -p 2222 root@localhost \
   'curl -s http://azurite.azure-storage:10000/devstoreaccount1?comp=list'
 ```
 
+## kubectl aliases
+
+The toolbox shell is pre-configured with the official CKA/CKAD/CKS exam aliases so you can practise in the same environment you'll use in the real exam:
+
+| Alias | Expands to |
+|-------|-----------|
+| `k` | `kubectl` |
+| `kx` | `kubectl config use-context` |
+| `kn` | `kubectl config set-context --current --namespace` |
+| `kgp` | `kubectl get pods -o wide` |
+| `kgn` | `kubectl get nodes -o wide` |
+| `kgs` | `kubectl get svc` |
+| `kgd` | `kubectl get deployments` |
+| `kd` | `kubectl describe` |
+| `kl` | `kubectl logs` |
+
+Bash completion is enabled for both `kubectl` and `k`. Helm completion is also active.
+
 ## Disabling
 
 ```bash
