@@ -853,6 +853,23 @@ for _host in argocd blob-explorer rancher dex dashboard grafana oauth2-proxy tas
 done
 echo -e "  ${GREEN}${BOLD}[✓]${RESET} /etc/hosts updated — *.aks-lab.local → 127.0.0.1" >&3
 
+# ── dnsmasq — override macOS mDNS for .local TLD ──────────────────────────────
+# macOS routes *.local through Bonjour/mDNS which bypasses /etc/hosts.
+# dnsmasq + /etc/resolver/aks-lab.local intercepts only the aks-lab.local
+# subdomain and returns 127.0.0.1, leaving all other .local mDNS intact.
+log "Configuring dnsmasq for *.aks-lab.local DNS override..."
+if ! command -v dnsmasq &>/dev/null; then
+  brew install dnsmasq
+fi
+sudo mkdir -p /usr/local/etc/dnsmasq.d
+sudo cp "$REPO_ROOT/IaC/macos/dnsmasq-localhost.conf" /usr/local/etc/dnsmasq.d/aks-lab.conf
+# /etc/resolver/ dir tells macOS to use dnsmasq for aks-lab.local queries only
+sudo mkdir -p /etc/resolver
+echo "nameserver 127.0.0.1" | sudo tee /etc/resolver/aks-lab.local > /dev/null
+# Restart dnsmasq (brew service runs as root so it binds :53)
+sudo brew services restart dnsmasq
+echo -e "  ${GREEN}${BOLD}[✓]${RESET} dnsmasq configured — *.aks-lab.local → 127.0.0.1 via /etc/resolver" >&3
+
 printf "\n" >&3
 
 # ── TUI bootstrap ─────────────────────────────────────────────────────────────
