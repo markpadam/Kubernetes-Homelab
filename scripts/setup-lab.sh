@@ -1959,18 +1959,30 @@ if feature_enabled samba-ad; then
   fi
   export SAMBA_IP
 
-  # Patch CoreDNS to forward corp.internal to SambaAD instead of Bind9.
-  log "Updating CoreDNS to forward corp.internal → SambaAD ($SAMBA_IP)..."
-  kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}' \
-    | sed "s|forward . 10.96.0.200|forward . ${SAMBA_IP}|g" \
-    | kubectl create configmap coredns -n kube-system \
-        --from-file=Corefile=/dev/stdin \
-        --dry-run=client -o yaml \
-    | kubectl apply -f -
-  kubectl rollout restart deployment coredns -n kube-system
-  kubectl rollout status deployment coredns -n kube-system --timeout=120s \
-    || warn "CoreDNS rollout timed out — DNS resolution may take a moment"
-  success "CoreDNS updated — corp.internal now resolves via SambaAD"
+  # Patch CoreDNS corp.internal zone only to forward to SambaAD.
+  # Only patch when we have a real IP — the placeholder guard prevents writing
+  # "<samba-ad-ip>" into the Corefile which crashes CoreDNS.
+  # Use awk to target only the corp.internal block; a global sed would also
+  # replace the privatelink zones (all share the same bind9 forward IP).
+  if [[ -n "$SAMBA_IP" && "$SAMBA_IP" != "<samba-ad-ip>" ]]; then
+    log "Updating CoreDNS corp.internal zone → SambaAD ($SAMBA_IP)..."
+    kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}' \
+      | awk -v new_ip="$SAMBA_IP" '
+          /^corp\.internal:53 *\{/ { in_corp=1 }
+          in_corp && /forward \. / { sub(/forward \. [^ ]+/, "forward . " new_ip); in_corp=0 }
+          { print }
+        ' \
+      | kubectl create configmap coredns -n kube-system \
+          --from-file=Corefile=/dev/stdin \
+          --dry-run=client -o yaml \
+      | kubectl apply -f -
+    kubectl rollout restart deployment coredns -n kube-system
+    kubectl rollout status deployment coredns -n kube-system --timeout=120s \
+      || warn "CoreDNS rollout timed out — DNS resolution may take a moment"
+    success "CoreDNS updated — corp.internal now resolves via SambaAD ($SAMBA_IP)"
+  else
+    warn "SambaAD IP unavailable — corp.internal will continue forwarding via bind9"
+  fi
 
   # Register *.aks-lab.local A records in SambaAD DNS so Multipass VMs
   # (corp-client etc.) resolve lab app hostnames to the Mac host IP.
