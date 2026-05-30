@@ -862,7 +862,7 @@ if ! command -v dnsmasq &>/dev/null; then
   brew install dnsmasq
 fi
 sudo mkdir -p /usr/local/etc/dnsmasq.d
-sudo cp "$REPO_ROOT/IaC/macos/dnsmasq-localhost.conf" /usr/local/etc/dnsmasq.d/aks-lab.conf
+sudo cp "$_REPO_ROOT/IaC/macos/dnsmasq-localhost.conf" /usr/local/etc/dnsmasq.d/aks-lab.conf
 # /etc/resolver/ dir tells macOS to use dnsmasq for aks-lab.local queries only
 sudo mkdir -p /etc/resolver
 echo "nameserver 127.0.0.1" | sudo tee /etc/resolver/aks-lab.local > /dev/null
