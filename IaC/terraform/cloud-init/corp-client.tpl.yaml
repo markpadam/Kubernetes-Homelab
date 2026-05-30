@@ -235,8 +235,10 @@ write_files:
       done
 
       echo "[client] Setting up XFCE4 VNC desktop..."
-      # Use UID 1000 user (may be ubuntu or the Lima host username)
-      _VNC_USER=$(getent passwd | awk -F: '$3 >= 500 && $3 != 65534 {print $1; exit}' || ls /home | head -1 || echo ubuntu)
+      # Find the first real interactive user: home under /home/, UID < 60000, not nobody(65534).
+      # Lima mirrors the host user at UID 501+; Ubuntu cloud users are at 1000+.
+      # Filtering by /home/ home-dir avoids system accounts like systemd-network (UID 998, home /).
+      _VNC_USER=$(getent passwd | awk -F: '$6 ~ /^\/home\// && $3 != 65534 {print $1; exit}' || ls /home | head -1 || echo ubuntu)
       _VNC_HOME=$(getent passwd "$_VNC_USER" | cut -d: -f6 || echo "/home/$_VNC_USER")
       _VNC_GROUP=$(id -gn "$_VNC_USER" || echo "$_VNC_USER")
 
