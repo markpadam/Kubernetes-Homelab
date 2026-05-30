@@ -2297,7 +2297,17 @@ if feature_enabled azdo-agent; then
   fi
   log "Building azdo-agent image..."
   docker build -t azdo-agent:local flux/apps/base/azdo-agent/ >/dev/null
-  minikube -p "$PROFILE" image load azdo-agent:local
+  mapfile -t _AZDO_NODES < <(minikube node list -p "$PROFILE" 2>/dev/null | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+  _AZDO_TAR=$(mktemp /tmp/azdo-agent.XXXXXX)
+  log "Distributing azdo-agent image to all nodes..."
+  docker save azdo-agent:local > "$_AZDO_TAR" \
+    || error "Failed to export azdo-agent image from local Docker daemon"
+  for _AZDO_NODE in "${_AZDO_NODES[@]}"; do
+    docker cp "$_AZDO_TAR" "${_AZDO_NODE}:/tmp/_azdo.tar"
+    docker exec "$_AZDO_NODE" docker load -i /tmp/_azdo.tar
+    docker exec "$_AZDO_NODE" rm -f /tmp/_azdo.tar
+  done
+  rm -f "$_AZDO_TAR"
 
   log "Applying agent manifests..."
   kubectl apply --validate=false -k flux/apps/base/azdo-agent/

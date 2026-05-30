@@ -13,7 +13,6 @@ RUN apt-get update -qq && apt-get install -y -qq \
     jq \
     git \
     openssl \
-    base64 \
     bash-completion \
     apt-transport-https \
     ca-certificates \
