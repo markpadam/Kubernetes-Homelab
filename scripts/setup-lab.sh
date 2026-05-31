@@ -1206,6 +1206,123 @@ kubectl apply -f "$_REPO_ROOT/flux/infrastructure/base/cert-manager/cluster-issu
 
 success "cert-manager ready"
 
+# ── Step 3b: MetalLB ─────────────────────────
+if feature_enabled metallb; then
+  step "Step 3b — MetalLB Load Balancer"
+  helm repo add metallb https://metallb.github.io/metallb 2>/dev/null || true
+  helm repo update metallb 2>/dev/null
+  _MLB_STATUS=$(helm status metallb -n metallb-system -o json 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['status'])" 2>/dev/null || echo "missing")
+  if [[ "$_MLB_STATUS" == "deployed" ]]; then
+    warn "MetalLB already deployed — skipping install"
+  elif [[ "$_MLB_STATUS" == "failed" ]]; then
+    kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply --validate=false -f -
+    helm upgrade metallb metallb/metallb -n metallb-system --wait --timeout=3m
+  else
+    kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply --validate=false -f -
+    helm install metallb metallb/metallb -n metallb-system --wait --timeout=3m
+  fi
+  kubectl wait --for=condition=established \
+    crd/ipaddresspools.metallb.io crd/l2advertisements.metallb.io \
+    --timeout=60s 2>/dev/null || warn "MetalLB CRDs not ready — pool config may fail"
+  _kubectl_apply_retry -f flux/infrastructure/base/metallb/ippool.yaml
+  success "MetalLB installed — pool 172.16.3.0/24"
+else
+  log "Skipping Step 3b — MetalLB not selected"
+fi
+
+# ── Step 3c: Reflector ───────────────────────
+if feature_enabled reflector; then
+  step "Step 3c — Reflector (Secret/ConfigMap mirroring)"
+  helm repo add emberstack https://emberstack.github.io/helm-charts 2>/dev/null || true
+  helm repo update emberstack 2>/dev/null
+  _REF_STATUS=$(helm status reflector -n reflector -o json 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['status'])" 2>/dev/null || echo "missing")
+  if [[ "$_REF_STATUS" == "deployed" ]]; then
+    warn "Reflector already deployed — skipping"
+  elif [[ "$_REF_STATUS" == "failed" ]]; then
+    helm upgrade reflector emberstack/reflector -n reflector --create-namespace --wait --timeout=3m
+  else
+    helm install reflector emberstack/reflector -n reflector --create-namespace --wait --timeout=3m
+  fi
+  success "Reflector installed"
+else
+  log "Skipping Step 3c — Reflector not selected"
+fi
+
+# ── Step 3d: Kyverno ─────────────────────────
+if feature_enabled kyverno; then
+  step "Step 3d — Kyverno (Policy Engine)"
+  helm repo add kyverno https://kyverno.github.io/kyverno/ 2>/dev/null || true
+  helm repo update kyverno 2>/dev/null
+  _KYV_STATUS=$(helm status kyverno -n kyverno -o json 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['status'])" 2>/dev/null || echo "missing")
+  if [[ "$_KYV_STATUS" == "deployed" ]]; then
+    warn "Kyverno already deployed — skipping"
+  elif [[ "$_KYV_STATUS" == "failed" ]]; then
+    helm upgrade kyverno kyverno/kyverno -n kyverno \
+      --set admissionController.replicas=1 --set backgroundController.replicas=1 \
+      --set cleanupController.replicas=1 --set reportsController.replicas=1 \
+      --wait --timeout=5m
+  else
+    helm install kyverno kyverno/kyverno -n kyverno --create-namespace \
+      --set admissionController.replicas=1 --set backgroundController.replicas=1 \
+      --set cleanupController.replicas=1 --set reportsController.replicas=1 \
+      --wait --timeout=5m
+  fi
+  success "Kyverno installed"
+else
+  log "Skipping Step 3d — Kyverno not selected"
+fi
+
+# ── Step 3e: KEDA ────────────────────────────
+if feature_enabled keda; then
+  step "Step 3e — KEDA (Event-driven Autoscaling)"
+  helm repo add kedacore https://kedacore.github.io/charts 2>/dev/null || true
+  helm repo update kedacore 2>/dev/null
+  _KEDA_STATUS=$(helm status keda -n keda -o json 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['status'])" 2>/dev/null || echo "missing")
+  if [[ "$_KEDA_STATUS" == "deployed" ]]; then
+    warn "KEDA already deployed — skipping"
+  elif [[ "$_KEDA_STATUS" == "failed" ]]; then
+    helm upgrade keda kedacore/keda -n keda --wait --timeout=5m
+  else
+    helm install keda kedacore/keda -n keda --create-namespace --wait --timeout=5m
+  fi
+  success "KEDA installed"
+else
+  log "Skipping Step 3e — KEDA not selected"
+fi
+
+# ── Step 3f: Istio ───────────────────────────
+if feature_enabled istio; then
+  step "Step 3f — Istio (Service Mesh)"
+  helm repo add istio https://istio-release.storage.googleapis.com/charts 2>/dev/null || true
+  helm repo update istio 2>/dev/null
+  kubectl create namespace istio-system --dry-run=client -o yaml | kubectl apply --validate=false -f -
+  _ISTIO_BASE=$(helm status istio-base -n istio-system -o json 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['status'])" 2>/dev/null || echo "missing")
+  if [[ "$_ISTIO_BASE" == "deployed" ]]; then
+    warn "istio-base already deployed — skipping"
+  elif [[ "$_ISTIO_BASE" == "failed" ]]; then
+    helm upgrade istio-base istio/base -n istio-system --set defaultRevision=default --wait --timeout=3m
+  else
+    helm install istio-base istio/base -n istio-system --set defaultRevision=default --wait --timeout=3m
+  fi
+  _ISTIOD=$(helm status istiod -n istio-system -o json 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['status'])" 2>/dev/null || echo "missing")
+  if [[ "$_ISTIOD" == "deployed" ]]; then
+    warn "istiod already deployed — skipping"
+  elif [[ "$_ISTIOD" == "failed" ]]; then
+    helm upgrade istiod istio/istiod -n istio-system --wait --timeout=5m
+  else
+    helm install istiod istio/istiod -n istio-system --wait --timeout=5m
+  fi
+  success "Istio control plane installed (sidecar injection disabled by default)"
+else
+  log "Skipping Step 3f — Istio not selected"
+fi
+
 # ── Step 4: Persistent Storage ───────────────
 step "Step 4 — Enabling Persistent Storage"
 
@@ -2349,6 +2466,49 @@ if feature_enabled blob-explorer; then
   _BE_RC=0
   kubectl apply -k flux/apps/base/blob-explorer/ || _BE_RC=$?
   [[ $_BE_RC -eq 0 ]] || warn "blob-explorer apply failed — use 'lab-feature.sh enable blob-explorer' to retry"
+fi
+
+# ── Step 14b: KEDA Service Bus Demo ──────────
+if feature_enabled keda-servicebus; then
+  step "Step 14b — KEDA Service Bus Demo"
+  if ! feature_enabled keda; then
+    warn "keda-servicebus requires KEDA — skipping (enable 'keda' to use this)"
+  elif ! feature_enabled service-bus; then
+    warn "keda-servicebus requires service-bus — skipping"
+  else
+    kubectl apply --validate=false -k flux/apps/base/keda-servicebus/
+    success "keda-servicebus deployed — scales 0→5 pods on queue depth"
+  fi
+else
+  log "Skipping Step 14b — keda-servicebus not selected"
+fi
+
+# ── Step 15: Falco (Runtime Security) ────────
+if feature_enabled falco; then
+  step "Step 15 — Falco (Runtime Security)"
+  helm repo add falcosecurity https://falcosecurity.github.io/charts 2>/dev/null || true
+  helm repo update falcosecurity 2>/dev/null
+  _FALCO_STATUS=$(helm status falco -n falco -o json 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['status'])" 2>/dev/null || echo "missing")
+  _FALCO_OPTS=(
+    --set driver.kind=modern_ebpf
+    --set tty=true
+    --set falcosidekick.enabled=false
+  )
+  if [[ "$_FALCO_STATUS" == "deployed" ]]; then
+    warn "Falco already deployed — skipping"
+  elif [[ "$_FALCO_STATUS" == "failed" ]]; then
+    helm upgrade falco falcosecurity/falco -n falco "${_FALCO_OPTS[@]}" \
+      --wait --timeout=5m \
+      || warn "Falco upgrade failed — eBPF driver may require kernel privileges; Falco will retry on reboot"
+  else
+    helm install falco falcosecurity/falco -n falco --create-namespace "${_FALCO_OPTS[@]}" \
+      --wait --timeout=5m \
+      || warn "Falco install failed — eBPF driver may not be supported in DinD; Falco will retry on reboot"
+  fi
+  success "Falco installed" 2>/dev/null || true
+else
+  log "Skipping Step 15 — Falco not selected"
 fi
 
 # ── K8s API Port-Forward ─────────────────────
