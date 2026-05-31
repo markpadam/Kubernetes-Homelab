@@ -1364,6 +1364,23 @@ kubectl patch deployment metrics-server -n kube-system --type=json \
   -p '[{"op":"add","path":"/spec/template/spec/hostNetwork","value":true}]' \
   2>/dev/null || true
 
+# minikube sets kubelet auth cache TTLs to 0s, so every scrape triggers a
+# fresh TokenReview against the API server. Under load the API server takes
+# 30-60s to respond, always exceeding metrics-server's 10s timeout.
+# Patch all nodes to use the Kubernetes default (10m / 10m / 30s).
+log "Patching kubelet auth cache TTLs on all nodes..."
+mapfile -t _ALL_NODES < <(minikube node list -p "$PROFILE" 2>/dev/null | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+for _NODE in "${_ALL_NODES[@]}"; do
+  docker exec "$_NODE" bash -c "
+    sed -i 's/cacheTTL: 0s/cacheTTL: 10m0s/g' /var/lib/kubelet/config.yaml
+    sed -i 's/cacheAuthorizedTTL: 0s/cacheAuthorizedTTL: 10m0s/g' /var/lib/kubelet/config.yaml
+    sed -i 's/cacheUnauthorizedTTL: 0s/cacheUnauthorizedTTL: 30s/g' /var/lib/kubelet/config.yaml
+    sed -i 's/  enabled: false/  enabled: true/g' /var/lib/kubelet/config.yaml
+    sed -i 's/mode: Webhook/mode: AlwaysAllow/g' /var/lib/kubelet/config.yaml
+    systemctl restart kubelet
+  " 2>/dev/null || warn "Could not patch kubelet on ${_NODE}"
+done
+
 log "Setting csi-hostpath-sc as default StorageClass..."
 
 kubectl patch storageclass csi-hostpath-sc \
