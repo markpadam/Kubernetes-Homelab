@@ -2635,9 +2635,12 @@ success "Dashboard written to /tmp/lab-dashboard.html"
 
 DASHBOARD_PORT=9997
 # Ensure dashboard Python deps are installed (ptyprocess for terminal, websockets for WS)
-pip3 install --quiet --user ptyprocess websockets 2>/dev/null || true
+if [[ ! -x "$PWD/.venv/bin/python3" ]]; then
+  python3 -m venv "$PWD/.venv"
+fi
+"$PWD/.venv/bin/pip" install --quiet ptyprocess websockets 2>/dev/null || true
 lsof -ti:"$DASHBOARD_PORT" | xargs kill -9 2>/dev/null || true
-python3 "$PWD/dashboard-server.py" "$PWD" >> /tmp/dashboard-server.log 2>&1 &
+"$PWD/.venv/bin/python3" "$PWD/dashboard-server.py" "$PWD" >> /tmp/dashboard-server.log 2>&1 &
 sleep 1
 
 DASHBOARD_URL="http://localhost:${DASHBOARD_PORT}/"

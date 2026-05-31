@@ -114,8 +114,13 @@ Path('$output').write_text(
 lab_serve_dashboard() {
   local port="${1:-9997}"
   local cwd="${2:-$PWD}"
+  local py="${cwd}/.venv/bin/python3"
+  if [[ ! -x "$py" ]]; then
+    python3 -m venv "${cwd}/.venv"
+    "${cwd}/.venv/bin/pip" install --quiet ptyprocess websockets 2>/dev/null || true
+  fi
   lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
-  python3 "${cwd}/dashboard-server.py" "$cwd" >> /tmp/dashboard-server.log 2>&1 &
+  "$py" "${cwd}/dashboard-server.py" "$cwd" >> /tmp/dashboard-server.log 2>&1 &
   sleep 1
 }
 
