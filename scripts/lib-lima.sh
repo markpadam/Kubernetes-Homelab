@@ -18,18 +18,15 @@ _lima_image_url() {
 _lima_size() { echo "$1" | sed 's/G$/GiB/; s/M$/MiB/'; }
 
 # Get the primary routable IPv4 of a Lima VM (empty if not running or no IP yet).
+# Queries the lima0 interface inside the VM — this is the socket_vmnet shared
+# address that is reachable from the Mac host, as opposed to the user-mode eth0
+# (192.168.5.x) which is Lima-internal only.
 _lima_ip() {
   local name="$1"
-  limactl list --format json 2>/dev/null \
-    | python3 -c "
-import json, sys
-vms = json.load(sys.stdin)
-vm = next((v for v in vms if v['name'] == '$name'), {})
-nets = vm.get('network') or vm.get('networks') or []
-ip = next((n.get('localIPV4','') for n in nets
-           if n.get('localIPV4') and not n.get('localIPV4','').startswith('127.')), '')
-print(ip)
-" 2>/dev/null || echo ""
+  local ip
+  ip=$(limactl shell "$name" ip -4 addr show lima0 2>/dev/null \
+    | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
+  echo "$ip"
 }
 
 # Get the status of a Lima VM: Running, Stopped, or Deleted.

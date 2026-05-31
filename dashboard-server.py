@@ -530,11 +530,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # POST instead of GET — opens an external app, so it's a state change.
         if path == "/api/corp-client/connect":
             try:
-                info = subprocess.run(
-                    ["multipass", "info", "corp-client", "--format", "json"],
-                    capture_output=True, text=True, timeout=10,
+                limactl = "/usr/local/bin/limactl"
+                ip_result = subprocess.run(
+                    [limactl, "shell", "corp-client", "ip", "-4", "addr", "show", "lima0"],
+                    capture_output=True, text=True, timeout=15,
                 )
-                ip = json.loads(info.stdout)["info"]["corp-client"]["ipv4"][0]
+                import re as _re
+                m = _re.search(r"inet (\d+\.\d+\.\d+\.\d+)/", ip_result.stdout)
+                if not m:
+                    raise RuntimeError("Could not determine corp-client IP from lima0 interface")
+                ip = m.group(1)
                 subprocess.Popen(["open", f"vnc://{ip}:5901"])
                 self._text(200, f"vnc://{ip}:5901")
             except Exception as e:
