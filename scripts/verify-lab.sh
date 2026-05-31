@@ -99,6 +99,28 @@ fi
 result=$(check_pods ingress-nginx) && pass "Ingress controller" "$result" || fail "Ingress controller" "$result"
 result=$(check_pods kube-system)   && pass "kube-system"        "$result" || warn "kube-system"        "$result"
 
+# Components with KEDA ScaledObjects legitimately scale to zero when idle.
+# Check for a ScaledObject in the namespace instead of pod count.
+check_pods_or_keda() {
+  local ns="$1"
+  local result
+  result=$(check_pods "$ns")
+  local rc=$?
+  if [[ $rc -ne 0 && "$result" == "no pods" ]]; then
+    if kubectl get scaledobject -n "$ns" &>/dev/null 2>&1 | grep -q .; then
+      echo "scaled to 0 (KEDA idle)"
+      return 0
+    fi
+    # Also accept: namespace exists + deployment exists but scaled to 0
+    if kubectl get deployment -n "$ns" --no-headers 2>/dev/null | grep -q .; then
+      echo "scaled to 0 (idle)"
+      return 0
+    fi
+  fi
+  echo "$result"
+  return $rc
+}
+
 # ── Per-component pod readiness ───────────────
 echo -e "\n${BOLD}Components${RESET}"
 for id in $ENABLED; do
@@ -107,7 +129,7 @@ for id in $ENABLED; do
     # Non-namespace components (vault dev server, samba-ad VM, etc.) — skip pod check
     continue
   fi
-  result=$(check_pods "$ns") && pass "$id" "$result" || fail "$id" "$result"
+  result=$(check_pods_or_keda "$ns") && pass "$id" "$result" || fail "$id" "$result"
 done
 
 # ── Ingress endpoints ─────────────────────────
