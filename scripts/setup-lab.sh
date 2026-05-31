@@ -1217,14 +1217,16 @@ if feature_enabled metallb; then
     warn "MetalLB already deployed — skipping install"
   elif [[ "$_MLB_STATUS" == "failed" ]]; then
     kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply --validate=false -f -
-    helm upgrade metallb metallb/metallb -n metallb-system --wait --timeout=3m
+    helm upgrade metallb metallb/metallb -n metallb-system --wait --timeout=10m
   else
     kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply --validate=false -f -
-    helm install metallb metallb/metallb -n metallb-system --wait --timeout=3m
+    helm install metallb metallb/metallb -n metallb-system --wait --timeout=10m
   fi
   kubectl wait --for=condition=established \
     crd/ipaddresspools.metallb.io crd/l2advertisements.metallb.io \
     --timeout=60s 2>/dev/null || warn "MetalLB CRDs not ready — pool config may fail"
+  # Wait for webhook pod before applying pool config (webhook not ready = connection refused)
+  kubectl wait pod -n metallb-system -l component=speaker --for=condition=ready --timeout=120s 2>/dev/null || true
   _kubectl_apply_retry -f flux/infrastructure/base/metallb/ippool.yaml
   success "MetalLB installed — pool 172.16.3.0/24"
 else
@@ -1241,9 +1243,9 @@ if feature_enabled reflector; then
   if [[ "$_REF_STATUS" == "deployed" ]]; then
     warn "Reflector already deployed — skipping"
   elif [[ "$_REF_STATUS" == "failed" ]]; then
-    helm upgrade reflector emberstack/reflector -n reflector --create-namespace --wait --timeout=3m
+    helm upgrade reflector emberstack/reflector -n reflector --create-namespace --wait --timeout=5m
   else
-    helm install reflector emberstack/reflector -n reflector --create-namespace --wait --timeout=3m
+    helm install reflector emberstack/reflector -n reflector --create-namespace --wait --timeout=5m
   fi
   success "Reflector installed"
 else
@@ -1285,9 +1287,9 @@ if feature_enabled keda; then
   if [[ "$_KEDA_STATUS" == "deployed" ]]; then
     warn "KEDA already deployed — skipping"
   elif [[ "$_KEDA_STATUS" == "failed" ]]; then
-    helm upgrade keda kedacore/keda -n keda --wait --timeout=5m
+    helm upgrade keda kedacore/keda -n keda --wait --timeout=10m
   else
-    helm install keda kedacore/keda -n keda --create-namespace --wait --timeout=5m
+    helm install keda kedacore/keda -n keda --create-namespace --wait --timeout=10m
   fi
   success "KEDA installed"
 else
