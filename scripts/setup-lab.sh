@@ -2374,16 +2374,18 @@ step "Starting minikube tunnel"
 # Install or update the wrapper script
 if ! cmp -s IaC/macos/minikube-tunnel.sh /usr/local/bin/minikube-tunnel.sh 2>/dev/null; then
   log "Installing minikube-tunnel wrapper script..."
-  sudo cp IaC/macos/minikube-tunnel.sh /usr/local/bin/minikube-tunnel.sh
-  sudo chmod +x /usr/local/bin/minikube-tunnel.sh
+  sudo cp IaC/macos/minikube-tunnel.sh /usr/local/bin/minikube-tunnel.sh \
+    || warn "Could not install tunnel wrapper (sudo unavailable) — skipping"
+  sudo chmod +x /usr/local/bin/minikube-tunnel.sh 2>/dev/null || true
 fi
 # Install or update the launchd plist, then (re)start the daemon
 if ! cmp -s IaC/macos/com.lab.minikube-tunnel.plist /Library/LaunchDaemons/com.lab.minikube-tunnel.plist 2>/dev/null; then
   log "Installing/updating minikube-tunnel launchd daemon..."
   sudo launchctl bootout system/com.lab.minikube-tunnel 2>/dev/null || true
-  sudo cp IaC/macos/com.lab.minikube-tunnel.plist /Library/LaunchDaemons/
-  sudo launchctl bootstrap system /Library/LaunchDaemons/com.lab.minikube-tunnel.plist
-  success "minikube tunnel daemon installed — will start when cluster is ready"
+  sudo cp IaC/macos/com.lab.minikube-tunnel.plist /Library/LaunchDaemons/ \
+    && sudo launchctl bootstrap system /Library/LaunchDaemons/com.lab.minikube-tunnel.plist \
+    && success "minikube tunnel daemon installed — will start when cluster is ready" \
+    || warn "Could not install tunnel launchd daemon (sudo unavailable) — tunnel already running as PID $(pgrep -f 'minikube tunnel' || echo unknown)"
 else
   sudo launchctl kickstart -k system/com.lab.minikube-tunnel 2>/dev/null || true
   success "minikube tunnel daemon running"
