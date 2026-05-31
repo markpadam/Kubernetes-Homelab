@@ -1092,10 +1092,10 @@ feature_enabled blob-explorer && _lab_image blob-explorer src/blob-explorer/
 
 if [[ "${#IMAGES_TO_DISTRIBUTE[@]}" -gt 0 ]]; then
   log "Distributing newly built images to worker nodes and saving to cache..."
-  # minikube image build (Docker driver) stores images in the CP node's DinD Docker
-  # daemon. Export via stdout pipe (avoids permission issues writing inside the
-  # container), then load into each worker's DinD daemon via docker cp + docker load.
-  # minikube ssh / minikube cp are unreliable — docker exec is the stable path.
+  # minikube image build stores images in the CP node's DinD daemon.
+  # Nodes mount /tmp as tmpfs so docker cp silently fails there.
+  # Reliable path: stream via stdin pipe (docker save | docker exec -i docker load)
+  # which avoids any intermediate file inside the container.
   mapfile -t _ALL_NODES < <(minikube node list -p "$PROFILE" 2>/dev/null | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
   _CP_NODE="${_ALL_NODES[0]:-$PROFILE}"
 
@@ -1103,7 +1103,7 @@ if [[ "${#IMAGES_TO_DISTRIBUTE[@]}" -gt 0 ]]; then
     NAME="${IMAGE##*/}"; NAME="${NAME%%:*}"
     TARFILE=$(mktemp /tmp/minikube-image.XXXXXX)
 
-    log "Exporting ${NAME} from DinD on ${_CP_NODE} (stdout pipe)..."
+    log "Exporting ${NAME} from DinD on ${_CP_NODE}..."
     docker exec "$_CP_NODE" docker save "${IMAGE}" > "$TARFILE" \
       || { warn "docker save failed for ${NAME} — skipping distribution"; rm -f "$TARFILE"; continue; }
 
@@ -1112,10 +1112,8 @@ if [[ "${#IMAGES_TO_DISTRIBUTE[@]}" -gt 0 ]]; then
 
     for _NODE in "${_ALL_NODES[@]}"; do
       [[ "$_NODE" == "$_CP_NODE" ]] && continue  # already has it from the build
-      log "  Loading ${NAME} → ${_NODE}..."
-      docker cp "$TARFILE" "${_NODE}:/tmp/_img.tar"
-      docker exec "$_NODE" docker load -i /tmp/_img.tar
-      docker exec "$_NODE" rm -f /tmp/_img.tar
+      log "  Loading ${NAME} → ${_NODE} (stdin pipe)..."
+      docker exec -i "$_NODE" docker load < "$TARFILE"
     done
 
     rm -f "$TARFILE"
@@ -2303,9 +2301,8 @@ if feature_enabled azdo-agent; then
   docker save azdo-agent:local > "$_AZDO_TAR" \
     || error "Failed to export azdo-agent image from local Docker daemon"
   for _AZDO_NODE in "${_AZDO_NODES[@]}"; do
-    docker cp "$_AZDO_TAR" "${_AZDO_NODE}:/tmp/_azdo.tar"
-    docker exec "$_AZDO_NODE" docker load -i /tmp/_azdo.tar
-    docker exec "$_AZDO_NODE" rm -f /tmp/_azdo.tar
+    log "  Loading azdo-agent → ${_AZDO_NODE} (stdin pipe)..."
+    docker exec -i "$_AZDO_NODE" docker load < "$_AZDO_TAR"
   done
   rm -f "$_AZDO_TAR"
 
