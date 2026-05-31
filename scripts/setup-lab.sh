@@ -1357,6 +1357,13 @@ _minikube_addon_retry volumesnapshots     || warn "volumesnapshots addon failed 
 _minikube_addon_retry csi-hostpath-driver || warn "csi-hostpath-driver addon failed — default StorageClass may not be set. Run: minikube addons enable csi-hostpath-driver -p $PROFILE"
 _minikube_addon_retry metrics-server      || warn "metrics-server addon failed — 'kubectl top' and HPA won't work. Run: minikube addons enable metrics-server -p $PROFILE"
 
+# With Cilium as CNI, kube-system pods can't reach node IPs (192.168.49.x:10250)
+# through Cilium's routing. hostNetwork=true puts metrics-server on the node's
+# network namespace directly so it can scrape kubelets across all nodes.
+kubectl patch deployment metrics-server -n kube-system --type=json \
+  -p '[{"op":"add","path":"/spec/template/spec/hostNetwork","value":true}]' \
+  2>/dev/null || true
+
 log "Setting csi-hostpath-sc as default StorageClass..."
 
 kubectl patch storageclass csi-hostpath-sc \
