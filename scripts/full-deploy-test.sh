@@ -60,6 +60,7 @@ done
 # Always-skipped are excluded here (samba-ad, corp-client, rancher).
 readonly DEPLOY_ORDER=(
   # Phase 1 — Core infra
+  "metallb|1|"
   "vault|1|"
   "cert-manager|1|depends: vault"
   "monitoring|1|"
@@ -85,6 +86,7 @@ readonly DEPLOY_ORDER=(
   # Phase 6 — Apps
   "taskflow|6|"
   "blob-explorer|6|depends: azurite"
+  "exam-sim|6|"
   "keda-servicebus|6|depends: keda + service-bus"
   "argo-workflows|6|"
   # Phase 7 — Heavy optional (--skip-heavy to omit)
@@ -134,6 +136,10 @@ _wait_pods_ready() {
     running=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
       | awk '/ Running /{c++}END{print c+0}')
     if [[ "$total" -gt 0 && "$running" -eq "$total" ]]; then
+      return 0
+    fi
+    # KEDA scale-to-zero: 0 pods is healthy when a ScaledObject exists
+    if [[ "$total" -eq 0 ]] && kubectl get scaledobject -n "$ns" --no-headers &>/dev/null 2>&1; then
       return 0
     fi
     sleep 5

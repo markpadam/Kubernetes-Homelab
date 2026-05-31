@@ -341,6 +341,34 @@ _disable_monitoring() {
 }
 
 # ── Special: KEDA ─────────────────────────────────────────────────
+# ── Special: MetalLB ─────────────────────────────────────────────
+_enable_metallb() {
+  helm repo add metallb https://metallb.github.io/metallb &>/dev/null || true
+  helm repo update metallb &>/dev/null
+  if helm status metallb -n metallb-system &>/dev/null; then
+    warn "Helm release 'metallb' already exists — skipping install."
+  else
+    log "Installing MetalLB (L2 load balancer, pool 172.16.3.0/24)..."
+    kubectl create namespace metallb-system --dry-run=client -o yaml \
+      | kubectl apply --validate=false -f - &>/dev/null
+    helm install metallb metallb/metallb -n metallb-system --wait --timeout=10m
+  fi
+  kubectl wait --for=condition=established \
+    crd/ipaddresspools.metallb.io crd/l2advertisements.metallb.io \
+    --timeout=60s 2>/dev/null || warn "MetalLB CRDs not ready — pool config may fail"
+  # Wait for speaker pods so the webhook is accepting connections
+  kubectl wait pod -n metallb-system -l component=speaker \
+    --for=condition=ready --timeout=120s 2>/dev/null || true
+  kubectl apply -f "$REPO_ROOT/flux/infrastructure/base/metallb/ippool.yaml"
+  success "MetalLB ready — pool 172.16.3.0/24 (requires: minikube tunnel)"
+}
+
+_disable_metallb() {
+  kubectl delete -f "$REPO_ROOT/flux/infrastructure/base/metallb/ippool.yaml" 2>/dev/null || true
+  helm uninstall metallb -n metallb-system 2>/dev/null || true
+  _kubectl_delete_ns metallb-system
+}
+
 _enable_keda() {
   helm repo add kedacore https://kedacore.github.io/charts &>/dev/null || true
   helm repo update &>/dev/null
@@ -1037,6 +1065,7 @@ do_enable() {
   log "Enabling: $name"
   case "$id" in
     vault)                _enable_vault ;;
+    metallb)              _enable_metallb ;;
     monitoring)           _enable_monitoring ;;
     keda)                 _enable_keda ;;
     reflector)            _enable_reflector ;;
@@ -1091,6 +1120,7 @@ do_disable() {
   log "Disabling: $name"
   case "$id" in
     vault)                _disable_vault ;;
+    metallb)              _disable_metallb ;;
     monitoring)           _disable_monitoring ;;
     keda)                 _disable_keda ;;
     reflector)            _disable_reflector ;;
