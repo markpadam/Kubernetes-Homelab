@@ -197,6 +197,26 @@ for host in "${HOSTS_ENTRIES[@]}"; do
 done
 [[ "$REMOVED" -eq 0 ]] && warn "No aks-lab.local entries in /etc/hosts — already clean"
 
+# Strip any leftover aks-lab.local comment/host lines and the lab-publish block.
+sudo sed "${SED_INPLACE[@]}" '/aks-lab minikube services/d;/aks-lab\.local/d' /etc/hosts 2>/dev/null || true
+
+# ── Remove dnsmasq LAN-publishing records (./aks-lab publish) ──
+step "Cleaning Up dnsmasq Config"
+_DNSMASQ_CONF="$(lab_brew_prefix)/etc/dnsmasq.conf"
+_DNSMASQ_FRAG="$(lab_brew_prefix)/etc/dnsmasq.d/aks-lab.conf"
+_DNS_CHANGED=0
+if [[ -f "$_DNSMASQ_CONF" ]] && grep -q 'AKS Homelab — LAN publishing\|aks-lab\.local' "$_DNSMASQ_CONF" 2>/dev/null; then
+  sudo sed "${SED_INPLACE[@]}" '/# AKS Homelab — LAN publishing/d;/aks-lab\.local/d;/corp\.internal/d' "$_DNSMASQ_CONF" 2>/dev/null \
+    && { success "Removed LAN-publishing records from dnsmasq.conf"; _DNS_CHANGED=1; }
+fi
+[[ -f "$_DNSMASQ_FRAG" ]] && sudo rm -f "$_DNSMASQ_FRAG" && _DNS_CHANGED=1
+sudo rm -f /etc/resolver/aks-lab.local /etc/resolver/corp.internal 2>/dev/null || true
+if [[ "$_DNS_CHANGED" -eq 1 ]]; then
+  sudo brew services restart dnsmasq 2>/dev/null || warn "Restart dnsmasq manually to drop the old records"
+else
+  warn "No dnsmasq lab records found — already clean"
+fi
+
 # ── Remove pfctl port redirects ───────────────
 step "Removing pfctl Port Redirects"
 
