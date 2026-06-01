@@ -1044,9 +1044,9 @@ _enable_azdo_agent() {
   kubectl rollout status deployment/azdo-agent -n azdo-agent --timeout=120s || _AZDO_RC=$?
   if [[ $_AZDO_RC -ne 0 ]]; then
     warn "ADO agent rollout did not complete within 120s — check: kubectl logs -n azdo-agent deployment/azdo-agent"
-  else
-    success "Azure DevOps agent running — check ADO pool: $AZP_POOL"
+    return 1
   fi
+  success "Azure DevOps agent running — check ADO pool: $AZP_POOL"
 }
 
 _disable_azdo_agent() {
@@ -1063,6 +1063,7 @@ do_enable() {
   [[ -z "$name" ]] && error "Unknown component: $id"
   if is_enabled "$id"; then warn "$id is already enabled"; return; fi
   log "Enabling: $name"
+  local _en_rc=0
   case "$id" in
     vault)                _enable_vault ;;
     metallb)              _enable_metallb ;;
@@ -1088,7 +1089,14 @@ do_enable() {
       _start_comp_portforwards "$id"
       success "$name enabled"
       ;;
-  esac
+  esac || _en_rc=$?
+  # Only record the component as enabled if its enable function succeeded.
+  # A failed rollout that's recorded would otherwise be "resumed" forever as a
+  # broken component. ( `|| _en_rc=$?` keeps this working under set -e too.)
+  if [[ "${_en_rc:-0}" -ne 0 ]]; then
+    warn "$name did not come up cleanly (exit ${_en_rc}) — NOT marking '$id' enabled. Fix and retry: ./aks-lab feature enable $id"
+    return "${_en_rc}"
+  fi
   add_to_state "$id"
   # If this component has an SSO-protected ingress and oauth2-proxy is
   # running, re-apply the auth annotations now (the ingress yaml doesn't

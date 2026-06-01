@@ -60,7 +60,7 @@ log "Waiting for test pod to be ready..."
 kubectl wait pod dnstest \
   --for=condition=Ready \
   --namespace=default \
-  --timeout=30s
+  --timeout=120s
 
 run_test() {
   local description="$1"

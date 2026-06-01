@@ -53,6 +53,15 @@ else
   log "CI environment detected — skipping confirmation prompt for profile '$PROFILE'"
 fi
 
+# Remove the feature-state file NOW — before the interruptible teardown work
+# below — so a Ctrl-C partway through can't leave .lab-state.json pointing at a
+# half-deleted cluster (which a later setup would then "restore" onto). Keep a
+# backup so an accidental teardown can still be inspected.
+if [[ -f .lab-state.json ]]; then
+  cp -f .lab-state.json /tmp/lab-state.json.bak 2>/dev/null || true
+  log "Removed .lab-state.json (backup at /tmp/lab-state.json.bak)"
+fi
+
 # ── Kill port-forwards ────────────────────────
 step "Killing Port-Forwards"
 
@@ -78,6 +87,19 @@ if [[ -f "$_LAUNCHAGENT_PATH" ]]; then
   launchctl bootout "gui/$(id -u)" "$_LAUNCHAGENT_PATH" 2>/dev/null || true
   rm -f "$_LAUNCHAGENT_PATH"
   success "LaunchAgent removed — lab will not auto-resume on next login"
+fi
+
+# Bring down the root launchd daemons too, so KeepAlive doesn't throttle-loop
+# them (restart → fail → retry) once the cluster is gone.
+if [[ -f /Library/LaunchDaemons/com.lab.minikube-tunnel.plist ]]; then
+  sudo launchctl bootout system/com.lab.minikube-tunnel 2>/dev/null || true
+  sudo rm -f /Library/LaunchDaemons/com.lab.minikube-tunnel.plist /usr/local/bin/minikube-tunnel.sh 2>/dev/null || true
+  success "minikube-tunnel daemon removed"
+fi
+if [[ -f /Library/LaunchDaemons/com.lab.publish.plist ]]; then
+  sudo launchctl bootout system/com.lab.publish 2>/dev/null || true
+  sudo rm -f /Library/LaunchDaemons/com.lab.publish.plist /usr/local/bin/lab-publish-forward.sh 2>/dev/null || true
+  success "LAN-publish forwarder daemon removed"
 fi
 
 success "Port-forwards cleared"

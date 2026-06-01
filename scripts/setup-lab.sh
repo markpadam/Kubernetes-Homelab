@@ -498,106 +498,8 @@ feature_enabled() { [[ " $ENABLED_FEATURES " =~ (^|[[:space:]])"$1"([[:space:]]|
 # _run_health_checks: _HEALTH_ROWS, _CHECKS_PASS, _CHECKS_FAIL, _CHECKS_TOTAL.
 #   $1 = elapsed seconds since setup start
 #   $2 = "waiting" | "ready" | "timeout"  — top-banner state
-_render_live_dashboard() {
-  local elapsed=$1 state=$2
-  local emin=$(( elapsed / 60 )) esec=$(( elapsed % 60 ))
-  local pass=${_CHECKS_PASS:-0} fail=${_CHECKS_FAIL:-0} total=${_CHECKS_TOTAL:-0}
-  local pct=0
-  [[ $total -gt 0 ]] && pct=$(( pass * 100 / total ))
-
-  # Progress bar — 30 wide
-  local bar="" filled=$(( pct * 30 / 100 )) i
-  for (( i=0; i<30; i++ )); do
-    if (( i < filled )); then bar+="▓"; else bar+="░"; fi
-  done
-
-  local title_color="$CYAN" title_icon="⟳" title_text="Waiting for services"
-  case "$state" in
-    ready)   title_color="$GREEN";  title_icon="✓"; title_text="All services ready" ;;
-    timeout) title_color="$YELLOW"; title_icon="!"; title_text="Timed out — some services still pending" ;;
-  esac
-
-  {
-    # Clear screen + cursor home, hide cursor while drawing to avoid flicker
-    printf '\033[H\033[2J\033[?25l'
-
-    # Header — horizontal rule + two info lines (no right-edge box so ANSI
-    # escapes don't confuse the alignment).
-    echo ""
-    echo -e "  ${title_color}${BOLD}━━━ AKS Homelab ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-    printf  "    %b ${BOLD}%s${RESET}   ${DIM}%d/%d ready · %dm %02ds${RESET}\n" \
-            "${title_color}${title_icon}${RESET}" "$title_text" "$pass" "$total" "$emin" "$esec"
-    printf  "    %s ${DIM}%d%%${RESET}\n" "$bar" "$pct"
-    echo -e "  ${title_color}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-    echo ""
-
-    # Per-component rows
-    local row status label detail rest
-    for row in "${_HEALTH_ROWS[@]}"; do
-      status="${row%%|*}"
-      if [[ "$status" == "section" ]]; then
-        label="${row#section|}"
-        echo -e "    ${BOLD}${label}${RESET}"
-      else
-        rest="${row#*|}"
-        label="${rest%%|*}"
-        detail="${rest#*|}"
-        case "$status" in
-          ok)   echo -e "      ${GREEN}✓${RESET}  $(printf '%-22s' "$label")${DIM}${detail}${RESET}" ;;
-          warn) echo -e "      ${YELLOW}⟳${RESET}  $(printf '%-22s' "$label")${YELLOW}${detail}${RESET}" ;;
-          fail) echo -e "      ${RED}✗${RESET}  $(printf '%-22s' "$label")${RED}${detail}${RESET}" ;;
-        esac
-      fi
-    done
-
-    echo ""
-    if [[ "$state" == "waiting" ]]; then
-      echo -e "  ${DIM}Dashboard → http://localhost:9997/    ·    Press Ctrl-C to skip wait${RESET}"
-    else
-      if [[ "$fail" -eq 0 ]]; then
-        echo -e "  ${GREEN}${BOLD}✓  Setup complete${RESET} — ${GREEN}${pass}/${total} components healthy${RESET} — ${emin}m ${esec}s"
-      else
-        echo -e "  ${YELLOW}${BOLD}~  Setup complete${RESET} — ${YELLOW}${pass}/${total} healthy · ${fail} need attention${RESET} — ${emin}m ${esec}s"
-      fi
-      echo ""
-      echo -e "  ${DIM}Dashboard → http://localhost:9997/  ·  Log: ${LAB_LOG:-/tmp/setup-lab.log}${RESET}"
-    fi
-
-    # Re-show cursor
-    printf '\033[?25h'
-  } >&5 2>/dev/null || true
-}
-
-# Poll _run_health_checks until everything is healthy or the timeout elapses.
-# Honours SIGINT (Ctrl-C) to skip waiting and proceed to the final banner.
-#   $1 = poll interval seconds (default 5)
-#   $2 = max wait seconds (default 900 = 15 min)
-#   $3 = start epoch seconds (default $SETUP_START)
-_wait_until_ready() {
-  local interval=${1:-5} max=${2:-900} start=${3:-$SETUP_START}
-  local _skip=0
-  trap '_skip=1' INT
-  local state="waiting" elapsed
-  while true; do
-    _run_health_checks
-    elapsed=$(( $(date +%s) - start ))
-
-    if (( _CHECKS_FAIL == 0 && _CHECKS_TOTAL > 0 )); then
-      state="ready"
-    elif (( elapsed >= max )); then
-      state="timeout"
-    elif (( _skip == 1 )); then
-      state="timeout"   # treat skip the same as timeout for display
-    fi
-
-    _render_live_dashboard "$elapsed" "$state"
-
-    [[ "$state" != "waiting" ]] && break
-    sleep "$interval"
-  done
-  trap - INT
-  return 0
-}
+# _render_live_dashboard and _wait_until_ready now live in lib-common.sh
+# (shared with resume-lab.sh). LAB_PHASE_LABEL defaults to "Setup".
 
 # Soft-prefer the minikube primary node for memory-heavy workloads. Uses the
 # built-in `minikube.k8s.io/primary=true` label with preferredDuringScheduling
@@ -808,6 +710,47 @@ ADOEOF
   fi
 fi
 
+# ── Colima — ensure the Docker VM is running and sized for this tier ──────────
+# Every minikube node is a container inside ONE Colima VM, so the VM needs
+# >= CPUS cores and >= MEMORY*NODES MiB (+overhead). A bare `colima start` uses
+# 2 CPU / 2 GB and would trip the cluster bring-up. Do this pre-TUI so the
+# resize prompt (which must stop Colima) can be answered before the TUI owns
+# the terminal — and so the cluster-recreate check below sees a live daemon.
+_NEED_CPU="$CPUS"
+_NEED_MEM_GIB=$(lab_colima_need_mem_gib "$MEMORY" "$NODES")
+_do_resize="n"
+if ! lab_docker_up; then
+  echo -e "  ${CYAN}${BOLD}[lab]${RESET} Docker daemon not running — starting Colima (${_NEED_CPU} CPU / ${_NEED_MEM_GIB} GB)..." >&3
+  colima start --cpu "$_NEED_CPU" --memory "$_NEED_MEM_GIB" \
+    || error "Colima failed to start. Try: colima start --cpu ${_NEED_CPU} --memory ${_NEED_MEM_GIB}"
+  lab_wait_docker 120 || error "Colima started but the Docker daemon never became ready (120s). Check: colima status"
+  echo -e "  ${GREEN}${BOLD}[✓]${RESET} Docker daemon ready (Colima — ${_NEED_CPU} CPU / ${_NEED_MEM_GIB} GB)" >&3
+else
+  _have_cpu=$(lab_docker_cpus)
+  _have_mem_mib=$(lab_docker_mem_mib)
+  _need_mem_mib=$(( MEMORY * NODES ))
+  if { [[ $_have_cpu -gt 0 && $_have_cpu -lt $CPUS ]]; } || { [[ $_have_mem_mib -gt 0 && $_have_mem_mib -lt $_need_mem_mib ]]; }; then
+    echo -e "  ${YELLOW}${BOLD}[!]${RESET} Colima VM (${_have_cpu} CPU / $(( _have_mem_mib / 1024 )) GB) is smaller than this tier needs (${_NEED_CPU} CPU / ${_NEED_MEM_GIB} GB)." >&3
+    if [[ "$CI_MODE" == "1" || "${LAB_KEEP_CLUSTER:-}" == "1" ]]; then
+      [[ $_have_cpu -lt $CPUS ]] && error "Colima has too few CPUs for this tier. Fix: colima stop && colima start --cpu ${_NEED_CPU} --memory ${_NEED_MEM_GIB}"
+      echo -e "  ${YELLOW}${BOLD}[!]${RESET} Continuing with low memory — may cause K8S_APISERVER_MISSING." >&3
+    else
+      printf "         Restart Colima at %s CPU / %s GB now? This stops Colima and any running cluster. [y/N] " "$_NEED_CPU" "$_NEED_MEM_GIB" >&3
+      read -r _do_resize <&0
+      if [[ "$(echo "${_do_resize:-n}" | tr '[:upper:]' '[:lower:]')" == "y" ]]; then
+        colima stop || true
+        colima start --cpu "$_NEED_CPU" --memory "$_NEED_MEM_GIB" \
+          || error "Colima resize failed. Try: colima start --cpu ${_NEED_CPU} --memory ${_NEED_MEM_GIB}"
+        lab_wait_docker 120 || error "Colima resized but Docker never became ready (120s)."
+        echo -e "  ${GREEN}${BOLD}[✓]${RESET} Colima resized — ${_NEED_CPU} CPU / ${_NEED_MEM_GIB} GB" >&3
+      else
+        [[ $_have_cpu -lt $CPUS ]] && error "Cannot continue: Colima has too few CPUs for this tier."
+        echo -e "  ${YELLOW}${BOLD}[!]${RESET} Continuing with low memory — may cause K8S_APISERVER_MISSING." >&3
+      fi
+    fi
+  fi
+fi
+
 # Cluster recreation decision — ask now so the run is fully unattended from here on
 _PRE_RECREATE_CLUSTER="n"
 if docker info &>/dev/null 2>&1 && [[ -d "$HOME/.minikube/profiles/$PROFILE" ]]; then
@@ -900,6 +843,7 @@ command -v minikube &>/dev/null || error "Minikube not found. Run: brew install 
 command -v kubectl  &>/dev/null || error "kubectl not found. Run: brew install kubectl"
 command -v helm     &>/dev/null || error "Helm not found. Run: brew install helm"
 command -v flux     &>/dev/null || error "Flux CLI not found. Run: brew install fluxcd/tap/flux"
+command -v jq       &>/dev/null || error "jq not found (used throughout). macOS 12: sudo port install jq  ·  else: brew install jq"
 
 if feature_enabled vault; then
   command -v terraform &>/dev/null || error "Terraform required for Vault. Run: brew install terraform"
@@ -908,54 +852,26 @@ fi
 if feature_enabled samba-ad || feature_enabled corp-client; then
   command -v limactl  &>/dev/null || error "Lima required for identity VMs. Run: brew install lima"
   command -v terraform &>/dev/null || error "Terraform required for AD VMs. Run: brew install terraform"
+  command -v qemu-system-x86_64 &>/dev/null || error "QEMU required for Lima VMs. macOS 12: sudo port install qemu"
+  [[ -e "$(lab_brew_prefix)/share/qemu" ]] || error "QEMU firmware not found at $(lab_brew_prefix)/share/qemu. MacPorts users run: sudo ln -s /opt/local/share/qemu /usr/local/share/qemu  (or re-run ./aks-lab prereqs)"
+  lab_socket_vmnet_sudoers || error "Lima vmnet sudoers grant missing (/etc/sudoers.d/lima). Run once: limactl sudoers | sudo tee /etc/sudoers.d/lima"
   limactl list &>/dev/null || error "limactl not working. Check: limactl --version"
 fi
 
-if ! docker info &>/dev/null; then
-  log "Docker daemon not running — starting Colima..."
-  colima start || error "Colima failed to start. Run 'colima start' manually and retry."
-  success "Docker daemon ready"
-fi
-
-# ── Colima CPU check ──────────────────────────
-# minikube --cpus sets the allocation per node container. The Docker VM must
-# have at least that many CPUs or minikube aborts with RSRC_INSUFFICIENT_CORES.
-_docker_cpus=$(docker info --format '{{.NCPU}}' 2>/dev/null || echo 0)
-if [[ $_docker_cpus -gt 0 && $_docker_cpus -lt $CPUS ]]; then
-  error "Colima VM only has ${_docker_cpus} CPU(s) but this tier requires ${CPUS} per node.
-       Fix:  colima stop && colima start --cpu 8 --memory 14
-       Or:   re-run and choose a lower tier (Low/Standard use 2 CPUs — safe with any Colima config)."
-fi
-
-# ── Colima memory check ───────────────────────
-# Each node gets $MEMORY MiB; the cluster needs NODES × MEMORY total.
-# If the Colima VM has less, kubeadm starts but the apiserver is starved
-# and exits — minikube then fails with K8S_APISERVER_MISSING.
-_docker_mem_bytes=$(docker info --format '{{.MemTotal}}' 2>/dev/null || echo 0)
-_docker_mem_mib=$(( _docker_mem_bytes / 1024 / 1024 ))
-_cluster_needed_mib=$(( MEMORY * NODES ))
-if [[ $_docker_mem_mib -gt 0 && $_docker_mem_mib -lt $_cluster_needed_mib ]]; then
-  _docker_d10=$(( _docker_mem_mib * 10 / 1024 ))
-  _cluster_gib=$(( (_cluster_needed_mib + 1023) / 1024 ))
-  _rec_gib=$(( _cluster_gib + 2 ))
-  warn "Colima VM only has $(( _docker_d10 / 10 )).$(( _docker_d10 % 10 )) GB allocated — this tier needs ${_cluster_gib} GB for the cluster (${NODES} nodes × $(( MEMORY / 1024 )) GB each)."
-  warn "  Fix:  colima stop && colima start --cpu 8 --memory ${_rec_gib}"
-  warn "  Or:   re-run and choose a lower tier (Low: 9 GB, Standard: 12 GB, High: 15 GB, Very High: 21 GB, Extra High: 40 GB)."
-  warn "  Continuing — insufficient memory may cause K8S_APISERVER_MISSING on minikube start."
-fi
+# Docker/Colima is already running and sized for this tier (handled pre-TUI).
+lab_docker_up || error "Docker daemon not reachable — Colima may have stopped. Run: colima start"
 
 [[ -d "$APP_DIR" ]]     || error "App manifests not found at ./$APP_DIR — run from repo root."
 [[ -d "$DNS_DIR" ]]     || error "DNS lab not found at ./$DNS_DIR — run from repo root."
 [[ -d "$TOOLBOX_DIR" ]] || error "Toolbox not found at ./$TOOLBOX_DIR — run from repo root."
 
-success "All dependencies found"
-
-# ── Colima ────────────────────────────────────
-if ! docker info &>/dev/null; then
-  warn "Colima is not running — starting it..."
-  colima start || error "Colima failed to start. Run 'colima start' manually and re-run."
-  success "Colima ready"
+# MetalLB pool collision check: if this LAN already uses 172.16.3.x, the
+# minikube tunnel can't claim that range and ingress IPs become unreachable.
+if ifconfig 2>/dev/null | awk '/inet /{print $2}' | grep -qE '^172\.16\.3\.'; then
+  warn "A local interface already holds a 172.16.3.x address — this collides with the MetalLB pool (172.16.3.0/24). Ingress may be unreachable; use a LAN range outside 172.16.3.0/24."
 fi
+
+success "All dependencies found"
 
 # ── Step 1: Cluster ──────────────────────────
 step "Step 1 — Starting Multi-Node Cluster"
@@ -1038,6 +954,10 @@ if $CLUSTER_NEEDS_START; then
     "Cluster ready:Done! kubectl"
   _MK_RC=0
   [[ "$LAB_CNI" == "cilium" ]] && log "LAB_CNI=cilium — starting minikube with --cni=cilium"
+  # Include the Mac's LAN IP in the API server cert SANs so kubectl from the
+  # MacBook (https://<LAB_HOST_IP>:8443) validates TLS without --insecure.
+  _APISERVER_IPS="127.0.0.1"
+  [[ -n "${LAB_HOST_IP:-}" && "$LAB_HOST_IP" != "127.0.0.1" ]] && _APISERVER_IPS="127.0.0.1,${LAB_HOST_IP}"
   minikube start \
     --driver=docker \
     --nodes="$NODES" \
@@ -1045,7 +965,7 @@ if $CLUSTER_NEEDS_START; then
     --memory="$MEMORY" \
     --profile="$PROFILE" \
     --kubernetes-version="$K8S_VERSION" \
-    --apiserver-ips=127.0.0.1 \
+    --apiserver-ips="$_APISERVER_IPS" \
     ${LAB_CNI:+--cni="$LAB_CNI"} \
     || _MK_RC=$?
   _stop_progress
@@ -1053,7 +973,12 @@ if $CLUSTER_NEEDS_START; then
 fi
 
 log "Waiting for all nodes to be Ready..."
-kubectl wait --for=condition=Ready nodes --all --timeout=300s
+# Repair-aware wait: if a worker comes up NotReady because it lost its
+# control-plane.minikube.internal /etc/hosts entry (can happen if a node crashes
+# and cold-restarts mid-bring-up), lab_wait_nodes_ready re-applies that fix
+# between polls instead of failing outright.
+lab_wait_nodes_ready "$PROFILE" 420 \
+  || error "Nodes did not all reach Ready within 7 min — check $LAB_LOG and: kubectl get nodes"
 success "Cluster is up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes ready"
 
 
@@ -2113,36 +2038,22 @@ if feature_enabled samba-ad; then
   _stop_progress
   [[ $_SAMBA_RC -eq 0 ]] || error "SambaAD VM provisioning failed. Full provisioner log: /tmp/samba-terraform-apply.log"
 
-  SAMBA_IP=$(_lima_ip samba-ad)
+  # Retry for the lima0 (socket_vmnet) IP — it isn't assigned the instant the
+  # VM starts, and writing an empty value into CoreDNS crashes it.
+  SAMBA_IP=$(lab_lima_ip_retry samba-ad 90 || true)
 
   if [[ -z "$SAMBA_IP" ]]; then
-    warn "Could not determine samba-ad VM IP — DNS and Dex config may need manual update"
+    warn "Could not determine samba-ad VM IP after 90s — DNS and Dex config may need manual update"
     SAMBA_IP="<samba-ad-ip>"
   else
     success "SambaAD VM running — IP: $SAMBA_IP"
   fi
   export SAMBA_IP
 
-  # Patch CoreDNS corp.internal zone only to forward to SambaAD.
-  # Only patch when we have a real IP — the placeholder guard prevents writing
-  # "<samba-ad-ip>" into the Corefile which crashes CoreDNS.
-  # Use awk to target only the corp.internal block; a global sed would also
-  # replace the privatelink zones (all share the same bind9 forward IP).
-  if [[ -n "$SAMBA_IP" && "$SAMBA_IP" != "<samba-ad-ip>" ]]; then
-    log "Updating CoreDNS corp.internal zone → SambaAD ($SAMBA_IP)..."
-    kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}' \
-      | awk -v new_ip="$SAMBA_IP" '
-          /^corp\.internal:53 *\{/ { in_corp=1 }
-          in_corp && /forward \. / { sub(/forward \. [^ ]+/, "forward . " new_ip); in_corp=0 }
-          { print }
-        ' \
-      | kubectl create configmap coredns -n kube-system \
-          --from-file=Corefile=/dev/stdin \
-          --dry-run=client -o yaml \
-      | kubectl apply -f -
-    kubectl rollout restart deployment coredns -n kube-system
-    kubectl rollout status deployment coredns -n kube-system --timeout=120s \
-      || warn "CoreDNS rollout timed out — DNS resolution may take a moment"
+  # Point CoreDNS's corp.internal zone at SambaAD. lab_coredns_patch_samba is
+  # idempotent (skips the restart when unchanged), touches only the corp.internal
+  # block, and refuses to write an empty/placeholder IP. Shared with resume.
+  if lab_coredns_patch_samba "$SAMBA_IP"; then
     success "CoreDNS updated — corp.internal now resolves via SambaAD ($SAMBA_IP)"
   else
     warn "SambaAD IP unavailable — corp.internal will continue forwarding via bind9"
@@ -2565,14 +2476,7 @@ fi
 # The Kubernetes API server is not a standard service, so we expose it via a
 # port-forward so kubectl works from the MacBook at https://<LAB_HOST_IP>:8443.
 step "Exposing K8s API"
-_pf() {
-  local name="$1" port="$2" cmd="$3" log="$4"
-  if lab_start_port_forward "$name" "$port" "$cmd" "$log"; then
-    success "$name port-forward running — ${LAB_HOST_IP}:$port"
-  else
-    warn "$name port-forward may have failed — check $log"
-  fi
-}
+# _pf() lives in lib-common.sh (shared with resume-lab.sh).
 _pf "K8s API" 8443 "kubectl port-forward svc/kubernetes 8443:443 -n default --address 0.0.0.0" /tmp/k8s-api-portforward.log
 
 # ── minikube tunnel ───────────────────────────
@@ -2600,6 +2504,16 @@ else
   # Avoids 'launchctl kickstart -k' which blocks on macOS Sequoia.
   pkill -f "minikube tunnel" 2>/dev/null || true
   success "minikube tunnel daemon running"
+fi
+
+# Give the tunnel a moment to (re)bind ingress on loopback before the health
+# checks run — otherwise web services get falsely reported as unreachable while
+# the tunnel is still coming up (slow on a 2013 Mac, and it just restarted).
+log "Waiting for minikube tunnel to serve ingress on 127.0.0.1:80..."
+if lab_wait_http "http://127.0.0.1:80" 90; then
+  success "minikube tunnel serving ingress"
+else
+  warn "Tunnel not serving 127.0.0.1:80 after 90s — web services may be briefly unreachable. Check /var/log/minikube-tunnel.log"
 fi
 
 # ── Schedule heavy services across the cluster ──────────────────────
@@ -2709,134 +2623,12 @@ step "Deployment Health Check"
 
 _CHECKS_PASS=0
 _CHECKS_FAIL=0
-
 _HEALTH_ROWS=()   # entries: "STATUS|LABEL|DETAIL" or "SECTION|name"
 
-_chk_ok() {
-  _CHECKS_PASS=$(( _CHECKS_PASS + 1 ))
-  _HEALTH_ROWS+=("ok|$1|$2")
-  if [[ "$_TUI_ACTIVE" == "1" ]]; then
-    _emit "{\"event\":\"health_result\",\"label\":\"$(_json_escape "$1")\",\"status\":\"ok\",\"detail\":\"$(_json_escape "$2")\"}"
-  else
-    printf "  ${GREEN}${BOLD}✓${RESET}  %-24s ${GREEN}%s${RESET}\n" "$1" "$2" >&3
-  fi
-}
-_chk_warn() {
-  _CHECKS_FAIL=$(( _CHECKS_FAIL + 1 ))
-  _HEALTH_ROWS+=("warn|$1|$2")
-  if [[ "$_TUI_ACTIVE" == "1" ]]; then
-    _emit "{\"event\":\"health_result\",\"label\":\"$(_json_escape "$1")\",\"status\":\"warn\",\"detail\":\"$(_json_escape "$2")\"}"
-  else
-    printf "  ${YELLOW}${BOLD}~${RESET}  %-24s ${YELLOW}%s${RESET}\n" "$1" "$2" >&3
-  fi
-}
-_chk_fail() {
-  _CHECKS_FAIL=$(( _CHECKS_FAIL + 1 ))
-  _HEALTH_ROWS+=("fail|$1|$2")
-  if [[ "$_TUI_ACTIVE" == "1" ]]; then
-    _emit "{\"event\":\"health_result\",\"label\":\"$(_json_escape "$1")\",\"status\":\"fail\",\"detail\":\"$(_json_escape "$2")\"}"
-  else
-    printf "  ${RED}${BOLD}✗${RESET}  %-24s ${RED}%s${RESET}\n" "$1" "$2" >&3
-  fi
-}
-_chk_section() {
-  _HEALTH_ROWS+=("section|$1")
-  if [[ "$_TUI_ACTIVE" != "1" ]]; then
-    printf "\n  ${BOLD}%s${RESET}\n" "$1" >&3
-  fi
-  return 0
-}
-
-_check_ns() {
-  local label="$1" ns="$2"
-  if ! kubectl get namespace "$ns" &>/dev/null; then
-    _chk_fail "$label" "namespace '$ns' not found"
-    return
-  fi
-  # Use awk for the count so we never get the double-zero "0\n0" output that
-  # BSD `grep -c` produces (prints 0 + exits 1, which then triggers `|| echo 0`
-  # and concatenates a second 0). awk's END always fires with one clean line.
-  local running total
-  running=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
-            | awk '/ Running /{c++}END{print c+0}')
-  total=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
-          | awk '!/Completed/{c++}END{print c+0}')
-  if [[ "$total" -eq 0 ]]; then
-    _chk_fail "$label" "no pods deployed"
-  elif [[ "$running" -eq "$total" ]]; then
-    _chk_ok "$label" "$running/$total pods running"
-  else
-    _chk_warn "$label" "$running/$total pods running (some not ready)"
-  fi
-}
-
-# All health checks gathered into one re-runnable function so the post-setup
-# live-watch phase can poll them every few seconds without code duplication.
-# Each call resets the counters/rows and re-emits health_result events to the
-# TUI (the TUI's `health_result` handler replaces by label, so the display
-# updates instead of stacking duplicates).
-_run_health_checks() {
-  _CHECKS_PASS=0
-  _CHECKS_FAIL=0
-  _HEALTH_ROWS=()
-
-  _chk_section "Core"
-  _check_ns "ingress-nginx" ingress-nginx
-  _check_ns "flux"          flux-system
-  _check_ns "dns-lab"       dns-lab
-
-  _chk_section "Infrastructure"
-  if feature_enabled vault; then
-    if curl -sf "${VAULT_ADDR}/v1/sys/health" 2>/dev/null \
-        | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if not d.get('sealed') else 1)" 2>/dev/null; then
-      _chk_ok "vault" "dev server unsealed at ${VAULT_ADDR}"
-    else
-      _chk_fail "vault" "not reachable at ${VAULT_ADDR}"
-    fi
-  fi
-  feature_enabled monitoring           && _check_ns "monitoring"  monitoring
-  feature_enabled kubernetes-dashboard && _check_ns "k8s-dashboard" kubernetes-dashboard
-  feature_enabled rancher              && _check_ns "rancher"       cattle-system
-  feature_enabled argocd               && _check_ns "argocd"       argocd
-  feature_enabled toolbox              && _check_ns "toolbox"      toolbox
-
-  _chk_section "Identity"
-  if feature_enabled samba-ad; then
-    _SAMBA_STATUS=$(_lima_status samba-ad)
-    _SAMBA_IP=$(_lima_ip samba-ad)
-    if [[ "$_SAMBA_STATUS" == "Running" ]]; then
-      _chk_ok "samba-ad" "VM running — ${_SAMBA_IP:-no-ip}"
-    else
-      _chk_fail "samba-ad" "VM not running (status: $_SAMBA_STATUS)"
-    fi
-  fi
-  feature_enabled dex          && _check_ns "dex"          dex
-  feature_enabled oauth2-proxy && _check_ns "oauth2-proxy" oauth2-proxy
-  if feature_enabled corp-client; then
-    _CLIENT_STATUS=$(_lima_status corp-client)
-    if [[ "$_CLIENT_STATUS" == "Running" ]]; then
-      _chk_ok "corp-client" "VM running"
-    else
-      _chk_fail "corp-client" "VM not running (status: $_CLIENT_STATUS)"
-    fi
-  fi
-
-  _chk_section "Storage"
-  feature_enabled azurite            && _check_ns "azurite"            azure-storage
-  feature_enabled azure-sql          && _check_ns "azure-sql"          azure-sql
-  feature_enabled cosmos-db          && _check_ns "cosmos-db"          cosmos-db
-  feature_enabled service-bus        && _check_ns "service-bus"        service-bus
-  feature_enabled container-registry && _check_ns "container-registry" container-registry
-
-  _chk_section "Apps"
-  feature_enabled taskflow       && _check_ns "taskflow"       taskapp
-  feature_enabled blob-explorer  && _check_ns "blob-explorer"  blob-explorer
-  feature_enabled argo-workflows && _check_ns "argo-workflows" argo
-  feature_enabled azdo-agent     && _check_ns "azdo-agent"     azdo-agent
-
-  _CHECKS_TOTAL=$(( _CHECKS_PASS + _CHECKS_FAIL ))
-  return 0
-}
+# _chk_ok/_chk_warn/_chk_fail/_chk_section, _check_ns, and _run_health_checks
+# now live in lib-common.sh (shared with resume-lab.sh). In this script the TUI
+# is active during the one-shot check, so they emit health_result events; the
+# Core section is flagged "core" so _CORE_FAIL drives the exit code below.
 
 # Mark that the script reached the post-install health phase. _at_exit uses
 # this to decide between "complete" and "interrupted" — without it, an _ec=0
@@ -2942,5 +2734,16 @@ ELAPSED_MIN=$(( ELAPSED / 60 ))
 ELAPSED_SEC=$(( ELAPSED % 60 ))
 
 # Banner is printed by the _at_exit trap — runs whether the script exits
-# here normally or `set -e` kills it earlier. Nothing more to do here.
+# here normally or `set -e` kills it earlier.
 echo "[$(date +%T)] reached end of script normally" >> "$LAB_LOG"
+
+# Honest exit code. A fresh setup that leaves CORE infrastructure broken
+# (ingress-nginx / flux-system / dns-lab — flagged "core" in _run_health_checks)
+# must NOT report success: CI and ./aks-lab test-all rely on this to detect a
+# half-deployed cluster. Optional components that are still settling remain
+# warnings (exit 0) — the live dashboard already showed them in the summary.
+if [[ "${_CORE_FAIL:-0}" -gt 0 ]]; then
+  echo "[$(date +%T)] core components unhealthy (_CORE_FAIL=${_CORE_FAIL}) — exiting non-zero" >> "$LAB_LOG"
+  exit 1
+fi
+exit 0

@@ -121,21 +121,27 @@ print(c.get('$field', ''))
 " 2>/dev/null || true
 }
 
-# Wait for all non-Completed pods in a namespace to reach Running state.
-# Returns 0 on success, 1 on timeout.
+# Wait for all non-Completed pods in a namespace to be READY (READY column n/n
+# AND phase Running) — not merely "Running", which on a slow box can still be
+# initialising or failing probes. Returns 0 on success, 1 on timeout.
+_ns_pod_counts() {  # echoes "ready total" for namespace $1
+  local ns="$1" total ready
+  total=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
+    | awk '$3!="Completed" && $3!="Succeeded"{c++}END{print c+0}')
+  ready=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
+    | awk '$3=="Running"{split($2,a,"/"); if(a[2]>0 && a[1]==a[2]) c++}END{print c+0}')
+  echo "$ready $total"
+}
 _wait_pods_ready() {
   local ns="$1" timeout="$2"
   local deadline=$(( SECONDS + timeout ))
+  local ready total
   while [[ $SECONDS -lt $deadline ]]; do
     if ! kubectl get ns "$ns" &>/dev/null; then
       sleep 3; continue
     fi
-    local total running
-    total=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
-      | awk '!/Completed/{c++}END{print c+0}')
-    running=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
-      | awk '/ Running /{c++}END{print c+0}')
-    if [[ "$total" -gt 0 && "$running" -eq "$total" ]]; then
+    read -r ready total < <(_ns_pod_counts "$ns")
+    if [[ "$total" -gt 0 && "$ready" -eq "$total" ]]; then
       return 0
     fi
     # KEDA scale-to-zero: 0 pods is healthy when a ScaledObject exists
@@ -144,12 +150,8 @@ _wait_pods_ready() {
     fi
     sleep 5
   done
-  local total running
-  total=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
-    | awk '!/Completed/{c++}END{print c+0}')
-  running=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
-    | awk '/ Running /{c++}END{print c+0}')
-  echo "${running}/${total}" && return 1
+  read -r ready total < <(_ns_pod_counts "$ns")
+  echo "${ready}/${total}" && return 1
 }
 
 # Check an ingress hostname responds (2xx/3xx/4xx = healthy, 5xx/000 = fail).
@@ -305,8 +307,9 @@ if $DO_SETUP; then
   Log: ${_setup_log:-/tmp/lab-setup-*.log}"
   fi
 
-  # Double-check the API server is actually responding — setup may exit 0
-  # even when the TUI catches an early interruption.
+  # Belt-and-suspenders: setup now exits non-zero when CORE components are
+  # unhealthy, so the check above catches most failures — but still confirm the
+  # API server actually responds before driving component enables.
   log "Verifying cluster API is responsive..."
   if ! kubectl cluster-info &>/dev/null; then
     _setup_log=$(ls -t /tmp/lab-setup-*.log 2>/dev/null | head -1 || true)
