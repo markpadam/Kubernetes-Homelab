@@ -2,7 +2,7 @@
 
 ## Overview
 
-Terraform provisions the parts of the lab that live outside the Minikube cluster: the local HashiCorp Vault dev server, Vault's configuration (KV v2, PKI, Kubernetes auth), and the two Multipass VMs in the identity stack (`samba-ad` and `corp-client`). The configuration lives in [IaC/terraform/](../../IaC/terraform/).
+Terraform provisions the parts of the lab that live outside the Minikube cluster: the local HashiCorp Vault dev server, Vault's configuration (KV v2, PKI, Kubernetes auth), and the two Lima VMs in the identity stack (`samba-ad` and `corp-client`). The configuration lives in [IaC/terraform/](../../IaC/terraform/).
 
 Every resource is paired with its Azure equivalent in comments — the lab models Vault as Azure Key Vault, the Vault Kubernetes auth backend as AKS workload identity, and the Samba domain controller as on-prem ADDS. The Terraform configs are written to read like an annotated reference for the Azure mapping.
 
@@ -15,12 +15,12 @@ Every resource is paired with its Azure equivalent in comments — the lab model
 | Vault PKI root + intermediate CA | Vault | Azure Certificate Manager (Private CA) |
 | Vault Kubernetes auth backend + roles | Vault | AKS workload identity / Key Vault RBAC |
 | `vault-reviewer` service account | `kube-system` | Managed Identity Operator role |
-| `samba-ad` Multipass VM | Multipass | On-prem ADDS domain controller |
-| `corp-client` Multipass VM | Multipass | Domain-joined corporate workstation |
+| `samba-ad` Lima VM | Lima | On-prem ADDS domain controller |
+| `corp-client` Lima VM | Lima | Domain-joined corporate workstation |
 
 ## Prerequisites
 
-Terraform and Multipass must both be installed. The easiest way is to run the lab prereqs script from the repo root:
+Terraform and Lima must both be installed. The easiest way is to run the lab prereqs script from the repo root:
 
 ```bash
 ./aks-lab prereqs
@@ -29,7 +29,7 @@ Terraform and Multipass must both be installed. The easiest way is to run the la
 Or install manually:
 
 ```bash
-brew install terraform multipass
+brew install terraform lima socket_vmnet
 ```
 
 The lab launcher (`setup-lab.sh`) and `scripts/lab-feature.sh` invoke Terraform automatically — there is no need to run `terraform` directly under normal operation.
@@ -72,7 +72,7 @@ IaC/terraform/
 ├── samba_variables.tf       # Samba/AD-specific inputs (domain, passwords, VM sizing)
 ├── main.tf                  # Vault dev server + K8s reviewer service account
 ├── vault_config.tf          # KV v2, PKI root/intermediate, Kubernetes auth, policies
-├── samba.tf                 # samba-ad + corp-client Multipass VMs
+├── samba.tf                 # samba-ad + corp-client Lima VMs
 ├── outputs.tf               # Vault address/token, KV paths, VM IPs, LDAP URL
 ├── cloud-init/
 │   ├── samba-ad.tpl.yaml    # Samba domain provisioning

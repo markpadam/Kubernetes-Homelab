@@ -110,7 +110,7 @@ print(next((n.get('localIPV4','') for n in nets if n.get('localIPV4') and not n.
 }
 
 output "samba_ad_ip" {
-  description = "IP address of the samba-ad Multipass VM, captured at apply time."
+  description = "IP address of the samba-ad Lima VM, captured at apply time."
   value       = data.external.samba_ad_ip.result.ip
 }
 
@@ -134,6 +134,6 @@ output "ad_admin_password" {
 }
 
 output "corp_client_ip" {
-  description = "IP address of the corp-client Multipass VM, captured at apply time."
+  description = "IP address of the corp-client Lima VM, captured at apply time."
   value       = data.external.corp_client_ip.result.ip
 }

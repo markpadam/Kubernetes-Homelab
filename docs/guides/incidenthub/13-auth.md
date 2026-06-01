@@ -64,7 +64,7 @@ Or simpler: configure oauth2-proxy with `--allowed-group=incident-managers` so i
 kubectl apply -f ingress.yaml
 
 # From corp-client (already domain-joined):
-multipass shell corp-client
+limactl shell corp-client
 firefox https://incidenthub.aks-lab.local
 # -> redirects to Dex login -> enter AD username/password (testuser1 / AksLab!User1)
 # -> redirected back to IncidentHub, logged in as testuser1@corp.internal
@@ -98,7 +98,7 @@ kubectl -n oauth2-proxy logs deploy/oauth2-proxy -f
 TOKEN=$(curl -sf https://oauth2.aks-lab.local/oauth2/auth ...)  # tricky — the browser flow handles it
 
 # See which groups the logged-in user has — via Dex
-multipass exec corp-client -- ldapsearch -H ldap://$SAMBA_IP:389 \
+limactl shell corp-client -- ldapsearch -H ldap://$SAMBA_IP:389 \
   -x -D "Administrator@corp.internal" -w 'AksLab!AdDev1' \
   -b "DC=corp,DC=internal" "(sAMAccountName=testuser1)" memberOf
 ```

@@ -9,7 +9,7 @@ CPUS="${CPUS:-2}"
 MEMORY="${MEMORY:-2G}"
 DISK="${DISK:-10G}"
 
-# Convert Multipass-style sizes to Lima format
+# Convert shorthand sizes to Lima format
 MEM_LIMA=$(echo "$MEMORY" | sed 's/G$/GiB/; s/M$/MiB/')
 DISK_LIMA=$(echo "$DISK"   | sed 's/G$/GiB/; s/M$/MiB/')
 

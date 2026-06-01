@@ -12,7 +12,7 @@ The full chain: **corp-client → web app → NGINX Ingress → OAuth2 Proxy →
 
 ```bash
 # Shell into the SambaAD VM
-multipass shell samba-ad
+limactl shell samba-ad
 
 # Inspect the domain
 samba-tool domain info 127.0.0.1
@@ -38,7 +38,7 @@ cat /etc/krb5.conf
 
 ```bash
 # From the corp-client VM
-multipass shell corp-client
+limactl shell corp-client
 
 # The SRV records AD clients use to locate the DC
 nslookup -type=SRV _ldap._tcp.corp.internal
@@ -61,8 +61,8 @@ kubectl exec -n toolbox deploy/toolbox -- nslookup _ldap._tcp.corp.internal
 **Goal:** query the AD directory directly to understand its structure.
 
 ```bash
-SAMBA_IP=$(multipass info samba-ad --format json | python3 -c \
-  "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])")
+SAMBA_IP=$(limactl shell samba-ad -- ip -4 addr show lima0 \
+  | awk '/inet /{print $2}' | cut -d/ -f1)
 
 # Anonymous bind — see what's publicly visible (usually nothing in AD)
 ldapsearch -H ldap://$SAMBA_IP:389 -x -b "DC=corp,DC=internal" | head -20
@@ -94,7 +94,7 @@ ldapsearch -H ldap://$SAMBA_IP:389 \
 
 ```bash
 # From corp-client VM
-multipass shell corp-client
+limactl shell corp-client
 
 # Request a ticket for testuser1 (like logging in to Windows)
 kinit testuser1@CORP.INTERNAL
@@ -104,8 +104,8 @@ kinit testuser1@CORP.INTERNAL
 klist -e
 
 # Use the ticket to authenticate to LDAP without a password
-SAMBA_IP=$(multipass info samba-ad --format json | python3 -c \
-  "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])")
+SAMBA_IP=$(limactl shell samba-ad -- ip -4 addr show lima0 \
+  | awk '/inet /{print $2}' | cut -d/ -f1)
 ldapsearch -H ldap://$SAMBA_IP:389 -Y GSSAPI \
   -b "OU=lab-users,DC=corp,DC=internal" "(objectClass=person)" cn
 
@@ -123,13 +123,13 @@ klist   # shows "No credentials cache found"
 **Goal:** understand what `realm join` actually did to the corp-client.
 
 ```bash
-multipass shell corp-client
+limactl shell corp-client
 
 # See the joined domain
 realm list
 
 # The machine account in AD (realm join created this)
-multipass exec samba-ad -- samba-tool computer list
+limactl shell samba-ad -- samba-tool computer list
 
 # SSSD is the daemon that handles AD auth on Linux
 systemctl status sssd
@@ -220,7 +220,7 @@ kubectl logs -n oauth2-proxy deploy/oauth2-proxy -f
 
 ```bash
 # From corp-client — trace the full redirect chain
-multipass shell corp-client
+limactl shell corp-client
 
 curl -v https://taskflow.aks-lab.local:9444 2>&1 | grep -E "< HTTP|< Location"
 # You'll see:
@@ -280,10 +280,10 @@ curl https://dex.aks-lab.local:9444/keys | python3 -m json.tool
 
 | Thing to test | Command |
 |---------------|---------|
-| Domain info | `multipass exec samba-ad -- samba-tool domain info 127.0.0.1` |
-| List AD users | `multipass exec samba-ad -- samba-tool user list` |
-| Resolve AD user | `multipass exec corp-client -- id testuser1@corp.internal` |
-| Get Kerberos ticket | `multipass exec corp-client -- kinit testuser1@CORP.INTERNAL` |
+| Domain info | `limactl shell samba-ad -- samba-tool domain info 127.0.0.1` |
+| List AD users | `limactl shell samba-ad -- samba-tool user list` |
+| Resolve AD user | `limactl shell corp-client -- id testuser1@corp.internal` |
+| Get Kerberos ticket | `limactl shell corp-client -- kinit testuser1@CORP.INTERNAL` |
 | OIDC discovery | `curl https://dex.aks-lab.local:9444/.well-known/openid-configuration` |
 | Auth check (unauthenticated) | `curl -I https://oauth2-proxy.aks-lab.local:9444/oauth2/auth` |
 | Redirect chain | `curl -v https://taskflow.aks-lab.local:9444 2>&1 \| grep "< Location"` |

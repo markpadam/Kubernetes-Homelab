@@ -7,7 +7,7 @@
 # to avoid cloud-init 25.x schema validation failures when packages list is absent.
 
 write_files:
-  # Force apt to use IPv4 — Multipass VMs often lack IPv6 routing.
+  # Force apt to use IPv4 — Lima VMs often lack IPv6 routing.
   - path: /etc/apt/apt.conf.d/99force-ipv4
     owner: root:root
     content: 'Acquire::ForceIPv4 "true";'
@@ -51,7 +51,7 @@ write_files:
       WantedBy=multi-user.target
 
   # All Samba AD provisioning steps in a single script called from runcmd.
-  # No permissions field — cloud-init 25.x's multipass YAML round-trip converts
+  # No permissions field — cloud-init 25.x's YAML round-trip converts
   # quoted octal strings ('0644') to integers (420), failing schema validation
   # and causing write_files to be skipped entirely. Script is invoked via
   # "bash /root/samba-provision.sh" so the execute bit is not needed.
@@ -62,7 +62,7 @@ write_files:
       set -euo pipefail
 
       # ── Wait for TCP network (apt needs HTTP, not just ICMP) ──────────────
-      # Multipass NAT on macOS can pass ICMP while blocking TCP — test port 80
+      # Lima/QEMU on macOS can pass ICMP while blocking TCP — test port 80
       # directly using bash /dev/tcp so no external tools are needed.
       echo "[samba] Waiting for TCP connectivity to ports.ubuntu.com (up to 120s)..."
       _net_ok=false

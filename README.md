@@ -62,7 +62,7 @@ Everything runs inside a **3-node Minikube cluster** (Docker driver) with real G
  │ └──────────────────────────────────────────────────────────────────────┘ │
  │                                                                          │
  │   ┌──────────────────────────────────────────────────────────┐         │
- │   │  Multipass VMs  (identity stack — optional)               │         │
+ │   │  Lima VMs  (identity stack — optional)                    │         │
  │   │  SambaAD  ·  corp.internal  ·  LDAP/Kerberos/DNS         │         │
  │   │  Corp Client VM  ·  domain-joined Ubuntu + VNC            │         │
  │   └──────────────────────────────────────────────────────────┘         │
@@ -124,8 +124,8 @@ Components are individually toggleable at setup time or live from the dashboard.
 |-----------|-----------------|:-------:|
 | Dex (OIDC) | Azure AD — OIDC issuer | ✅ |
 | OAuth2 Proxy | Azure AD app registration + SSO gate | ✅ |
-| SambaAD *(optional — requires Multipass)* | Azure Active Directory / AD DS | ☐ |
-| Corp Client VM *(optional — requires Multipass + Packer cache recommended)* | Domain-joined workstation (XFCE + VNC) | ☐ |
+| SambaAD *(optional — requires Lima)* | Azure Active Directory / AD DS | ☐ |
+| Corp Client VM *(optional — requires Lima + Packer cache recommended)* | Domain-joined workstation (XFCE + VNC) | ☐ |
 
 Dex + OAuth2 Proxy ship enabled by default with a **static admin user** (`admin@corp.internal` / `AksLabAdmin1!`) so SSO works without SambaAD. Enable `samba-ad` to add LDAP authentication on top — the LDAP connector activates automatically when the VM is reachable.
 
@@ -379,7 +379,7 @@ The agent pod has network access to all in-cluster services — Vault, Azurite, 
 │
 ├── IaC/
 │   ├── terraform/        # Vault + SambaAD + Corp Client VMs
-│   ├── packer/           # Packer templates — pre-built base images for Multipass VMs
+│   ├── packer/           # Packer templates — pre-built base images for Lima VMs
 │   └── dns/              # DNS management scripts
 │
 └── ado/                  # Git submodule → Azure DevOps (Bicep IaC + YAML pipelines)

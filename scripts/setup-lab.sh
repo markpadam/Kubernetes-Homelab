@@ -1357,28 +1357,46 @@ _minikube_addon_retry volumesnapshots     || warn "volumesnapshots addon failed 
 _minikube_addon_retry csi-hostpath-driver || warn "csi-hostpath-driver addon failed — default StorageClass may not be set. Run: minikube addons enable csi-hostpath-driver -p $PROFILE"
 _minikube_addon_retry metrics-server      || warn "metrics-server addon failed — 'kubectl top' and HPA won't work. Run: minikube addons enable metrics-server -p $PROFILE"
 
-# With Cilium as CNI, kube-system pods can't reach node IPs (192.168.49.x:10250)
-# through Cilium's routing. hostNetwork=true puts metrics-server on the node's
-# network namespace directly so it can scrape kubelets across all nodes.
+# hostNetwork=true lets metrics-server reach kubelet IPs directly.
+# Also set --kubelet-request-timeout=30s because the master kubelet can be
+# slow to respond (>10s default) when the cluster is under load.
 kubectl patch deployment metrics-server -n kube-system --type=json \
-  -p '[{"op":"add","path":"/spec/template/spec/hostNetwork","value":true}]' \
+  -p '[
+    {"op":"add","path":"/spec/template/spec/hostNetwork","value":true},
+    {"op":"replace","path":"/spec/template/spec/containers/0/args","value":[
+      "--cert-dir=/tmp",
+      "--secure-port=4443",
+      "--kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname",
+      "--kubelet-use-node-status-port",
+      "--metric-resolution=60s",
+      "--kubelet-insecure-tls",
+      "--kubelet-request-timeout=30s"
+    ]}
+  ]' \
   2>/dev/null || true
 
-# minikube sets kubelet auth cache TTLs to 0s, so every scrape triggers a
-# fresh TokenReview against the API server. Under load the API server takes
-# 30-60s to respond, always exceeding metrics-server's 10s timeout.
-# Patch all nodes to use the Kubernetes default (10m / 10m / 30s).
-log "Patching kubelet auth cache TTLs on all nodes..."
+# minikube sets kubelet cacheTTL=0s (no caching) and webhook auth, so every
+# scrape triggers a TokenReview that can take 30-60s under load. Fix: enable
+# anonymous auth, disable webhook auth, use AlwaysAllow authorization so the
+# kubelet responds immediately without calling the API server.
+log "Patching kubelet auth on all nodes..."
 mapfile -t _ALL_NODES < <(minikube node list -p "$PROFILE" 2>/dev/null | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
 for _NODE in "${_ALL_NODES[@]}"; do
-  docker exec "$_NODE" bash -c "
-    sed -i 's/cacheTTL: 0s/cacheTTL: 10m0s/g' /var/lib/kubelet/config.yaml
-    sed -i 's/cacheAuthorizedTTL: 0s/cacheAuthorizedTTL: 10m0s/g' /var/lib/kubelet/config.yaml
-    sed -i 's/cacheUnauthorizedTTL: 0s/cacheUnauthorizedTTL: 30s/g' /var/lib/kubelet/config.yaml
-    sed -i 's/  enabled: false/  enabled: true/g' /var/lib/kubelet/config.yaml
-    sed -i 's/mode: Webhook/mode: AlwaysAllow/g' /var/lib/kubelet/config.yaml
-    systemctl restart kubelet
-  " 2>/dev/null || warn "Could not patch kubelet on ${_NODE}"
+  docker exec "$_NODE" python3 -c "
+import re, sys
+with open('/var/lib/kubelet/config.yaml') as f:
+    text = f.read()
+text = re.sub(r'(cacheTTL:)\s+\S+', r'\1 10m0s', text)
+text = re.sub(r'(cacheAuthorizedTTL:)\s+\S+', r'\1 10m0s', text)
+text = re.sub(r'(cacheUnauthorizedTTL:)\s+\S+', r'\1 30s', text)
+text = re.sub(r'(authentication:\n  anonymous:\n    enabled:)\s+\S+', r'\1 true', text)
+text = re.sub(r'(  webhook:\n    cacheTTL:[^\n]+\n    enabled:)\s+\S+', r'\1 false', text)
+text = re.sub(r'^(  mode:)\s+Webhook', r'\1 AlwaysAllow', text, flags=re.MULTILINE)
+with open('/var/lib/kubelet/config.yaml', 'w') as f:
+    f.write(text)
+" 2>/dev/null && \
+  docker exec "$_NODE" systemctl restart kubelet 2>/dev/null || \
+  warn "Could not patch kubelet on ${_NODE}"
 done
 
 log "Setting csi-hostpath-sc as default StorageClass..."
@@ -2125,9 +2143,9 @@ if feature_enabled samba-ad; then
     warn "SambaAD IP unavailable — corp.internal will continue forwarding via bind9"
   fi
 
-  # Register *.aks-lab.local A records in SambaAD DNS so Multipass VMs
+  # Register *.aks-lab.local A records in SambaAD DNS so Lima VMs
   # (corp-client etc.) resolve lab app hostnames to the Mac host IP.
-  _MAC_MP_IP=$(ifconfig 2>/dev/null | awk '/inet 192\.168\.252\./{print $2}' | head -1)
+  _MAC_MP_IP=$(ifconfig 2>/dev/null | awk '/inet 192\.168\.105\./{print $2}' | head -1)
   if [[ -n "$_MAC_MP_IP" ]]; then
     log "Registering aks-lab.local DNS in SambaAD ($SAMBA_IP → $_MAC_MP_IP)..."
     _samba_dns() {
@@ -2151,9 +2169,9 @@ except Exception:
     for _host in dex oauth2-proxy taskflow grafana argocd blob-explorer vault argo-workflows dashboard; do
       _samba_dns add aks-lab.local "$_host" A "$_MAC_MP_IP" 2>/dev/null || true
     done
-    success "aks-lab.local DNS registered — Multipass VMs can reach lab apps"
+    success "aks-lab.local DNS registered — Lima VMs can reach lab apps"
   else
-    warn "Multipass bridge IP not detected — skipping aks-lab.local SambaAD DNS registration"
+    warn "Lima bridge IP not detected — skipping aks-lab.local SambaAD DNS registration"
   fi
 else
   log "Skipping Step 11b — SambaAD not selected"

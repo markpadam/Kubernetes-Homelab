@@ -17,7 +17,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Internal corporate zones
-# NOTE: corp.internal is now authoritative via SambaAD (Multipass VM).
+# NOTE: corp.internal is now authoritative via SambaAD (Lima VM).
 # CoreDNS forwards corp.internal → SambaAD VM IP (set at setup/resume time).
 # These records are registered in SambaAD's internal DNS by setup-lab.sh.
 # Bind9 no longer serves corp.internal — only privatelink zones below.
@@ -25,11 +25,11 @@ internal_zones:
 
   - zone: corp.internal
     # Records below are managed by SambaAD (samba-tool dns add), not Bind9.
-    # The samba-ad VM IP is dynamic (Multipass DHCP); captured at setup time.
+    # The samba-ad VM IP is dynamic (Lima DHCP); captured at setup time.
     records:
-      - name: samba-ad        # → SambaAD DC (Multipass VM, dynamic IP from Multipass)
+      - name: samba-ad        # → SambaAD DC (Lima VM, dynamic IP from Lima)
         type: A
-        value: dynamic        # injected by setup-lab.sh via multipass info
+        value: dynamic        # injected by setup-lab.sh via limactl
       - name: sqlserver       # → Azure SQL Edge (mssql.azure-sql, port 1433)
         type: A
         value: svc:mssql/azure-sql

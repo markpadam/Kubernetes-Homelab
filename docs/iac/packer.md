@@ -2,7 +2,7 @@
 
 ## Overview
 
-HashiCorp Packer pre-builds base images for the two Multipass VMs in the identity stack (`samba-ad` and `corp-client`). Packages are baked in once and cached locally; Terraform launches subsequent VMs from the cache instead of installing from scratch.
+HashiCorp Packer pre-builds base images for the two Lima VMs in the identity stack (`samba-ad` and `corp-client`). Packages are baked in once and cached locally; Terraform launches subsequent VMs from the cache instead of installing from scratch.
 
 | VM | Without Packer | With Packer cache |
 |----|---------------|-------------------|
@@ -25,16 +25,10 @@ Or install manually:
 brew install packer
 ```
 
-Multipass 1.14 or later is required for `multipass export`. Check your version:
+Lima must be installed. It is included in the lab prereqs script or install manually:
 
 ```bash
-multipass version
-```
-
-If Multipass is older, upgrade before building images:
-
-```bash
-brew upgrade multipass
+brew install lima socket_vmnet
 ```
 
 ## Build images
@@ -64,9 +58,9 @@ Build times (approximate, depends on network speed):
 ## How it works
 
 1. `build.sh` checks `~/.lab-cache/images/` for each `.tar.gz` file. If found and `--force` is not set, it skips the build.
-2. Packer launches a clean Ubuntu 24.04 Multipass VM, runs shell provisioners to install packages, resets cloud-init, then exports the stopped VM with `multipass export`.
+2. Packer launches a clean Ubuntu 24.04 Lima VM, runs shell provisioners to install packages, resets cloud-init, then exports the stopped VM.
 3. The exported `.tar.gz` is saved to `~/.lab-cache/images/`.
-4. On the next `terraform apply`, `IaC/terraform/samba.tf` checks for the cached image and passes `file://~/.lab-cache/images/<image>.tar.gz` to `multipass launch` instead of `24.04`. Cloud-init still runs at apply time but skips the package installation phase.
+4. On the next `terraform apply`, `IaC/terraform/samba.tf` checks for the cached image and passes `file://~/.lab-cache/images/<image>.tar.gz` to `limactl start` instead of `24.04`. Cloud-init still runs at apply time but skips the package installation phase.
 
 ## What each image contains
 
@@ -101,7 +95,7 @@ Shell completions and aliases for all tools are pre-configured in `/home/ubuntu/
 - DNS configuration (needs the Samba VM IP)
 - Domain join (`realm join` — needs domain name and admin password)
 - VNC password
-- `/etc/hosts` cluster service entries (needs the Multipass gateway IP)
+- `/etc/hosts` cluster service entries (needs the Lima gateway IP)
 - `kubeconfig` (needs the Mac host IP)
 
 ## Sharing images

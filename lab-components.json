@@ -230,7 +230,7 @@
       "ns": "",
       "flux_dir": "",
       "manifest": "",
-      "tf_targets": ["null_resource.multipass_check", "null_resource.samba_vm", "time_sleep.samba_stabilise"],
+      "tf_targets": ["null_resource.lima_check", "null_resource.samba_vm", "time_sleep.samba_stabilise"],
       "depends": [],
       "port_forwards": [],
       "desc": "Samba 4 Active Directory — LDAP :389, Kerberos :88, corp.internal DNS"

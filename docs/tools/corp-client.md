@@ -2,14 +2,14 @@
 
 ## Overview
 
-`corp-client` is a Multipass VM that simulates a corporate laptop joined to the `corp.internal` Active Directory domain. It provides an end-user perspective for testing authentication flows, AD group membership, Kerberos tickets, and access to cluster services.
+`corp-client` is a Lima VM that simulates a corporate laptop joined to the `corp.internal` Active Directory domain. It provides an end-user perspective for testing authentication flows, AD group membership, Kerberos tickets, and access to cluster services.
 
 | Property | Value |
 |----------|-------|
 | VM name | `corp-client` |
-| Hypervisor | Multipass (ARM64 Ubuntu 24.04) |
+| Hypervisor | Lima (ARM64 Ubuntu 24.04) |
 | Domain | `corp.internal` |
-| VM IP | Dynamic (Multipass DHCP) |
+| VM IP | Dynamic (Lima DHCP) |
 | DNS | Resolves via SambaAD VM IP |
 | Auth stack | `realmd` + `SSSD` + `krb5` |
 
@@ -17,7 +17,7 @@
 
 | Lab | Azure |
 |-----|-------|
-| corp-client (Multipass VM) | Domain-joined corporate laptop |
+| corp-client (Lima VM) | Domain-joined corporate laptop |
 
 ## Domain join
 
@@ -44,12 +44,12 @@ The `/etc/hosts` file on `corp-client` points cluster service hostnames to `192.
 
 ## Desktop access (XFCE + VNC)
 
-The VM runs an XFCE4 desktop over TigerVNC on display :1 (port 5901). Connect using macOS Screen Sharing — no port-forward needed, the Multipass subnet is directly reachable from the Mac:
+The VM runs an XFCE4 desktop over TigerVNC on display :1 (port 5901). Connect using macOS Screen Sharing — no port-forward needed, the Lima subnet is directly reachable from the Mac:
 
 ```bash
 # Get the VM IP
-CLIENT_IP=$(multipass info corp-client --format json \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['corp-client']['ipv4'][0])")
+CLIENT_IP=$(limactl shell corp-client -- ip -4 addr show lima0 \
+  | awk '/inet /{print $2}' | cut -d/ -f1)
 
 # Open macOS Screen Sharing
 open vnc://${CLIENT_IP}:5901
@@ -59,15 +59,15 @@ open vnc://${CLIENT_IP}:5901
 The VNC service runs as user `ubuntu` via a systemd unit (`vncserver@1`). To manage it from inside the VM:
 
 ```bash
-multipass exec corp-client -- sudo systemctl status vncserver@1
-multipass exec corp-client -- sudo systemctl restart vncserver@1
+limactl shell corp-client -- sudo systemctl status vncserver@1
+limactl shell corp-client -- sudo systemctl restart vncserver@1
 ```
 
 ## Common commands
 
 ```bash
 # Open a shell in the VM
-multipass shell corp-client
+limactl shell corp-client
 
 # Check domain membership
 realm list
@@ -123,9 +123,9 @@ The image is saved to `~/.lab-cache/images/corp-client-base.tar.gz` and detected
 The `kubeconfig` is **not** set up in the base image — it needs the Mac host IP at runtime. After provisioning:
 
 ```bash
-# Copy your kubeconfig in and rewrite the server address to the Multipass gateway
-multipass transfer ~/.kube/config corp-client:/home/ubuntu/.kube/config
-multipass exec corp-client -- sed -i 's|https://127.0.0.1|https://192.168.64.1|g' /home/ubuntu/.kube/config
+# Copy your kubeconfig in and rewrite the server address to the Lima gateway
+limactl copy ~/.kube/config corp-client:/home/ubuntu/.kube/config
+limactl shell corp-client -- sed -i 's|https://127.0.0.1|https://192.168.105.1|g' /home/ubuntu/.kube/config
 ```
 
 ## Provisioning

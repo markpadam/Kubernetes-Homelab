@@ -8,7 +8,7 @@ Install all required tools with the bundled script (handles Homebrew, taps, and 
 ./aks-lab prereqs
 ```
 
-This installs: `colima`, `docker`, `minikube`, `kubectl`, `helm`, `flux`, `vault`, `terraform`, `multipass`, `packer`, and the Python `rich` package used by the setup TUI. Already-installed tools are skipped.
+This installs: `colima`, `docker`, `minikube`, `kubectl`, `helm`, `flux`, `vault`, `terraform`, `lima`, `socket_vmnet`, `packer`, and the Python `rich` package used by the setup TUI. Already-installed tools are skipped.
 
 Colima must be running before any lab script is started. Start it with the memory your chosen tier needs (see table below), then leave it running — the lab scripts will detect it automatically.
 
@@ -117,7 +117,7 @@ Starts the cluster, restores all port-forwards, restarts Vault, and reopens the 
 ./aks-lab teardown
 ```
 
-Deletes the minikube cluster, Multipass VMs, Terraform state, /etc/hosts entries, SSH config, and all temp files. Prompts for confirmation.
+Deletes the minikube cluster, Lima VMs, Terraform state, /etc/hosts entries, SSH config, and all temp files. Prompts for confirmation.
 
 ---
 
@@ -299,8 +299,8 @@ tail -f /tmp/lab-setup-*.log
 
 **Kill stuck processes**
 ```bash
-# Find and kill hung minikube/terraform/multipass exec processes
-ps aux | grep -E "minikube|terraform|multipass exec" | grep -v grep
+# Find and kill hung minikube/terraform/limactl processes
+ps aux | grep -E "minikube|terraform|limactl" | grep -v grep
 kill <pid> [<pid>...]
 ```
 

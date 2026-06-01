@@ -6,10 +6,10 @@ Each service running in the cluster has its own doc below.
 
 | Doc | Location | Purpose |
 |-----|----------|---------|
-| [samba-ad.md](services/samba-ad.md) | Multipass VM | Samba 4 Active Directory DC — simulates on-prem ADDS |
+| [samba-ad.md](services/samba-ad.md) | Lima VM | Samba 4 Active Directory DC — simulates on-prem ADDS |
 | [dex.md](services/dex.md) | `dex` namespace | OIDC identity provider — bridges AD LDAP to OAuth2 |
 | [oauth2-proxy.md](services/oauth2-proxy.md) | `oauth2-proxy` namespace | Ingress authentication gateway — protects all web services |
-| [corp-client.md](tools/corp-client.md) | Multipass VM | Domain-joined Ubuntu VM — simulates a corporate laptop |
+| [corp-client.md](tools/corp-client.md) | Lima VM | Domain-joined Ubuntu VM — simulates a corporate laptop |
 | [auth-walkthrough.md](guides/auth-walkthrough.md) | — | Nine-stage guide to the full SSO authentication chain |
 
 ## Monitoring & Observability
@@ -66,7 +66,7 @@ Mirrors the tools used in production AKS. All optional — `./aks-lab feature en
 
 | Doc | Description |
 |-----|-------------|
-| [terraform.md](iac/terraform.md) | Terraform lab provisioner — Vault dev server, Vault config (KV/PKI/K8s auth), and Multipass VMs |
+| [terraform.md](iac/terraform.md) | Terraform lab provisioner — Vault dev server, Vault config (KV/PKI/K8s auth), and Lima VMs |
 | [packer.md](iac/packer.md) | Packer VM image builder — pre-bake samba-ad and corp-client base images |
 | [ado.md](iac/ado.md) | Azure DevOps submodule — Bicep templates, YAML pipeline definitions, and self-hosted agent setup |
 

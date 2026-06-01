@@ -2,7 +2,7 @@
 
 ```mermaid
 graph TB
-    subgraph multipass["Multipass VMs (ARM64 Ubuntu)"]
+    subgraph lima["Lima VMs (ARM64 Ubuntu)"]
         sambad["samba-ad<br>Active Directory DC<br>LDAP :389 · Kerberos :88<br>corp.internal"]
         client["corp-client<br>Domain-joined laptop<br>realmd + SSSD"]
     end
@@ -138,7 +138,7 @@ A 3-node Minikube lab on a laptop has different needs from a production cluster:
 
 - **Component combinations change frequently.** A user might want monitoring + ArgoCD today and add Cosmos DB + Argo Workflows tomorrow without committing to git. Pure Flux would require either editing kustomization.yaml + push + reconcile, or accepting that the cluster always runs everything.
 - **Resource ceilings are tight.** Memory budgets force runtime decisions like "disable cosmos-db because the primary node is at 96%". Those need to be one-line CLI commands, not git commits.
-- **Some setup is genuinely stateful**: SambaAD lives in a Multipass VM, the lab's `/etc/hosts` is mutated, Vault writes secrets. None of this fits a "git is the source of truth" reconciliation loop.
+- **Some setup is genuinely stateful**: SambaAD lives in a Lima VM, the lab's `/etc/hosts` is mutated, Vault writes secrets. None of this fits a "git is the source of truth" reconciliation loop.
 
 The feature toggle pattern fits this constraint: the manifests in `infrastructure/base/` and `apps/base/` are the *catalogue*, and `./aks-lab feature ...` (a thin dispatcher over `scripts/lab-feature.sh`) is the *installer*. State (what's enabled) lives in `.lab-state.json`.
 

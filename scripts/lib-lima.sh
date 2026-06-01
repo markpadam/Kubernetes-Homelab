@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# lib-lima.sh — Lima VM helpers (replaces Multipass)
+# lib-lima.sh — Lima VM helpers
 # Sourced automatically via lib-common.sh.
 # Requires: lima (brew install lima), socket_vmnet (brew install socket_vmnet)
 #   After install: limactl sudoers | sudo tee /etc/sudoers.d/lima
 
 # Resolve a VM image reference to a URL.
-# Accepts Multipass-style aliases (24.04) or file:// paths.
+# Accepts Ubuntu version aliases (24.04) or file:// paths.
 _lima_image_url() {
   case "$1" in
     24.04|ubuntu:24.04) echo "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img" ;;
@@ -14,7 +14,7 @@ _lima_image_url() {
   esac
 }
 
-# Convert Multipass size string (2G, 1500M) to Lima format (2GiB, 1500MiB).
+# Convert shorthand size string (2G, 1500M) to Lima format (2GiB, 1500MiB).
 _lima_size() { echo "$1" | sed 's/G$/GiB/; s/M$/MiB/'; }
 
 # Get the primary routable IPv4 of a Lima VM (empty if not running or no IP yet).

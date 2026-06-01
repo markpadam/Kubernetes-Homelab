@@ -2,15 +2,15 @@
 
 ## Overview
 
-SambaAD is a Multipass VM running Samba 4 as a full Active Directory Domain Controller. It simulates an on-premises ADDS (Active Directory Domain Services) environment, acting as the enterprise identity source for the lab.
+SambaAD is a Lima VM running Samba 4 as a full Active Directory Domain Controller. It simulates an on-premises ADDS (Active Directory Domain Services) environment, acting as the enterprise identity source for the lab.
 
 | Property | Value |
 |----------|-------|
 | VM name | `samba-ad` |
-| Hypervisor | Multipass (ARM64 Ubuntu 24.04) |
+| Hypervisor | Lima (ARM64 Ubuntu 24.04) |
 | Domain | `corp.internal` |
 | NetBIOS name | `CORP` |
-| VM IP | Dynamic (Multipass DHCP — captured at setup time) |
+| VM IP | Dynamic (Lima DHCP — captured at setup time) |
 | LDAP port | 389 |
 | Kerberos port | 88 |
 | DNS port | 53 (Samba internal DNS) |
@@ -19,7 +19,7 @@ SambaAD is a Multipass VM running Samba 4 as a full Active Directory Domain Cont
 
 | Lab | Azure |
 |-----|-------|
-| SambaAD (Multipass VM) | On-premises Active Directory / Entra ID |
+| SambaAD (Lima VM) | On-premises Active Directory / Entra ID |
 
 ## Domain configuration
 
@@ -56,23 +56,23 @@ This means pods inside the cluster resolve AD SRV records (`_ldap._tcp.corp.inte
 
 ```bash
 # Inspect the domain
-multipass exec samba-ad -- samba-tool domain info 127.0.0.1
+limactl shell samba-ad -- samba-tool domain info 127.0.0.1
 
 # List users
-multipass exec samba-ad -- samba-tool user list
+limactl shell samba-ad -- samba-tool user list
 
 # Show a user's attributes
-multipass exec samba-ad -- samba-tool user show testuser1
+limactl shell samba-ad -- samba-tool user show testuser1
 
 # List groups
-multipass exec samba-ad -- samba-tool group list
+limactl shell samba-ad -- samba-tool group list
 
 # Check Kerberos config
-multipass exec samba-ad -- cat /etc/krb5.conf
+limactl shell samba-ad -- cat /etc/krb5.conf
 
 # Test LDAP from Mac (requires ldap-utils: brew install openldap)
-SAMBA_IP=$(multipass info samba-ad --format json | python3 -c \
-  "import sys,json; d=json.load(sys.stdin); print(d['info']['samba-ad']['ipv4'][0])")
+SAMBA_IP=$(limactl shell samba-ad -- ip -4 addr show lima0 \
+  | awk '/inet /{print $2}' | cut -d/ -f1)
 
 ldapsearch -H ldap://$SAMBA_IP:389 \
   -x -D "Administrator@corp.internal" -w "AksLab!AdDev1" \

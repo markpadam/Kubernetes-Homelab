@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds Packer base images for the AKS homelab Multipass VMs.
+# Builds Packer base images for the AKS homelab Lima VMs.
 #
 # Called automatically by setup-lab.sh when samba-ad or corp-client features
 # are selected. Can also be run standalone to pre-build the cache.

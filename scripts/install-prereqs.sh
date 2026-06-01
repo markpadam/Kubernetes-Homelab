@@ -43,7 +43,7 @@ FORMULAE=(
   "fluxcd/tap/flux   Flux CLI"
   "hashicorp/tap/vault  Vault CLI"
   "terraform         Terraform"
-  "lima              Lima (identity VMs — replaces Multipass)"
+  "lima              Lima (identity VMs)"
   "socket_vmnet      socket_vmnet (Lima shared network)"
   "packer            Packer (VM image pre-build)"
 )

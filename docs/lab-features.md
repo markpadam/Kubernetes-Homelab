@@ -88,7 +88,7 @@ These are enabled by `--standard` and when no flag is given:
 
 Optional (not on by default):
 
-- `samba-ad`, `dex`, `oauth2-proxy`, `corp-client` — the SSO identity stack (requires Multipass)
+- `samba-ad`, `dex`, `oauth2-proxy`, `corp-client` — the SSO identity stack (requires Lima)
 - `cosmos-db` — Cosmos DB NoSQL emulator (heavier)
 - `argo-workflows` — Argo Workflows engine
 - `keda`, `keda-servicebus` — event-driven autoscaling demo

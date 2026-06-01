@@ -945,7 +945,7 @@ KUBECONFIG_EOF
 
 # ── Special: Corp Client ──────────────────────────────────────────
 _enable_corp_client() {
-  log "Creating Corp Client Multipass VM via Terraform..."
+  log "Creating Corp Client Lima VM via Terraform..."
   terraform -chdir="$TF_DIR" apply -auto-approve -input=false \
     -target=null_resource.corp_client_vm \
     2>&1 | tee /tmp/corp-client-terraform-apply.log
@@ -955,7 +955,7 @@ _enable_corp_client() {
 }
 
 _disable_corp_client() {
-  log "Destroying Corp Client Multipass VM..."
+  log "Destroying Corp Client Lima VM..."
   terraform -chdir="$TF_DIR" destroy -auto-approve -input=false \
     -target=null_resource.corp_client_vm \
     2>&1 | tee /tmp/corp-client-terraform-destroy.log
