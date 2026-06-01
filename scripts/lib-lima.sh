@@ -30,27 +30,20 @@ _lima_ip() {
 }
 
 # Get the status of a Lima VM: Running, Stopped, or Deleted.
+# Uses limactl's per-instance Go template — robust across Lima versions
+# (Lima 2.x emits NDJSON from `--format json`, which a single json.load() can't
+# parse, so the old array-based approach silently returned "Deleted").
 _lima_status() {
-  local name="$1"
-  limactl list --format json 2>/dev/null \
-    | python3 -c "
-import json, sys
-vms = json.load(sys.stdin)
-vm = next((v for v in vms if v['name'] == '$name'), None)
-print(vm['status'] if vm else 'Deleted')
-" 2>/dev/null || echo "Deleted"
+  local name="$1" status
+  status=$(limactl list "$name" --format '{{.Status}}' 2>/dev/null)
+  [[ -n "$status" ]] && echo "$status" || echo "Deleted"
 }
 
 # Print running VM names (one per line), excluding an optional name.
 _lima_list_running_except() {
   local exclude="${1:-__none__}"
-  limactl list --format json 2>/dev/null \
-    | python3 -c "
-import json, sys
-for v in json.load(sys.stdin):
-    if v.get('status') == 'Running' and v.get('name') != '$exclude':
-        print(v['name'])
-" 2>/dev/null || true
+  limactl list --format '{{.Name}} {{.Status}}' 2>/dev/null \
+    | awk -v ex="$exclude" '$2=="Running" && $1!=ex {print $1}'
 }
 
 # Run a command inside a Lima VM as the default user (ubuntu).

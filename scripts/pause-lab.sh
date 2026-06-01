@@ -62,7 +62,11 @@ for _vm in samba-ad corp-client; do
 done
 
 # 5) The cluster itself — keeps all on-disk state, so resume is fast.
-if minikube status -p "$PROFILE" 2>/dev/null | grep -q "host: Running"; then
+# Capture status into a var and match in pure bash: piping into `grep -q` makes
+# grep close the pipe on first match, which kills minikube with SIGPIPE (exit
+# 141) and — under `set -o pipefail` — wrongly reports the cluster as stopped.
+_mk_status=$(minikube status -p "$PROFILE" 2>/dev/null || true)
+if [[ "$_mk_status" == *"host: Running"* ]]; then
   log "Stopping cluster '$PROFILE'..."
   if minikube stop -p "$PROFILE" >/dev/null 2>&1; then
     success "Cluster stopped"

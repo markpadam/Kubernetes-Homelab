@@ -59,12 +59,6 @@ _usage() {
   echo -e "if you prefer — ./aks-lab is just a thin dispatcher.${RESET}"
 }
 
-_cluster_running() {
-  local out
-  out=$(minikube status -p "$PROFILE" 2>/dev/null || true)
-  [[ "$out" == *"host: Running"* ]]
-}
-
 # ── Subcommand dispatch ──────────────────────
 case "${1:-}" in
   ""|menu|tui)
