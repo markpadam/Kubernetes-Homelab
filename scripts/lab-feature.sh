@@ -668,9 +668,31 @@ _enable_rancher() {
   kubectl apply -k "$REPO_ROOT/flux/infrastructure/base/rancher/" \
     || warn "Rancher ingress apply failed"
 
+  # Rancher v2.9+ extension API deadlock fix: the imperative-api-extension service
+  # only routes to Ready pods, but the pod won't become Ready until the HTTP server
+  # starts, which won't start until kube-apiserver has connected to the extension
+  # API. Break the cycle by publishing endpoints even before the pod is Ready.
+  kubectl patch service imperative-api-extension -n cattle-system \
+    -p '{"spec":{"publishNotReadyAddresses":true}}' &>/dev/null || true
+
+  # Rancher v2.9+ requires server-url to be set before it starts the HTTP server.
+  # Set it immediately after install so the startup sequence isn't blocked waiting
+  # for an operator to configure it.
+  local _rancher_url="https://rancher.aks-lab.local"
+  kubectl patch setting server-url --type=merge \
+    -p "{\"value\":\"${_rancher_url}\"}" &>/dev/null \
+    || kubectl apply -f - &>/dev/null <<RANCHEREOF
+apiVersion: management.cattle.io/v3
+kind: Setting
+metadata:
+  name: server-url
+value: '${_rancher_url}'
+RANCHEREOF
+  log "Rancher server-url set to ${_rancher_url}"
+
   log "Waiting for Rancher to be ready (may take several minutes)..."
   kubectl wait deployment rancher \
-    --for=condition=available --namespace=cattle-system --timeout=300s \
+    --for=condition=available --namespace=cattle-system --timeout=600s \
     || warn "Rancher not yet ready — it may still be initialising"
 
   # Fleet and CAPI are redundant in this single-cluster lab — Flux already
