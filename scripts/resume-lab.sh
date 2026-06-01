@@ -183,6 +183,12 @@ fi
 # ── Start cluster ─────────────────────────────
 step "Starting Cluster"
 
+# Raise inotify limits inside the Colima VM before starting nodes — each
+# minikube node runs a full systemd stack that consumes inotify instances.
+# The default of 128 is exhausted by the 4th node, causing it to crash on boot.
+colima ssh -- sh -c 'sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_queued_events=65536' \
+  2>/dev/null || true
+
 _mk_status=$(minikube status -p "$PROFILE" 2>/dev/null || true)
 if [[ "$_mk_status" == *"Running"* ]]; then
   warn "Cluster already running — skipping start."

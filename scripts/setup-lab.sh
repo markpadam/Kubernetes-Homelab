@@ -1021,6 +1021,11 @@ _ensure_kicbase_cached() {
 }
 
 if $CLUSTER_NEEDS_START; then
+  # Each minikube node runs a full systemd stack. The default inotify instance
+  # limit (128) is exhausted by the 4th node, causing it to crash with
+  # "Too many open files". Raise before starting nodes.
+  colima ssh -- sh -c 'sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_queued_events=65536' \
+    2>/dev/null || true
   _ensure_kicbase_cached
   log "Starting $NODES-node cluster (this may take a few minutes)..."
   _start_progress "$LAB_LOG" \
