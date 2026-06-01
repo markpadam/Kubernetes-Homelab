@@ -198,7 +198,21 @@ else
 fi
 
 log "Waiting for nodes to be Ready..."
-kubectl wait --for=condition=Ready nodes --all --timeout=120s
+
+# Worker nodes that crashed and were restarted cold lose their /etc/hosts entry
+# for control-plane.minikube.internal. kubelet can't register without it.
+_CP_IP=$(kubectl get node -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)
+if [[ -n "$_CP_IP" ]]; then
+  mapfile -t _WORKER_CONTAINERS < <(minikube node list -p "$PROFILE" 2>/dev/null | awk 'NR>1{print $1}' | tr '[:upper:]' '[:lower:]')
+  for _WN in "${_WORKER_CONTAINERS[@]}"; do
+    if ! docker exec "$_WN" grep -q "control-plane.minikube.internal" /etc/hosts 2>/dev/null; then
+      docker exec "$_WN" sh -c "echo '${_CP_IP} control-plane.minikube.internal' >> /etc/hosts" 2>/dev/null && \
+        docker exec "$_WN" systemctl restart kubelet 2>/dev/null || true
+    fi
+  done
+fi
+
+kubectl wait --for=condition=Ready nodes --all --timeout=180s
 success "Cluster up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes ready"
 
 # ── SambaAD VMs ───────────────────────────────
