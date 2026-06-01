@@ -2596,7 +2596,9 @@ if ! cmp -s IaC/macos/com.lab.minikube-tunnel.plist /Library/LaunchDaemons/com.l
     && success "minikube tunnel daemon installed — will start when cluster is ready" \
     || warn "Could not install tunnel launchd daemon (sudo unavailable) — tunnel already running as PID $(pgrep -f 'minikube tunnel' || echo unknown)"
 else
-  sudo launchctl kickstart -k system/com.lab.minikube-tunnel 2>/dev/null || true
+  # Kill the running process — launchd KeepAlive=true restarts it automatically.
+  # Avoids 'launchctl kickstart -k' which blocks on macOS Sequoia.
+  pkill -f "minikube tunnel" 2>/dev/null || true
   success "minikube tunnel daemon running"
 fi
 
