@@ -157,6 +157,14 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib-common.sh
 source "$SCRIPT_DIR/lib-common.sh"
 
+# Shared health-check engine (lib-common.sh) config for the resume phase:
+# banner reads "Resume"; this script has no rich TUI, so per-check lines are
+# rendered only via the live dashboard (not printed individually to fd 3).
+# shellcheck disable=SC2034  # both are consumed inside lib-common.sh
+LAB_PHASE_LABEL="Resume"
+# shellcheck disable=SC2034
+_CHK_PRINT_LINES=0
+
 # Run from repo root so relative paths (IaC/terraform, dashboard-template.html,
 # flux/infrastructure/base/...) resolve correctly regardless of where the caller is.
 cd "$REPO_ROOT"
@@ -169,12 +177,34 @@ if [[ -z "$ENABLED_FEATURES" ]]; then
   feature_enabled() { return 0; }
 fi
 
+# ── Auto-resume (login LaunchAgent) safety ───────────────────────────────────
+# This script runs automatically at login with no TTY and possibly no network
+# yet. Don't accidentally create a brand-new default cluster if the lab was
+# never set up, and give the network a moment so LAB_HOST_IP/VAULT_ADDR resolve.
+if [[ ! -d "$HOME/.minikube/profiles/$PROFILE" ]]; then
+  warn "No '$PROFILE' minikube profile found — nothing to resume. Run ./aks-lab setup first."
+  _BANNER_PRINTED=1
+  exit 0
+fi
+if [[ -z "$LAB_HOST_IP" ]]; then
+  for _i in $(seq 1 12); do
+    LAB_HOST_IP=$(route -n get default 2>/dev/null | awk '/interface:/{print $2}' | xargs -I{} ipconfig getifaddr {} 2>/dev/null)
+    [[ -n "$LAB_HOST_IP" ]] && break
+    sleep 5
+  done
+fi
+# Fall back to loopback so VAULT_ADDR and the health checks still work even if
+# the network never came up (Vault binds 0.0.0.0:8200, reachable on 127.0.0.1).
+LAB_HOST_IP="${LAB_HOST_IP:-127.0.0.1}"
+VAULT_ADDR="http://${LAB_HOST_IP}:8200"
+
 # ── Ensure Docker is running ──────────────────
 step "Checking Docker"
 
-if ! docker info &>/dev/null; then
-  log "Docker daemon not running — starting Colima..."
-  colima start || error "Colima failed to start after 60s. Run 'colima start' manually and retry."
+if ! lab_docker_up; then
+  log "Docker daemon not running — starting Colima (reuses its saved CPU/memory sizing)..."
+  colima start || error "Colima failed to start. Run 'colima start' manually and retry."
+  lab_wait_docker 120 || error "Colima started but the Docker daemon never became ready (120s). Check: colima status"
   success "Docker daemon ready"
 else
   success "Docker daemon already running"
@@ -197,22 +227,15 @@ else
   minikube start -p "$PROFILE"
 fi
 
-log "Waiting for nodes to be Ready..."
-
-# Worker nodes that crashed and were restarted cold lose their /etc/hosts entry
-# for control-plane.minikube.internal. kubelet can't register without it.
-_CP_IP=$(kubectl get node -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)
-if [[ -n "$_CP_IP" ]]; then
-  mapfile -t _WORKER_CONTAINERS < <(minikube node list -p "$PROFILE" 2>/dev/null | awk 'NR>1{print $1}' | tr '[:upper:]' '[:lower:]')
-  for _WN in "${_WORKER_CONTAINERS[@]}"; do
-    if ! docker exec "$_WN" grep -q "control-plane.minikube.internal" /etc/hosts 2>/dev/null; then
-      docker exec "$_WN" sh -c "echo '${_CP_IP} control-plane.minikube.internal' >> /etc/hosts" 2>/dev/null && \
-        docker exec "$_WN" systemctl restart kubelet 2>/dev/null || true
-    fi
-  done
+log "Waiting for nodes to be Ready (repairs worker control-plane hosts entry if needed)..."
+# A cold multi-node restart is slow on a 2013 Mac and a worker can be stuck
+# NotReady because it lost its control-plane.minikube.internal /etc/hosts entry.
+# lab_wait_nodes_ready waits for the API, then re-applies that repair between
+# polls until all nodes are Ready or the budget (7 min) expires.
+if ! lab_wait_nodes_ready "$PROFILE" 420; then
+  kubectl get nodes 2>/dev/null || true
+  error "Nodes did not all reach Ready within 7 min. Check: kubectl get nodes ; minikube logs -p $PROFILE"
 fi
-
-kubectl wait --for=condition=Ready nodes --all --timeout=180s
 success "Cluster up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes ready"
 
 # ── SambaAD VMs ───────────────────────────────
@@ -230,20 +253,20 @@ if feature_enabled samba-ad; then
     warn "samba-ad not found — run ./aks-lab setup to recreate it"
   fi
 
-  SAMBA_IP=$(_lima_ip samba-ad)
+  # Retry for the lima0 IP — it isn't assigned the instant the VM starts.
+  SAMBA_IP=$(lab_lima_ip_retry samba-ad 60 || true)
 
   if [[ -n "$SAMBA_IP" ]]; then
-    log "Re-patching CoreDNS to forward corp.internal → SambaAD ($SAMBA_IP)..."
-    kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}' \
-      | sed "s|forward . 10.96.0.200|forward . ${SAMBA_IP}|g" \
-      | kubectl create configmap coredns -n kube-system \
-          --from-file=Corefile=/dev/stdin \
-          --dry-run=client -o yaml \
-      | kubectl apply -f -
-    kubectl rollout restart deployment coredns -n kube-system
-    success "CoreDNS patched — corp.internal → $SAMBA_IP"
+    # Idempotent: rewrites only the corp.internal forwarder to the current IP and
+    # skips the CoreDNS restart when it's already correct (no needless bounce on
+    # a routine resume). Never writes an empty/placeholder IP.
+    if lab_coredns_patch_samba "$SAMBA_IP"; then
+      success "CoreDNS corp.internal → SambaAD ($SAMBA_IP)"
+    else
+      warn "CoreDNS corp.internal patch skipped — Corefile unavailable"
+    fi
   else
-    warn "Could not determine samba-ad IP — CoreDNS corp.internal forwarding may be stale"
+    warn "Could not determine samba-ad IP after 60s — CoreDNS corp.internal forwarding may be stale"
   fi
 fi
 
@@ -282,13 +305,26 @@ if feature_enabled vault; then
         -var="minikube_profile=${PROFILE}" \
         2>&1 | tee /tmp/vault-terraform-apply.log
       success "Vault configured"
-      log "Re-trusting Vault Root CA in macOS login Keychain..."
+      # The -dev server regenerates its Root CA on every restart, so the old
+      # trusted cert is stale and must be replaced. But `security add-trusted-cert
+      # -d` needs keychain authorisation — a GUI dialog that would HANG the
+      # no-TTY login auto-resume agent. Only do it when we can actually prompt
+      # (interactive terminal); otherwise leave the cert for the user to trust.
       _CA_FILE="/tmp/aks-lab-root-ca.crt"
-      curl -sf "${VAULT_ADDR}/v1/pki/ca/pem" -o "$_CA_FILE"
-      security delete-certificate -c "aks-lab.local Root CA" 2>/dev/null || true
-      security add-trusted-cert -d -r trustRoot "$_CA_FILE"
-      rm -f "$_CA_FILE"
-      success "Vault Root CA re-trusted — restart Chrome/Firefox if the padlock is missing"
+      if curl -sf "${VAULT_ADDR}/v1/pki/ca/pem" -o "$_CA_FILE" 2>/dev/null && [[ -s "$_CA_FILE" ]]; then
+        if [[ -t 0 || -n "${SSH_TTY:-}" ]]; then
+          log "Re-trusting Vault Root CA in macOS Keychain..."
+          security delete-certificate -c "aks-lab.local Root CA" 2>/dev/null || true
+          if security add-trusted-cert -d -r trustRoot "$_CA_FILE" 2>/dev/null; then
+            success "Vault Root CA re-trusted — restart Chrome/Firefox if the padlock is missing"
+          else
+            warn "Could not re-trust Root CA automatically — trust ${_CA_FILE} manually if HTTPS warns"
+          fi
+          rm -f "$_CA_FILE"
+        else
+          warn "Vault Root CA regenerated — run ./aks-lab resume in a terminal once to re-trust it (left at ${_CA_FILE}; browsers may warn until then)"
+        fi
+      fi
     else
       error "Vault failed to start within 30s — check /tmp/vault-dev.log"
     fi
@@ -299,14 +335,7 @@ fi
 # Services reach the network via MetalLB real IPs — no port-forwards needed.
 # Only the K8s API server requires a port-forward (it is not a standard service).
 step "Exposing K8s API"
-_pf() {
-  local name="$1" port="$2" cmd="$3" log="$4"
-  if lab_start_port_forward "$name" "$port" "$cmd" "$log"; then
-    success "$name port-forward running — ${LAB_HOST_IP}:$port"
-  else
-    warn "$name port-forward may have failed — check $log"
-  fi
-}
+# _pf() lives in lib-common.sh (shared with setup-lab.sh).
 _pf "K8s API" 8443 "kubectl port-forward svc/kubernetes 8443:443 -n default --address 0.0.0.0" /tmp/k8s-api-portforward.log
 
 # ── minikube tunnel ───────────────────────────
@@ -324,6 +353,15 @@ else
   echo $! > /tmp/minikube-tunnel.pid
   sleep 3
   success "minikube tunnel started (PID $(cat /tmp/minikube-tunnel.pid 2>/dev/null || echo '?'))"
+fi
+
+# Wait for the tunnel to (re)bind ingress before the health watcher runs, so a
+# resume doesn't flash "unreachable" while the tunnel is still coming up.
+log "Waiting for minikube tunnel to serve ingress on 127.0.0.1:80..."
+if lab_wait_http "http://127.0.0.1:80" 90; then
+  success "minikube tunnel serving ingress"
+else
+  warn "Tunnel not serving 127.0.0.1:80 after 90s — web services may be briefly unreachable. Check /var/log/minikube-tunnel.log"
 fi
 
 # ── Retrieve runtime values for dashboard ────
@@ -366,196 +404,11 @@ else
   open "$DASHBOARD_URL"
 fi
 
-# ── Health check helpers ──────────────────────
-_chk_ok() {
-  _CHECKS_PASS=$(( _CHECKS_PASS + 1 ))
-  _HEALTH_ROWS+=("ok|$1|$2")
-}
-_chk_warn() {
-  _CHECKS_FAIL=$(( _CHECKS_FAIL + 1 ))
-  _HEALTH_ROWS+=("warn|$1|$2")
-}
-_chk_fail() {
-  _CHECKS_FAIL=$(( _CHECKS_FAIL + 1 ))
-  _HEALTH_ROWS+=("fail|$1|$2")
-}
-_chk_section() {
-  _HEALTH_ROWS+=("section|$1")
-  return 0
-}
-
-_check_ns() {
-  local label="$1" ns="$2"
-  if ! kubectl get namespace "$ns" &>/dev/null; then
-    _chk_fail "$label" "namespace '$ns' not found"
-    return
-  fi
-  local running total
-  running=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
-            | awk '/ Running /{c++}END{print c+0}')
-  total=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
-          | awk '!/Completed/{c++}END{print c+0}')
-  if [[ "$total" -eq 0 ]]; then
-    _chk_fail "$label" "no pods deployed"
-  elif [[ "$running" -eq "$total" ]]; then
-    _chk_ok "$label" "$running/$total pods running"
-  else
-    _chk_warn "$label" "$running/$total pods running (some not ready)"
-  fi
-}
-
-_run_health_checks() {
-  _CHECKS_PASS=0
-  _CHECKS_FAIL=0
-  _HEALTH_ROWS=()
-
-  _chk_section "Core"
-  _check_ns "ingress-nginx" ingress-nginx
-  _check_ns "flux"          flux-system
-  _check_ns "dns-lab"       dns-lab
-
-  _chk_section "Infrastructure"
-  if feature_enabled vault; then
-    if curl -sf "${VAULT_ADDR}/v1/sys/health" 2>/dev/null \
-        | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if not d.get('sealed') else 1)" 2>/dev/null; then
-      _chk_ok "vault" "dev server unsealed at ${VAULT_ADDR}"
-    else
-      _chk_fail "vault" "not reachable at ${VAULT_ADDR}"
-    fi
-  fi
-  feature_enabled monitoring           && _check_ns "monitoring"    monitoring
-  feature_enabled kubernetes-dashboard && _check_ns "k8s-dashboard" kubernetes-dashboard
-  feature_enabled rancher              && _check_ns "rancher"        cattle-system
-  feature_enabled argocd               && _check_ns "argocd"         argocd
-  feature_enabled toolbox              && _check_ns "toolbox"        toolbox
-
-  _chk_section "Identity"
-  if feature_enabled samba-ad; then
-    _SAMBA_STATUS=$(_lima_status samba-ad)
-    _SAMBA_IP=$(_lima_ip samba-ad)
-    if [[ "$_SAMBA_STATUS" == "Running" ]]; then
-      _chk_ok "samba-ad" "VM running — ${_SAMBA_IP:-no-ip}"
-    else
-      _chk_fail "samba-ad" "VM not running (status: $_SAMBA_STATUS)"
-    fi
-  fi
-  feature_enabled dex          && _check_ns "dex"          dex
-  feature_enabled oauth2-proxy && _check_ns "oauth2-proxy" oauth2-proxy
-  if feature_enabled corp-client; then
-    _CLIENT_STATUS=$(_lima_status corp-client)
-    if [[ "$_CLIENT_STATUS" == "Running" ]]; then
-      _chk_ok "corp-client" "VM running"
-    else
-      _chk_fail "corp-client" "VM not running (status: $_CLIENT_STATUS)"
-    fi
-  fi
-
-  _chk_section "Storage"
-  feature_enabled azurite            && _check_ns "azurite"            azure-storage
-  feature_enabled azure-sql          && _check_ns "azure-sql"          azure-sql
-  feature_enabled cosmos-db          && _check_ns "cosmos-db"          cosmos-db
-  feature_enabled service-bus        && _check_ns "service-bus"        service-bus
-  feature_enabled container-registry && _check_ns "container-registry" container-registry
-
-  _chk_section "Apps"
-  feature_enabled taskflow       && _check_ns "taskflow"       taskapp
-  feature_enabled blob-explorer  && _check_ns "blob-explorer"  blob-explorer
-  feature_enabled argo-workflows && _check_ns "argo-workflows" argo
-  feature_enabled azdo-agent     && _check_ns "azdo-agent"     azdo-agent
-
-  _CHECKS_TOTAL=$(( _CHECKS_PASS + _CHECKS_FAIL ))
-  return 0
-}
-
-_render_live_dashboard() {
-  local elapsed=$1 state=$2
-  local emin=$(( elapsed / 60 )) esec=$(( elapsed % 60 ))
-  local pass=${_CHECKS_PASS:-0} fail=${_CHECKS_FAIL:-0} total=${_CHECKS_TOTAL:-0}
-  local pct=0
-  [[ $total -gt 0 ]] && pct=$(( pass * 100 / total ))
-
-  local bar="" filled=$(( pct * 30 / 100 )) i
-  for (( i=0; i<30; i++ )); do
-    if (( i < filled )); then bar+="▓"; else bar+="░"; fi
-  done
-
-  local title_color="$CYAN" title_icon="⟳" title_text="Waiting for services"
-  case "$state" in
-    ready)   title_color="$GREEN";  title_icon="✓"; title_text="All services ready" ;;
-    timeout) title_color="$YELLOW"; title_icon="!"; title_text="Timed out — some services still pending" ;;
-  esac
-
-  {
-    printf '\033[H\033[2J\033[?25l'
-
-    echo ""
-    echo -e "  ${title_color}${BOLD}━━━ AKS Homelab ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-    printf  "    %b ${BOLD}%s${RESET}   ${DIM}%d/%d ready · %dm %02ds${RESET}\n" \
-            "${title_color}${title_icon}${RESET}" "$title_text" "$pass" "$total" "$emin" "$esec"
-    printf  "    %s ${DIM}%d%%${RESET}\n" "$bar" "$pct"
-    echo -e "  ${title_color}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-    echo ""
-
-    local row status label detail rest
-    for row in "${_HEALTH_ROWS[@]}"; do
-      status="${row%%|*}"
-      if [[ "$status" == "section" ]]; then
-        label="${row#section|}"
-        echo -e "    ${BOLD}${label}${RESET}"
-      else
-        rest="${row#*|}"
-        label="${rest%%|*}"
-        detail="${rest#*|}"
-        case "$status" in
-          ok)   echo -e "      ${GREEN}✓${RESET}  $(printf '%-22s' "$label")${DIM}${detail}${RESET}" ;;
-          warn) echo -e "      ${YELLOW}⟳${RESET}  $(printf '%-22s' "$label")${YELLOW}${detail}${RESET}" ;;
-          fail) echo -e "      ${RED}✗${RESET}  $(printf '%-22s' "$label")${RED}${detail}${RESET}" ;;
-        esac
-      fi
-    done
-
-    echo ""
-    if [[ "$state" == "waiting" ]]; then
-      echo -e "  ${DIM}Dashboard → http://localhost:9997/    ·    Press Ctrl-C to skip wait${RESET}"
-    else
-      if [[ "$fail" -eq 0 ]]; then
-        echo -e "  ${GREEN}${BOLD}✓  Resume complete${RESET} — ${GREEN}${pass}/${total} components healthy${RESET} — ${emin}m ${esec}s"
-      else
-        echo -e "  ${YELLOW}${BOLD}~  Resume complete${RESET} — ${YELLOW}${pass}/${total} healthy · ${fail} need attention${RESET} — ${emin}m ${esec}s"
-      fi
-      echo ""
-      echo -e "  ${DIM}Dashboard → http://localhost:9997/  ·  Log: ${LAB_LOG:-/tmp/lab-resume.log}${RESET}"
-    fi
-
-    printf '\033[?25h'
-  } >&5 2>/dev/null || true
-}
-
-_wait_until_ready() {
-  local interval=${1:-5} max=${2:-900} start=${3:-$RESUME_START}
-  local _skip=0
-  trap '_skip=1' INT
-  local state="waiting" elapsed
-  while true; do
-    _run_health_checks
-    elapsed=$(( $(date +%s) - start ))
-
-    if (( _CHECKS_FAIL == 0 && _CHECKS_TOTAL > 0 )); then
-      state="ready"
-    elif (( elapsed >= max )); then
-      state="timeout"
-    elif (( _skip == 1 )); then
-      state="timeout"
-    fi
-
-    _render_live_dashboard "$elapsed" "$state"
-
-    [[ "$state" != "waiting" ]] && break
-    sleep "$interval"
-  done
-  trap - INT
-  return 0
-}
+# Health-check engine (_chk_*, _check_ns, _run_health_checks),
+# _render_live_dashboard, and _wait_until_ready all live in lib-common.sh now
+# (shared with setup-lab.sh). LAB_PHASE_LABEL="Resume" and _CHK_PRINT_LINES=0
+# are set near the top of this script so the banner reads "Resume" and per-check
+# lines are rendered only via the live dashboard.
 
 # ── Live readiness watcher ────────────────────
 RESUME_END=$(date +%s)

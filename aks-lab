@@ -27,12 +27,13 @@ _usage() {
 "
   echo -e "${BOLD}Setup:${RESET}"
   echo -e "  prereqs                            install Homebrew tools + Python deps"
+  echo -e "  doctor                             check prerequisites (read-only) before setup"
   echo -e ""
   echo -e "${BOLD}Lifecycle:${RESET}"
   echo -e "  setup [--all|--minimal|--standard|--verbose|--reconfigure-ado]"
   echo -e "                                     build and start the lab (~15 min)"
   echo -e "  resume [--verbose]                 resume after pause / Mac restart"
-  echo -e "  pause                              minikube stop  (keeps state)"
+  echo -e "  pause [--colima]                   stop cluster + identity VMs + helpers (keeps state)"
   echo -e "  refresh [--images|--restart|--only <id>|--verbose]"
   echo -e "                                     re-apply manifests on running cluster"
   echo -e "  teardown [--delete-images]         full wipe"
@@ -50,6 +51,7 @@ _usage() {
   echo -e "                                     reset the enabled list
 "
   echo -e "${BOLD}Other:${RESET}"
+  echo -e "  publish                            make the lab reachable from other machines on the LAN"
   echo -e "  dashboard                          open the web dashboard"
   echo -e "  help                               show this message
 "
@@ -72,6 +74,10 @@ case "${1:-}" in
     shift
     exec bash "$SCRIPTS/install-prereqs.sh" "$@"
     ;;
+  doctor)
+    shift
+    exec bash "$SCRIPTS/doctor.sh" "$@"
+    ;;
   setup)
     shift
     exec bash "$SCRIPTS/setup-lab.sh" "$@"
@@ -81,13 +87,8 @@ case "${1:-}" in
     exec bash "$SCRIPTS/resume-lab.sh" "$@"
     ;;
   pause)
-    if _cluster_running; then
-      echo -e "${CYAN}${BOLD}[lab]${RESET} Pausing cluster '${PROFILE}'..."
-      minikube stop -p "$PROFILE"
-      echo -e "${GREEN}${BOLD}[✓]${RESET} Cluster paused. Run ./aks-lab resume to bring it back."
-    else
-      echo -e "${YELLOW}${BOLD}[!]${RESET} Cluster '${PROFILE}' is not running."
-    fi
+    shift
+    exec bash "$SCRIPTS/pause-lab.sh" "$@"
     ;;
   refresh)
     shift
@@ -112,6 +113,10 @@ case "${1:-}" in
   feature|features)
     shift
     exec bash "$SCRIPTS/lab-feature.sh" "$@"
+    ;;
+  publish)
+    shift
+    exec bash "$SCRIPTS/lab-publish.sh" "$@"
     ;;
   dashboard)
     if curl -sf http://localhost:9997/ &>/dev/null; then

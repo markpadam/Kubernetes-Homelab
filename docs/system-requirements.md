@@ -1,5 +1,15 @@
 # System Requirements & Memory Guidance
 
+> **Platform:** this lab targets an **Intel Mac on macOS 12 Monterey** (Docker
+> Desktop and Multipass aren't supported there). It uses **Colima** for the
+> Docker daemon, **minikube (docker driver)** for the cluster, and **Lima +
+> MacPorts QEMU** for the optional identity VMs. Install the toolchain with
+> `./aks-lab prereqs`, then run **`./aks-lab doctor`** before `./aks-lab setup`
+> — it verifies Colima is running and sized, `qemu`/`jq` are present, the
+> `socket_vmnet` sudoers grant exists, and dnsmasq answers. Setup also
+> **auto-sizes Colima** for the chosen tier, so you no longer have to pre-start
+> it with the exact `--cpu/--memory`.
+
 ## Quick Reference
 
 | Mac RAM | Colima --memory | Cluster tier | What fits |

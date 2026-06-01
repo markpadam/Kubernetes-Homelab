@@ -1,283 +1,135 @@
-# Network Setup — Manual Changes Required
+# Network Setup — Remote Access from the MacBook
 
-This document covers every manual change needed on the router, Mac Pro, and MacBook to run the lab with real routable IPs. None of these changes are made by `./aks-lab setup` — they are one-time host and network configuration steps.
+This lab runs on the **Mac Pro** (Intel, macOS 12 Monterey) using **Colima** for
+the Docker daemon and **minikube (docker driver)** for the cluster. By default
+everything is reachable only on the Mac Pro itself, because `minikube tunnel`
+binds ingress on `127.0.0.1`. This guide makes the lab reachable from the
+**MacBook** (or any machine on the LAN).
 
----
-
-## Network Layout
-
-```
-172.16.0.0/16 — Lab address space
-│
-├── 172.16.0.0/24   Management
-│   ├── 172.16.0.1      Router / default gateway
-│   ├── 172.16.0.2      dnsmasq DNS (runs on Mac Pro)
-│   └── 172.16.0.10     Mac Pro 2013 — primary host IP
-│
-├── 172.16.1.0/24   Clients / Workstations
-│   └── 172.16.1.10     MacBook Pro
-│
-├── 172.16.3.0/24   Kubernetes — MetalLB service pool  ← routed via Mac Pro
-│   ├── 172.16.3.1      NGINX Ingress  (*.aks-lab.local — port 80/443)
-│   ├── 172.16.3.2      Reserved (Vault — currently on Mac Pro host at .10:8200)
-│   ├── 172.16.3.3      Azure SQL Edge (1433)
-│   ├── 172.16.3.4      Service Bus / RabbitMQ (5672, 5300)
-│   ├── 172.16.3.5      Container Registry (5000)
-│   ├── 172.16.3.6      Cosmos DB (8081, 1234)
-│   ├── 172.16.3.7      Argo Workflows (2746)
-│   ├── 172.16.3.8      Toolbox SSH (22)
-│   ├── 172.16.3.9      Azurite blob storage (10000–10002)
-│   ├── 172.16.3.10     Kubernetes Dashboard (443)
-│   └── 172.16.3.11–254 Available
-│
-├── 172.16.4.0/24   Reserved — Kubernetes node IPs (future bare-metal/k3s)
-│
-└── 172.16.5.0/24+  Available for future zones (IoT, guest, storage, etc.)
-
-192.168.105.0/24 — Lima shared network (NAT'd via Mac Pro — internal only)
-    192.168.105.10  samba-ad VM
-    192.168.105.11  corp-client VM
-```
-
-**Internal ranges — never routed on the physical network:**
-
-| Range | Purpose |
-|-------|---------|
-| `10.244.0.0/16` | Kubernetes pod CIDR (Minikube internal) |
-| `10.96.0.0/12` | Kubernetes ClusterIP CIDR (Minikube internal) |
-| `192.168.49.0/24` | Minikube Docker bridge (Mac Pro only) |
-| `192.168.105.0/24` | Lima VM network (Mac Pro only, NAT'd) |
+Most of it is automated by **`./aks-lab publish`**. Only the two MacBook-side
+steps (a DNS resolver entry and copying the kubeconfig) are manual.
 
 ---
 
-## How Traffic Flows
+## Why not "routable MetalLB IPs"?
 
-```
+An earlier design tried to route the MetalLB pool (`172.16.3.0/24`) to the
+cluster via a host route `172.16.3.0/24 → 192.168.49.2`. **That cannot work
+under Colima:** the minikube bridge (`192.168.49.2`) lives *inside* the Colima
+QEMU VM, so it isn't reachable from the Mac Pro host or the router. Instead we
+publish via the Mac Pro's own LAN IP, which is always reachable and needs no
+router changes.
+
+---
+
+## How traffic flows
+
+```text
 MacBook → http://grafana.aks-lab.local
-  1. DNS: MacBook asks 172.16.0.10 (dnsmasq) → resolves to 172.16.3.1
-  2. Packet: SRC=172.16.1.10, DST=172.16.3.1
-  3. Router: static route sends 172.16.3.x traffic to 172.16.0.10 (Mac Pro)
-  4. Mac Pro: IP forwarding enabled + minikube tunnel route active
-  5. Tunnel route: 172.16.3.0/24 → 192.168.49.2 (Minikube Docker bridge)
-  6. MetalLB answers ARP for 172.16.3.1, NGINX Ingress handles the request
-  7. Response travels back: cluster → Docker bridge → Mac Pro → router → MacBook ✓
+  1. DNS: MacBook's /etc/resolver/aks-lab.local → Mac Pro (LAB_HOST_IP)
+          dnsmasq on the Mac Pro answers *.aks-lab.local = LAB_HOST_IP
+  2. Connect: MacBook → LAB_HOST_IP:80
+  3. Mac Pro: socat forwarder (com.lab.publish) LAB_HOST_IP:80 → 127.0.0.1:80
+  4. minikube tunnel: 127.0.0.1:80 → NGINX ingress in the cluster
+  5. NGINX routes by Host header → Grafana
 ```
 
-No port-forwarding. Standard HTTP on port 80, HTTPS on 443.
+The Kubernetes API (`:8443`) and Vault (`:8200`) already bind `0.0.0.0`, so they
+only need DNS + (for kubectl) an external kubeconfig — no forwarder.
 
 ---
 
-## 1. Router
+## 1. Mac Pro — stable IP (one-time)
 
-### Static routes
+`./aks-lab publish` uses the Mac Pro's current LAN IP (`LAB_HOST_IP`). Give it a
+stable address so it survives reboots — prefer a **DHCP reservation** on the
+router (by the Mac Pro's `en0` MAC: `ifconfig en0 | grep ether`), or set a
+manual IP in **System Preferences → Network → Ethernet**.
 
-The router needs to know to send `172.16.3.x` traffic to the Mac Pro (which tunnels it into the cluster). The Lima VM network is NAT'd so it does **not** need a router static route.
-
-| Destination | Next hop | Purpose |
-|-------------|----------|---------|
-| `172.16.3.0/24` | `172.16.0.10` | Kubernetes MetalLB services |
-
-> The exact menu path depends on your router. Look for **Static Routes**, **Advanced Routing**, or **LAN Routes**.
-
-### DHCP reservations
-
-Assign fixed IPs by MAC address so the static routes stay valid across reboots.
-
-| Device | MAC address | Reserved IP |
-|--------|------------|-------------|
-| Mac Pro 2013 | *(find below)* | `172.16.0.10` |
-| MacBook Pro | *(find below)* | `172.16.1.10` |
-
-**Find MAC address on macOS:**
-```bash
-# Ethernet (en0)
-ifconfig en0 | grep ether
-
-# Or via System Preferences → Network → Advanced → Hardware tab
-```
+You can override detection with `LAB_HOST_IP=... ./aks-lab publish`.
 
 ---
 
-## 2. Mac Pro (one-time)
-
-### 2a. Set a static IP (if not using DHCP reservation)
-
-Prefer a DHCP reservation in the router. If you need to set it manually:
-
-**System Preferences → Network → Ethernet → Configure IPv4: Manually**
-
-| Field | Value |
-|-------|-------|
-| IP Address | `172.16.0.10` |
-| Subnet Mask | `255.255.255.0` |
-| Router | `172.16.0.1` |
-| DNS Server | `172.16.0.1` (router) |
-
-### 2b. Enable IP forwarding
-
-Allows the Mac Pro to route packets between the MacBook subnet and the MetalLB subnet.
+## 2. Mac Pro — publish the lab
 
 ```bash
-# Apply immediately
-sudo sysctl -w net.inet.ip.forwarding=1
+# Install socat once (macOS 12 → MacPorts; otherwise Homebrew)
+sudo port install socat        # or: brew install socat
 
-# Persist across reboots
-echo "net.inet.ip.forwarding=1" | sudo tee -a /etc/sysctl.conf
+# After ./aks-lab setup (or resume) has the cluster + tunnel up:
+./aks-lab publish
 ```
 
-### 2c. Install dnsmasq
+`./aks-lab publish` (idempotent — re-run after enabling/disabling components):
 
-Provides wildcard DNS so `*.aks-lab.local` resolves to the NGINX Ingress IP (`172.16.3.1`) and direct service names resolve to their MetalLB IPs.
+- verifies which ports `minikube tunnel` is serving on `127.0.0.1`,
+- installs a launchd daemon (`com.lab.publish`) that socat-forwards
+  `LAB_HOST_IP:<port> → 127.0.0.1:<port>` for ingress `80/443` and any enabled
+  non-HTTP services (`1433` SQL, `5000` registry, `5672` Service Bus, `8081`
+  Cosmos, `10000-10002` Azurite),
+- writes the dnsmasq config so `*.aks-lab.local` resolves to `LAB_HOST_IP` (and
+  `corp.internal` to the SambaAD VM when enabled),
+- generates an external kubeconfig at `/tmp/aks-lab-kubeconfig.yaml`,
+- prints the MacBook-side steps below.
 
-```bash
-brew install dnsmasq
+### macOS firewall
 
-# Install the lab config fragment
-sudo cp IaC/macos/dnsmasq-aks-lab.conf /usr/local/etc/dnsmasq.d/aks-lab.conf
-
-# Start and enable on boot
-sudo brew services start dnsmasq
-```
-
-Verify dnsmasq is answering:
-```bash
-dig grafana.aks-lab.local @127.0.0.1
-# Should return 172.16.3.1
-
-dig corp.internal @127.0.0.1
-# Should return 192.168.105.10
-```
-
-### 2d. Install the minikube tunnel launchd daemon
-
-Run after `./aks-lab setup` has completed at least once (the `aks-lab` minikube profile must exist first).
-
-```bash
-sudo cp IaC/macos/com.lab.minikube-tunnel.plist /Library/LaunchDaemons/
-sudo launchctl load /Library/LaunchDaemons/com.lab.minikube-tunnel.plist
-```
-
-This keeps `minikube tunnel` running at boot so MetalLB IPs remain routable without any manual intervention.
-
-Check it is running:
-```bash
-sudo launchctl list | grep minikube-tunnel
-cat /tmp/minikube-tunnel.log
-```
-
-To restart it manually:
-```bash
-sudo launchctl kickstart -k system/com.lab.minikube-tunnel
-```
-
-To uninstall:
-```bash
-sudo launchctl unload /Library/LaunchDaemons/com.lab.minikube-tunnel.plist
-sudo rm /Library/LaunchDaemons/com.lab.minikube-tunnel.plist
-```
-
-### 2e. macOS Firewall (if enabled)
-
-If **System Preferences → Security & Privacy → Firewall** is on, allow incoming connections for:
-
-| App / binary | Why |
-|-------------|-----|
-| `dnsmasq` | DNS queries from MacBook on port 53/UDP |
-| `vault` | Vault UI/API on port 8200 |
-| Docker Desktop | Minikube cluster traffic |
-
-Add via **Firewall Options → +** and select each binary, or temporarily disable the firewall during initial setup to confirm everything works first.
+If **System Preferences → Security & Privacy → Firewall** is on, allow incoming
+connections for `socat`, `dnsmasq`, and `vault` (or disable the firewall while
+you confirm everything works).
 
 ---
 
-## 3. MacBook (one-time)
+## 3. MacBook — point DNS + kubectl at the Mac Pro (one-time)
 
-### 3a. DNS resolver
-
-Tells macOS to send `*.aks-lab.local` and `*.corp.internal` queries to the Mac Pro's dnsmasq rather than the default DNS server.
+Replace `<LAB_HOST_IP>` with the Mac Pro's LAN IP (printed by `publish`).
 
 ```bash
 sudo mkdir -p /etc/resolver
+echo "nameserver <LAB_HOST_IP>" | sudo tee /etc/resolver/aks-lab.local
+# Only if the SambaAD identity stack is enabled:
+echo "nameserver <LAB_HOST_IP>" | sudo tee /etc/resolver/corp.internal
 
-# aks-lab web services and cluster IPs
-echo "nameserver 172.16.0.10" | sudo tee /etc/resolver/aks-lab.local
-
-# Active Directory domain (forwarded to samba-ad via dnsmasq on Mac Pro)
-echo "nameserver 172.16.0.10" | sudo tee /etc/resolver/corp.internal
-```
-
-Verify DNS resolution from the MacBook:
-```bash
-# Web service — should return 172.16.3.1
-dig grafana.aks-lab.local
-
-# Direct service — should return 172.16.3.3
-dig sql.aks-lab.local
-
-# AD domain — should return 192.168.105.10
-dig corp.internal
-```
-
-### 3b. kubectl access
-
-Generate a kubeconfig on the Mac Pro with the external API server address, then copy it to the MacBook.
-
-**On the Mac Pro:**
-```bash
-minikube -p aks-lab kubectl -- config view --flatten \
-  | sed 's|https://192.168.49.2:8443|https://172.16.0.10:8443|g' \
-  > /tmp/aks-lab-kubeconfig.yaml
-```
-
-Open `/tmp/aks-lab-kubeconfig.yaml` and add `insecure-skip-tls-verify: true` to the cluster entry (the API server TLS cert was issued for the internal Minikube IP, not `172.16.0.10`):
-
-```yaml
-clusters:
-- cluster:
-    insecure-skip-tls-verify: true
-    server: https://172.16.0.10:8443
-  name: aks-lab
-```
-
-**Copy to MacBook:**
-```bash
-scp user@172.16.0.10:/tmp/aks-lab-kubeconfig.yaml ~/.kube/aks-lab-config
-```
-
-**Use it:**
-```bash
-export KUBECONFIG=~/.kube/aks-lab-config
-kubectl get nodes
+# kubectl (the API cert already includes LAB_HOST_IP, so no --insecure needed)
+scp <you>@<LAB_HOST_IP>:/tmp/aks-lab-kubeconfig.yaml ~/.kube/aks-lab-config
+KUBECONFIG=~/.kube/aks-lab-config kubectl get nodes
 ```
 
 ---
 
-## 4. Verification Checklist
-
-Run these from the **MacBook** after all changes above are in place.
+## 4. Verification (run from the MacBook)
 
 ```bash
-# Mac Pro is reachable
-ping -c 3 172.16.0.10
+ping -c3 <LAB_HOST_IP>                                   # Mac Pro reachable
+dig grafana.aks-lab.local                                 # → <LAB_HOST_IP>
+curl -s -o /dev/null -w "%{http_code}\n" http://grafana.aks-lab.local   # 302
+curl -s http://<LAB_HOST_IP>:8200/v1/sys/health           # Vault (if enabled)
+nc -z <LAB_HOST_IP> 1433 && echo "SQL reachable"          # if azure-sql enabled
+KUBECONFIG=~/.kube/aks-lab-config kubectl get nodes       # all Ready
+```
 
-# DNS resolves correctly
-dig grafana.aks-lab.local          # → 172.16.3.1
-dig sql.aks-lab.local              # → 172.16.3.3
-dig corp.internal                  # → 192.168.105.10
+On the **Mac Pro**, confirm what the tunnel binds (the forwarders point here):
 
-# MetalLB ingress reachable (run after ./aks-lab setup on Mac Pro)
-curl -s -o /dev/null -w "%{http_code}" http://172.16.3.1
-# → 404 (NGINX default — no host header, but ingress is alive)
+```bash
+sudo lsof -nP -iTCP -sTCP:LISTEN | grep -E ':80|:443|:1433'
+tail -f /var/log/lab-publish.log        # socat forwarder daemon log
+```
 
-# Web UI via DNS + ingress (no port number needed)
-curl -s -o /dev/null -w "%{http_code}" http://grafana.aks-lab.local
-# → 302 (redirect to Grafana login)
+---
 
-# Vault on Mac Pro host
-curl http://172.16.0.10:8200/v1/sys/health
-# → {"initialized":true,"sealed":false,...}
+## Active Directory (`corp.internal`) — stretch
 
-# kubectl
-kubectl --kubeconfig ~/.kube/aks-lab-config get nodes
-# → 3 nodes, all Ready
+With the SambaAD stack enabled, `publish` makes `corp.internal` *resolve* from
+the MacBook (dnsmasq forwards to the VM). Full domain interaction (LDAP/Kerberos)
+also needs those AD ports forwarded from `LAB_HOST_IP` to the SambaAD VM — add
+`389 636 88 464` to the published port set, or join over the Mac Pro. A full
+MacBook domain-join is not yet automated.
+
+---
+
+## Uninstall remote publishing
+
+```bash
+sudo launchctl bootout system/com.lab.publish
+sudo rm /Library/LaunchDaemons/com.lab.publish.plist /usr/local/bin/lab-publish-forward.sh
 ```

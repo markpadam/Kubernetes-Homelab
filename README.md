@@ -13,9 +13,9 @@
 **A fully-featured Azure-equivalent Kubernetes lab that runs on your Mac.**  
 Simulate AKS, Active Directory, GitOps, secrets management, and Azure PaaS services — locally, from a single script.
 
-![Platform](https://img.shields.io/badge/platform-macOS%20%28Apple%20Silicon%29-black?logo=apple)
+![Platform](https://img.shields.io/badge/platform-macOS%2012%20Monterey%20%28Intel%29-black?logo=apple)
 ![Kubernetes](https://img.shields.io/badge/kubernetes-v1.29-326CE5?logo=kubernetes&logoColor=white)
-![Minikube](https://img.shields.io/badge/minikube-docker%20driver-0db7ed?logo=docker&logoColor=white)
+![Minikube](https://img.shields.io/badge/minikube-docker%20driver%20via%20Colima-0db7ed?logo=docker&logoColor=white)
 ![Terraform](https://img.shields.io/badge/terraform-IaC-7B42BC?logo=terraform&logoColor=white)
 ![Packer](https://img.shields.io/badge/packer-VM%20images-02A8EF?logo=packer&logoColor=white)
 ![Flux](https://img.shields.io/badge/flux-GitOps-5468FF?logo=flux&logoColor=white)
@@ -27,7 +27,7 @@ Simulate AKS, Active Directory, GitOps, secrets management, and Azure PaaS servi
 
 This lab spins up a production-shaped Kubernetes environment on your Mac in one command. It maps Azure's managed services to local equivalents so you can develop, test, and learn without touching a cloud account or paying a bill.
 
-Everything runs inside a **3-node Minikube cluster** (Docker driver) with real GitOps, real secrets management, real DNS, and real Azure-compatible API surfaces. Pick the components you need — from a minimal cluster to the full identity stack with Active Directory SSO.
+Everything runs inside a **3-node Minikube cluster** (Docker driver, with the Docker daemon provided by **Colima** — no Docker Desktop needed) with real GitOps, real secrets management, real DNS, and real Azure-compatible API surfaces. Pick the components you need — from a minimal cluster to the full identity stack with Active Directory SSO. Targets an **Intel Mac on macOS 12 Monterey**.
 
 ---
 

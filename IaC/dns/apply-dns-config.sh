@@ -329,7 +329,7 @@ kubectl run dnstest \
 kubectl wait pod dnstest \
   --for=condition=Ready \
   --namespace=default \
-  --timeout=30s
+  --timeout=120s
 
 # Test one record from each zone
 log "Testing one record per zone..."
