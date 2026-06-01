@@ -113,6 +113,17 @@ if [[ ":${PATH}:" != *":/opt/local/bin:"* ]]; then
   warn "Then reload your shell before running ./aks-lab setup."
 fi
 
+# ── MacPorts QEMU firmware symlink ───────────────────────────────────────────
+# Lima/Colima expects QEMU firmware at /usr/local/share/qemu/ (Homebrew path).
+# MacPorts installs it at /opt/local/share/qemu/ instead. Create a symlink so
+# Lima can find edk2-x86_64-code.fd without any configuration change.
+if [[ -d /opt/local/share/qemu ]] && [[ ! -e /usr/local/share/qemu ]]; then
+  info "Creating /usr/local/share/qemu → /opt/local/share/qemu symlink for Lima firmware..."
+  sudo ln -s /opt/local/share/qemu /usr/local/share/qemu \
+    && INSTALLED+=("QEMU firmware symlink") \
+    || warn "Could not create firmware symlink — run manually: sudo ln -s /opt/local/share/qemu /usr/local/share/qemu"
+fi
+
 # ── Python rich (needed by tui.py) ──────────────────────────────────────────
 if python3 -c "import rich" &>/dev/null 2>&1; then
   SKIPPED+=("Python rich")
