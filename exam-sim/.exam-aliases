@@ -1,0 +1,39 @@
+# K8s exam aliases — sourced by ~/.zshrc when installed via exam-sim/setup.sh
+
+alias k=kubectl
+
+# Namespace / context shortcuts
+alias kn='kubectl config set-context --current --namespace'
+alias kx='kubectl config use-context'
+alias kcc='kubectl config current-context'
+alias kgc='kubectl config get-contexts'
+
+# Common gets
+alias kgp='kubectl get pods'
+alias kgpa='kubectl get pods -A'
+alias kgpw='kubectl get pods -w'
+alias kga='kubectl get all'
+alias kgaa='kubectl get all -A'
+alias kgn='kubectl get nodes -o wide'
+alias kgs='kubectl get svc'
+
+# Describe / logs / exec
+alias kd='kubectl describe'
+alias kl='kubectl logs'
+alias klf='kubectl logs -f'
+alias ke='kubectl exec -it'
+
+# Apply / delete
+alias ka='kubectl apply -f'
+alias kdel='kubectl delete'
+
+# Exam power variables — use as: k run pod $do > pod.yaml
+export do='--dry-run=client -o yaml'
+export now='--force --grace-period 0'
+
+# kubectl completion (if not already loaded)
+if command -v kubectl &>/dev/null && [[ -z "${_KUBECTL_COMPLETE:-}" ]]; then
+  source <(kubectl completion zsh 2>/dev/null) && export _KUBECTL_COMPLETE=1
+  # Allow 'k' to also use completion
+  compdef k=kubectl 2>/dev/null || true
+fi
