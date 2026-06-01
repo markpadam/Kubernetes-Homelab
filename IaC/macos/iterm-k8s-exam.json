@@ -1,0 +1,147 @@
+{
+  "Profiles": [
+    {
+      "Name": "K8s Exam",
+      "Guid": "k8s-exam-sim-001",
+      "Badge Text": "",
+
+      "Normal Font": "MesloLGSNerdFont-Regular 14",
+      "Non Ascii Font": "MesloLGSNerdFont-Regular 14",
+      "Use Non-ASCII Font": false,
+      "Horizontal Spacing": 1.0,
+      "Vertical Spacing": 1.1,
+
+      "Background Color": {
+        "Red Component":   0.08,
+        "Green Component": 0.08,
+        "Blue Component":  0.08,
+        "Alpha Component": 1.0,
+        "Color Space": "sRGB"
+      },
+      "Foreground Color": {
+        "Red Component":   0.83,
+        "Green Component": 0.83,
+        "Blue Component":  0.83,
+        "Alpha Component": 1.0,
+        "Color Space": "sRGB"
+      },
+      "Bold Color": {
+        "Red Component":   1.0,
+        "Green Component": 1.0,
+        "Blue Component":  1.0,
+        "Alpha Component": 1.0,
+        "Color Space": "sRGB"
+      },
+      "Cursor Color": {
+        "Red Component":   0.8,
+        "Green Component": 0.8,
+        "Blue Component":  0.8,
+        "Alpha Component": 1.0,
+        "Color Space": "sRGB"
+      },
+      "Cursor Text Color": {
+        "Red Component":   0.08,
+        "Green Component": 0.08,
+        "Blue Component":  0.08,
+        "Alpha Component": 1.0,
+        "Color Space": "sRGB"
+      },
+      "Selection Color": {
+        "Red Component":   0.2,
+        "Green Component": 0.35,
+        "Blue Component":  0.6,
+        "Alpha Component": 1.0,
+        "Color Space": "sRGB"
+      },
+      "Selected Text Color": {
+        "Red Component":   1.0,
+        "Green Component": 1.0,
+        "Blue Component":  1.0,
+        "Alpha Component": 1.0,
+        "Color Space": "sRGB"
+      },
+
+      "Ansi 0 Color":  { "Red Component": 0.15, "Green Component": 0.15, "Blue Component": 0.15, "Alpha Component": 1.0, "Color Space": "sRGB" },
+      "Ansi 1 Color":  { "Red Component": 0.86, "Green Component": 0.29, "Blue Component": 0.29, "Alpha Component": 1.0, "Color Space": "sRGB" },
+      "Ansi 2 Color":  { "Red Component": 0.40, "Green Component": 0.75, "Blue Component": 0.40, "Alpha Component": 1.0, "Color Space": "sRGB" },
+      "Ansi 3 Color":  { "Red Component": 0.85, "Green Component": 0.75, "Blue Component": 0.35, "Alpha Component": 1.0, "Color Space": "sRGB" },
+      "Ansi 4 Color":  { "Red Component": 0.35, "Green Component": 0.55, "Blue Component": 0.85, "Alpha Component": 1.0, "Color Space": "sRGB" },
+      "Ansi 5 Color":  { "Red Component": 0.68, "Green Component": 0.40, "Blue Component": 0.75, "Alpha Component": 1.0, "Color Space": "sRGB" },
+      "Ansi 6 Color":  { "Red Component": 0.35, "Green Component": 0.75, "Blue Component": 0.75, "Alpha Component": 1.0, "Color Space": "sRGB" },
+      "Ansi 7 Color":  { "Red Component": 0.75, "Green Component": 0.75, "Blue Component": 0.75, "Alpha Component": 1.0, "Color Space": "sRGB" },
+      "Ansi 8 Color":  { "Red Component": 0.35, "Green Component": 0.35, "Blue Component": 0.35, "Alpha Component": 1.0, "Color Space": "sRGB" },
+      "Ansi 9 Color":  { "Red Component": 1.00, "Green Component": 0.50, "Blue Component": 0.50, "Alpha Component": 1.0, "Color Space": "sRGB" },
+      "Ansi 10 Color": { "Red Component": 0.60, "Green Component": 0.95, "Blue Component": 0.60, "Alpha Component": 1.0, "Color Space": "sRGB" },
+      "Ansi 11 Color": { "Red Component": 1.00, "Green Component": 0.95, "Blue Component": 0.55, "Alpha Component": 1.0, "Color Space": "sRGB" },
+      "Ansi 12 Color": { "Red Component": 0.55, "Green Component": 0.75, "Blue Component": 1.00, "Alpha Component": 1.0, "Color Space": "sRGB" },
+      "Ansi 13 Color": { "Red Component": 0.90, "Green Component": 0.60, "Blue Component": 1.00, "Alpha Component": 1.0, "Color Space": "sRGB" },
+      "Ansi 14 Color": { "Red Component": 0.55, "Green Component": 0.95, "Blue Component": 0.95, "Alpha Component": 1.0, "Color Space": "sRGB" },
+      "Ansi 15 Color": { "Red Component": 1.00, "Green Component": 1.00, "Blue Component": 1.00, "Alpha Component": 1.0, "Color Space": "sRGB" },
+
+      "Cursor Type": 2,
+      "Blinking Cursor": false,
+      "Smart Cursor Color": false,
+      "Minimum Contrast": 0,
+
+      "Transparency": 0,
+      "Blur": false,
+      "Background Image Location": "",
+      "Background Image Mode": 0,
+
+      "Columns": 220,
+      "Rows": 50,
+      "Window Type": 0,
+      "Screen": -1,
+
+      "Scrollback Lines": 10000,
+      "Unlimited Scrollback": false,
+      "Scrollback With Status Bar": false,
+
+      "Terminal Type": "xterm-256color",
+      "Report Terminal Type": "xterm-256color",
+      "Use Bold Font": true,
+      "Brighten Bold Text": false,
+      "Use Italic Font": true,
+      "Draw Powerline Glyphs": true,
+
+      "Option Key Sends": 2,
+      "Right Option Key Sends": 2,
+      "Left Option Key Changeable": false,
+      "Right Option Key Changeable": false,
+
+      "Mouse Reporting": true,
+      "Mouse Reporting allow mouse wheel": true,
+
+      "Close Sessions On End": 1,
+      "Prompt Before Closing 2": false,
+
+      "Initial Use Transparency": false,
+      "Status Bar Layout": {
+        "components": [],
+        "advanced configuration": {
+          "font": { "size": 11 },
+          "algorithm": 0,
+          "remove empty components": false,
+          "color": { "Red Component": 0.1, "Green Component": 0.1, "Blue Component": 0.1, "Alpha Component": 1.0, "Color Space": "sRGB" }
+        }
+      },
+      "Show Status Bar": false,
+
+      "Custom Command": "No",
+      "Command": "",
+      "Working Directory": "/Users/markpadam",
+      "Custom Directory": "No",
+
+      "Title Components": 32,
+      "Custom Window Title": "K8s Exam",
+      "Tab Color": {
+        "Red Component":   0.15,
+        "Green Component": 0.22,
+        "Blue Component":  0.38,
+        "Alpha Component": 1.0,
+        "Color Space": "sRGB"
+      },
+      "Use Tab Color": true
+    }
+  ]
+}
