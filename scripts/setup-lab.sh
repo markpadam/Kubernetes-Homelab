@@ -1386,11 +1386,17 @@ if feature_enabled kubernetes-dashboard; then
     warn "Helm release 'kubernetes-dashboard' already exists — skipping install."
   else
     log "Installing Kubernetes Dashboard via Helm..."
+    # Dashboard ships 5 deployments (kong/api/auth/metrics-scraper/web); on a
+    # slow box image pulls can exceed 3m. Don't let a slow OPTIONAL component
+    # abort the whole setup under set -e — use --wait with a longer timeout and
+    # downgrade a timeout to a warning (the deployments finish coming up shortly
+    # after and are picked up by the final health watcher).
     helm install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard \
       --namespace kubernetes-dashboard \
       --create-namespace \
       --wait \
-      --timeout=3m
+      --timeout=8m \
+      || warn "Kubernetes Dashboard not Ready within 8m — continuing; it should settle shortly (check: kubectl get pods -n kubernetes-dashboard)"
   fi
 
   log "Applying dashboard RBAC and ingress..."
