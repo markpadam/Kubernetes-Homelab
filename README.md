@@ -178,23 +178,32 @@ After setup, run `./aks-lab verify` to confirm every component and ingress is ac
 ```bash
 ./aks-lab                # interactive TUI menu (default if you forget the command)
 ./aks-lab prereqs        # install required tools (first time only)
-./aks-lab setup          # build and start the lab
+./aks-lab doctor         # read-only preflight check (run before setup)
+./aks-lab setup          # build and start the lab (auto-publishes to the LAN)
 ./aks-lab verify         # post-setup health check (exits non-zero if anything is broken)
-./aks-lab pause          # minikube stop -p aks-lab (keeps all state)
+./aks-lab pause          # stop cluster + identity VMs + helpers (keeps all state)
 ./aks-lab resume         # resume after pause or Mac restart
 ./aks-lab resize         # shrink node memory after the cluster settles
 ./aks-lab teardown       # full wipe — cluster, VMs, state, hosts
 ./aks-lab feature list   # show enabled / available components
+./aks-lab publish        # (re)expose the lab to the LAN (usually automatic)
 ./aks-lab help           # full command reference
 ```
 
-See [QUICKSTART.md](QUICKSTART.md) for the full reference including all flags, component IDs, URLs, and troubleshooting.
+**Everyday management** — lifecycle, accessing the lab from another machine
+(kubectl, web UIs, the control dashboard), component management, and a
+troubleshooting playbook: **[docs/operations.md](docs/operations.md)**.
+
+See [QUICKSTART.md](QUICKSTART.md) for the full first-run reference, and
+[docs/network-setup.md](docs/network-setup.md) for the remote-access network model.
 
 ---
 
 ## Dashboard
 
 A browser dashboard is auto-generated at **`http://localhost:9997`** on every setup and resume. It shows live service links, credentials, quick-copy commands, and a component toggle panel to enable/disable lab features on the fly.
+
+> It binds to `127.0.0.1` (it exposes `exec`/teardown controls), so reach it from another machine via an SSH tunnel — see [docs/operations.md](docs/operations.md#control-dashboard-from-the-macbook--ssh-tunnel).
 
 ![AKS Homelab dashboard showing service links, credentials, script controls, terminal output, and feature toggles](docs/media/dashboard.png)
 
@@ -424,7 +433,9 @@ git add ado && git commit -m "chore: bump ado submodule"
 
 | Doc | Description |
 |-----|-------------|
-| [QUICKSTART.md](QUICKSTART.md) | Start, pause, resume, destroy — flags, URLs, troubleshooting |
+| [QUICKSTART.md](QUICKSTART.md) | First-run reference — start, pause, resume, destroy, flags, URLs |
+| [docs/operations.md](docs/operations.md) | **Everyday management** — lifecycle, remote access (kubectl / web UIs / dashboard), components, troubleshooting playbook |
+| [docs/network-setup.md](docs/network-setup.md) | Remote-access network model — reach the lab from a MacBook on the LAN |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Detailed diagrams — cluster layout, GitOps flow, secrets, DNS |
 | [docs/README.md](docs/README.md) | Full service documentation index |
 | [docs/iac/ado.md](docs/iac/ado.md) | Azure DevOps submodule — Bicep templates, YAML pipelines, and self-hosted agent setup |
