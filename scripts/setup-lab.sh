@@ -1477,6 +1477,20 @@ if feature_enabled rancher; then
     kubectl patch deployment rancher -n cattle-system --type=merge \
       -p='{"spec":{"template":{"spec":{"nodeSelector":{"kubernetes.io/hostname":"aks-lab"}}}}}' \
       2>/dev/null || true
+    # Rancher v2.9+ extension-API deadlock break: the kube-apiserver can only
+    # reach Rancher's extension API (v1.ext.cattle.io) once the imperative-api-extension
+    # Service has endpoints, but the Service only routes to a Ready pod — and the
+    # pod won't be Ready until the apiserver connects. Patch the Service to publish
+    # not-ready addresses as soon as it appears (background loop) so Rancher can
+    # finish coming up instead of hanging until the 20m wait times out.
+    ( for _i in $(seq 1 90); do
+        if kubectl get svc imperative-api-extension -n cattle-system &>/dev/null; then
+          kubectl patch svc imperative-api-extension -n cattle-system \
+            -p '{"spec":{"publishNotReadyAddresses":true}}' &>/dev/null
+          break
+        fi
+        sleep 10
+      done ) &
     log "Waiting for Rancher deployment to be available (up to 20 min)..."
     kubectl wait deployment rancher --for=condition=available \
       --namespace=cattle-system --timeout=20m || _RANCHER_HELM_RC=$?
