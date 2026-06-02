@@ -82,8 +82,10 @@ _capture_err() {
 }
 trap '_capture_err "$LINENO" "$BASH_COMMAND"' ERR
 
+_SUDO_KEEPALIVE_PID=""
 _at_exit() {
   local _ec=$?
+  [[ -n "${_SUDO_KEEPALIVE_PID:-}" ]] && kill "$_SUDO_KEEPALIVE_PID" 2>/dev/null || true
   if [[ "$_BANNER_PRINTED" == "1" ]]; then
     return
   fi
@@ -197,6 +199,18 @@ fi
 # the network never came up (Vault binds 0.0.0.0:8200, reachable on 127.0.0.1).
 LAB_HOST_IP="${LAB_HOST_IP:-127.0.0.1}"
 VAULT_ADDR="http://${LAB_HOST_IP}:8200"
+
+# Cache sudo up-front when interactive so the auto-publish step at the end runs
+# without a mid-run prompt, and keep the timestamp fresh for the whole resume.
+# Skipped silently with no TTY (the login auto-resume agent) — auto-publish then
+# gates itself off via `sudo -n` and the user runs ./aks-lab publish manually.
+if [[ -t 0 || -n "${SSH_TTY:-}" ]]; then
+  if sudo -v 2>/dev/null; then
+    ( while true; do sudo -n true 2>/dev/null || exit; sleep 50; done ) &
+    _SUDO_KEEPALIVE_PID=$!
+    success "Sudo cached — LAN auto-publish will run at the end"
+  fi
+fi
 
 # ── Ensure Docker is running ──────────────────
 step "Checking Docker"
