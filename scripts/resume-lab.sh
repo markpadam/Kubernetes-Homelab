@@ -233,7 +233,7 @@ else
   minikube start -p "$PROFILE" &
   _MK_START_PID=$!
   # Wait until the control-plane container is up (workers haven't connected yet).
-  local _boot_waited=0
+  _boot_waited=0
   while [[ $_boot_waited -lt 60 ]]; do
     sleep 3; _boot_waited=$(( _boot_waited + 3 ))
     docker inspect "${PROFILE}" --format '{{.State.Status}}' 2>/dev/null | grep -q running && break
