@@ -243,21 +243,30 @@ else
   log "Pausing worker containers while control-plane API server completes startup..."
   docker pause "${PROFILE}-m02" "${PROFILE}-m03" "${PROFILE}-m04" 2>/dev/null || true
   wait $_MK_START_PID || true   # minikube start may exit non-zero when workers are paused — ignore
-  sleep 5
+
+  # Wait until the API server is actually responding (not just the container up).
+  # The PostStartHook "start-service-ip-repair-controllers" needs the internal
+  # service-cache to sync; this only completes when kubectl can list resources.
+  # Give it up to 120s; then wait an extra 10s for internal caches to populate
+  # before the worker flood starts.
+  log "Waiting for API server to become ready before unpausing workers..."
+  _api_waited=0
+  until kubectl get nodes --request-timeout=5s &>/dev/null 2>&1 || [[ $_api_waited -ge 120 ]]; do
+    sleep 3; _api_waited=$(( _api_waited + 3 ))
+  done
+  sleep 10   # extra buffer for internal cache population
+
+  # Also remove the Rancher extension APIService now while workers are still
+  # paused — this stops FailedDiscoveryCheck retries from adding load as soon
+  # as workers reconnect.
+  if feature_enabled rancher; then
+    kubectl delete apiservice v1.ext.cattle.io 2>/dev/null || true
+    kubectl patch service imperative-api-extension -n cattle-system \
+      -p '{"spec":{"publishNotReadyAddresses":true}}' 2>/dev/null || true
+  fi
+
   log "Unpausing worker containers..."
   docker unpause "${PROFILE}-m02" "${PROFILE}-m03" "${PROFILE}-m04" 2>/dev/null || true
-fi
-
-# Remove the Rancher extension APIService if Rancher is enabled — after a cold
-# restart the Rancher pod isn't ready when the API server starts, so the
-# FailedDiscoveryCheck retries add enough load to crash the API server's
-# PostStartHook. Delete it here; Rancher will re-register it once its pod is up.
-if feature_enabled rancher; then
-  log "Removing Rancher extension APIService (will be re-registered once Rancher pod is ready)..."
-  kubectl delete apiservice v1.ext.cattle.io 2>/dev/null || true
-  # Ensure the service publishes endpoints even before Rancher is fully ready.
-  kubectl patch service imperative-api-extension -n cattle-system \
-    -p '{"spec":{"publishNotReadyAddresses":true}}' 2>/dev/null || true
 fi
 
 log "Waiting for nodes to be Ready (repairs worker control-plane hosts entry if needed)..."
