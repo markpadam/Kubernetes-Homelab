@@ -2527,6 +2527,13 @@ else
   warn "Tunnel not serving 127.0.0.1:80 after 90s — web services may be briefly unreachable. Check /var/log/minikube-tunnel.log"
 fi
 
+# ── Auto-publish to the LAN ───────────────────────────────────────────────────
+# Expose the lab to other machines (MacBook) now that the tunnel + services are
+# up. sudo was just used for the tunnel, so it's cached — lab_auto_publish skips
+# cleanly if it isn't (it never blocks on a password prompt).
+step "Publishing to the LAN"
+lab_auto_publish "$_LIB_DIR"
+
 # ── Schedule heavy services across the cluster ──────────────────────
 # minikube can't size nodes asymmetrically, so we approximate a
 # "fat-primary / lean-workers" topology via soft node affinity.

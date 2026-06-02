@@ -378,6 +378,12 @@ else
   warn "Tunnel not serving 127.0.0.1:80 after 90s — web services may be briefly unreachable. Check /var/log/minikube-tunnel.log"
 fi
 
+# ── Auto-publish to the LAN ───────────────────────────────────────────────────
+# Re-expose the lab to the MacBook on resume. Skips cleanly (no prompt) when run
+# by the no-TTY login auto-resume agent — run ./aks-lab publish manually then.
+step "Publishing to the LAN"
+lab_auto_publish "$SCRIPT_DIR"
+
 # ── Retrieve runtime values for dashboard ────
 ARGOCD_PASSWORD=""
 ARGO_WORKFLOWS_TOKEN=""

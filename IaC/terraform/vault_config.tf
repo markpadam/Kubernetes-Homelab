@@ -199,8 +199,15 @@ resource "vault_pki_secret_backend_root_sign_intermediate" "int" {
 
 resource "vault_pki_secret_backend_intermediate_set_signed" "int" {
   backend = vault_mount.pki_int.path
-  # Full chain: intermediate cert + root cert so TLS clients can build the path.
-  certificate = "${vault_pki_secret_backend_root_sign_intermediate.int.certificate}\n${vault_pki_secret_backend_root_cert.root.certificate}"
+  # Import ONLY the signed intermediate certificate — NOT the root concatenated.
+  # Importing a bundle that contains the root (which has no private key in this
+  # mount) makes Vault fail to associate the generated key with the intermediate
+  # issuer, leaving a keyless issuer that 500s on every sign ("no default issuer"
+  # / "could not fetch the CA certificate"). With just the intermediate, Vault
+  # matches it to the key from the cert_request above. The root is trusted
+  # separately (macOS keychain), and Vault returns the intermediate in the
+  # signing ca_chain so TLS clients can still build the path to the trusted root.
+  certificate = vault_pki_secret_backend_root_sign_intermediate.int.certificate
 }
 
 resource "vault_pki_secret_backend_config_urls" "pki_int" {

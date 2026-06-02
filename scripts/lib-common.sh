@@ -670,6 +670,30 @@ _wait_until_ready() {
   return 0
 }
 
+# Auto-run lab-publish.sh at the end of setup/resume to expose the lab on the
+# LAN, but only when it's safe to do so unattended: not CI, a real LAN host IP,
+# and sudo usable WITHOUT a prompt (so it never blocks the run waiting for a
+# password — e.g. the no-TTY login auto-resume agent just skips it). Non-fatal.
+# Args: scripts_dir (the dir containing lab-publish.sh).
+lab_auto_publish() {
+  local scripts_dir="$1"
+  [[ "${CI_MODE:-0}" == "1" ]] && return 0
+  [[ -n "${LAB_HOST_IP:-}" && "$LAB_HOST_IP" != "127.0.0.1" ]] || {
+    warn "Skipping auto-publish — no LAN host IP detected (run ./aks-lab publish later if wanted)"
+    return 0
+  }
+  if ! sudo -n true 2>/dev/null; then
+    warn "Skipping auto-publish — sudo would prompt. Run ./aks-lab publish to enable LAN/MacBook access."
+    return 0
+  fi
+  log "Auto-publishing the lab to the LAN (${LAB_HOST_IP})..."
+  if LAB_HOST_IP="$LAB_HOST_IP" bash "${scripts_dir}/lab-publish.sh" >>"${LAB_LOG:-/tmp/lab-publish-auto.log}" 2>&1; then
+    success "Lab published on the LAN — reachable at *.aks-lab.local from machines pointing DNS at ${LAB_HOST_IP}"
+  else
+    warn "Auto-publish hit an issue — run ./aks-lab publish manually (details in ${LAB_LOG:-the publish log})"
+  fi
+}
+
 # Start a self-healing port-forward with a user-facing log line.
 # Args: name, local_port, kubectl_command, log_file. Relies on success/warn
 # (caller-defined) and LAB_HOST_IP.
