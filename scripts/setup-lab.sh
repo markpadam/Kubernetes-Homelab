@@ -780,7 +780,14 @@ if ! sudo -v; then
   echo -e "${RED}${BOLD}[✗]${RESET} sudo access denied — cannot continue." >&3
   exit 1
 fi
-echo -e "  ${GREEN}${BOLD}[✓]${RESET} Sudo credentials cached" >&3
+# Keep the sudo timestamp fresh for the WHOLE run. A full --all setup can take
+# well over an hour (Rancher alone waits up to 20m), far exceeding sudo's default
+# 5-minute cache. Without this refresh loop, late sudo operations (tunnel install,
+# auto-publish) hang on a password prompt that's hidden under the TUI. The PID is
+# killed in the _at_exit trap.
+( while true; do sudo -n true 2>/dev/null || exit; sleep 50; done ) &
+_SUDO_KEEPALIVE_PID=$!
+echo -e "  ${GREEN}${BOLD}[✓]${RESET} Sudo credentials cached (kept fresh for the run)" >&3
 
 # Write all /etc/hosts entries NOW while sudo is definitely cached.
 # The "Configuring Local DNS" step near the end just verifies they exist.
