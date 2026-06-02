@@ -70,6 +70,19 @@ Mirrors the tools used in production AKS. All optional — `./aks-lab feature en
 | [packer.md](iac/packer.md) | Packer VM image builder — pre-bake samba-ad and corp-client base images |
 | [ado.md](iac/ado.md) | Azure DevOps submodule — Bicep templates, YAML pipeline definitions, and self-hosted agent setup |
 
+## CLI tool references
+
+Per-tool references for working fast in the exam terminal (CKA / CKAD / CKS). Every tool covered is present in the real exam.
+
+| Doc | Description |
+|-----|-------------|
+| [cli/](cli/) | **Index** — vim, tmux, jq, grep/sed/awk/less, and bash, each with K8s-flavoured shortcuts and examples |
+| [cli/vim.md](cli/vim.md) | Editing YAML fast — modes, navigation, search/replace, paste-safe YAML, repo `\k`/`\d` apply shortcuts |
+| [cli/tmux.md](cli/tmux.md) | Splitting the terminal into kubectl / editor / logs panes (vanilla `Ctrl-b` vs repo `Ctrl-a`) |
+| [cli/jq.md](cli/jq.md) | Filtering `kubectl -o json` — `.items[]`, `select()`, decoding secrets, node/RBAC inspection |
+| [cli/text-tools.md](cli/text-tools.md) | grep / sed / awk / less for log hunting, bulk edits, and column extraction |
+| [cli/bash.md](cli/bash.md) | History search, redirection, heredocs, brace expansion, loops, and xargs |
+
 ## Guides
 
 | Doc | Description |

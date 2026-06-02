@@ -102,6 +102,8 @@ ETCDCTL_API=3 etcdctl snapshot save /tmp/snap.db \
 
 ## Part 2: tmux pane layout
 
+> Want the full tmux reference (sessions, panes, copy mode, vanilla `Ctrl-b` vs the repo's `Ctrl-a`)? See [docs/cli/tmux.md](../cli/tmux.md).
+
 In the real exam you have multiple terminal windows. In exam-sim, use tmux panes:
 
 ```bash
@@ -234,7 +236,9 @@ k auth can-i --list --as=system:serviceaccount:myns:mysa
 
 ## Part 6: vim cheat sheet for the exam
 
-```
+> This is the quick version. For the full vim reference — visual mode, search/replace, paste-safe YAML, and the repo's `\k`/`\d` apply shortcuts — see [docs/cli/vim.md](../cli/vim.md).
+
+```text
 i          — enter insert mode (INSERT key is disabled in the real exam)
 Esc        — exit insert mode
 :wq        — save and quit
