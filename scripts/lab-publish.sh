@@ -53,8 +53,11 @@ log "Publishing the lab on host IP ${BOLD}${LAB_HOST_IP}${RESET}"
 # Under Colima's docker driver, ALL cluster ports are exposed by Colima's SSH
 # port-forwarder directly on 127.0.0.1 (verified empirically). socat simply
 # bridges from the LAN IP to loopback for each port.
-# 80/443 = NGINX ingress; 8200 = Vault; other ports gated by enabled features.
-PORTS=(80 443 8200)
+# 80/443 = NGINX ingress; other ports gated by enabled features.
+# NOTE: Vault (:8200) is deliberately NOT published — the Vault dev server binds
+# 0.0.0.0:8200 itself, so it already serves the LAN directly. socat-forwarding
+# 8200 would steal that bind and stop Vault (and in-cluster cert-manager) working.
+PORTS=(80 443)
 feature_enabled azure-sql          && PORTS+=(1433)
 feature_enabled container-registry && PORTS+=(5000)
 feature_enabled service-bus        && PORTS+=(5672)

@@ -1992,6 +1992,11 @@ if feature_enabled vault; then
       2>&1 | tee /tmp/vault-terraform-apply.log; } \
     || error "Vault Terraform apply failed — check /tmp/vault-terraform-apply.log"
 
+  # Create the in-cluster vault-host Service so cert-manager's ClusterIssuer
+  # (vault-host.vault.svc.cluster.local:8200) can reach the host Vault.
+  lab_create_vault_host_service "$PROFILE" \
+    || warn "Could not create vault-host Service — cert-manager may not reach Vault for TLS issuance"
+
   log "Trusting Vault Root CA in macOS login Keychain..."
   _CA_FILE="/tmp/aks-lab-root-ca.crt"
   curl -sf "${VAULT_ADDR}/v1/pki/ca/pem" -o "$_CA_FILE" \

@@ -333,10 +333,17 @@ if feature_enabled vault; then
 
   if curl -sf "http://127.0.0.1:8200/v1/sys/health" >/dev/null 2>&1; then
     success "Vault already running at ${VAULT_ADDR}"
+    # Ensure the in-cluster vault-host Service exists even when Vault was already
+    # up (the cluster may have been recreated since Vault last started).
+    lab_create_vault_host_service "$PROFILE" \
+      || warn "Could not (re)create vault-host Service — cert-manager may not reach Vault"
   else
     warn "Vault not running — restarting dev server..."
     if lab_vault_dev_start; then
       success "Vault ready"
+      # Recreate the Service cert-manager uses to reach the host Vault.
+      lab_create_vault_host_service "$PROFILE" \
+        || warn "Could not create vault-host Service — cert-manager may not reach Vault"
       log "Reconfiguring Vault (KV v2, PKI, policies, Kubernetes auth)..."
       terraform -chdir=IaC/terraform init -input=false >>/tmp/vault-terraform-apply.log 2>&1
       terraform -chdir=IaC/terraform apply -auto-approve -input=false \

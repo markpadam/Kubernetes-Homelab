@@ -62,6 +62,53 @@ lab_start_port_forward() {
   kill -0 "$(cat "$pid_file")" 2>/dev/null
 }
 
+# Create the in-cluster Service that cert-manager's Vault ClusterIssuer targets
+# (server: http://vault-host.vault.svc.cluster.local:8200). The Vault dev server
+# runs on the Mac host (not in-cluster), so this is a selector-less Service with
+# a manually-managed Endpoints object pointing at the minikube host gateway
+# (host.minikube.internal). Without it, cert-manager can't reach Vault and every
+# *.aks-lab.local TLS certificate stays stuck (ingress/argocd/grafana/etc. fail).
+# $1 = minikube profile (control-plane container name). Returns 1 if the host
+# gateway can't be determined.
+lab_create_vault_host_service() {
+  local profile="$1" hostgw
+  hostgw=$(docker exec "$profile" sh -c 'grep host.minikube.internal /etc/hosts' 2>/dev/null \
+            | awk '{print $1}' | head -1)
+  [[ -n "$hostgw" ]] || return 1
+  kubectl apply -f - >/dev/null 2>&1 <<YAML || return 1
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-host
+  namespace: vault
+spec:
+  ports:
+    - name: vault
+      port: 8200
+      targetPort: 8200
+      protocol: TCP
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: vault-host
+  namespace: vault
+subsets:
+  - addresses:
+      - ip: ${hostgw}
+    ports:
+      - name: vault
+        port: 8200
+        protocol: TCP
+YAML
+  return 0
+}
+
 # Start the Vault dev server if it's not already responding on VAULT_ADDR.
 # No-op if Vault is already healthy. Returns 0 on success, 1 on timeout.
 #
@@ -73,14 +120,14 @@ lab_vault_dev_start() {
     return 0
   fi
   pkill -f "vault server -dev" 2>/dev/null || true
-  # Bind to 127.0.0.1 only. Binding 0.0.0.0:8200 conflicts with the socat
-  # publish daemon which owns <LAN_IP>:8200 — both share the same port number
-  # and macOS refuses the dual bind. Vault on loopback is fine: socat forwards
-  # LAN traffic (192.168.5.89:8200) → 127.0.0.1:8200, and the cluster reaches
-  # Vault via host.minikube.internal which also resolves to loopback.
+  # Bind to 0.0.0.0 so Vault is reachable BOTH from the LAN (192.168.x:8200)
+  # AND from in-cluster pods via the minikube host gateway (host.minikube.internal
+  # → 192.168.5.2:8200). cert-manager's ClusterIssuer reaches Vault this way, so
+  # loopback-only binding breaks TLS issuance. NOTE: lab-publish.sh must NOT also
+  # socat-forward :8200 — that would steal the LAN bind from Vault.
   VAULT_DEV_ROOT_TOKEN_ID="${token}" \
     vault server -dev \
-    -dev-listen-address="127.0.0.1:8200" \
+    -dev-listen-address="0.0.0.0:8200" \
     >> /tmp/vault-dev.log 2>&1 &
   echo $! > /tmp/vault-dev.pid
   local i
