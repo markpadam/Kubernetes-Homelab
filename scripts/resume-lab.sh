@@ -370,13 +370,15 @@ _pf "K8s API" 8443 "kubectl port-forward svc/kubernetes 8443:443 -n default --ad
 # Routes MetalLB IPs (172.16.3.0/24) from this host into the cluster.
 step "Restoring minikube tunnel"
 if [[ -f /Library/LaunchDaemons/com.lab.minikube-tunnel.plist ]]; then
-  # Kill the running process — launchd KeepAlive=true restarts it automatically.
-  # Avoids 'launchctl kickstart -k' which blocks on macOS Sequoia waiting for
-  # the old tunnel to release its network routes.
-  pkill -f "minikube tunnel" 2>/dev/null || true
+  # MUST use sudo: the tunnel runs as root (system LaunchDaemon), so a user-level
+  # pkill can't kill it — it would survive pointing at the OLD API port (which
+  # changes on every cluster restart) and never get replaced, leaving ingress
+  # unreachable. sudo pkill kills it so launchd (KeepAlive) respawns it fresh
+  # against the current kubeconfig. (Avoids 'launchctl kickstart -k' which blocks.)
+  sudo pkill -f "minikube tunnel" 2>/dev/null || pkill -f "minikube tunnel" 2>/dev/null || true
   success "minikube tunnel daemon restarting via launchd"
 else
-  pkill -f "minikube tunnel" 2>/dev/null || true
+  sudo pkill -f "minikube tunnel" 2>/dev/null || pkill -f "minikube tunnel" 2>/dev/null || true
   sudo minikube tunnel -p "$PROFILE" >> /tmp/minikube-tunnel.log 2>&1 &
   echo $! > /tmp/minikube-tunnel.pid
   sleep 3
