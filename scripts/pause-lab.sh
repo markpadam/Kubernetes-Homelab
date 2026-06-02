@@ -33,6 +33,24 @@ lab_load_features ".lab-state.json"
 echo ""
 log "Pausing the AKS Homelab (profile: $PROFILE)..."
 
+# 0) Pre-stop: if the cluster API is reachable, clean up objects that cause the
+#    API server to crash-loop on the next cold start:
+#    - Rancher's v1.ext.cattle.io extension APIService: the API server immediately
+#      tries to verify it on startup; if Rancher's pod isn't ready yet the check
+#      fails and adds so much retry load that the PostStartHook times out.
+#    - Scale cattle/fleet/capi deployments to 0 so they don't re-register it
+#      faster than we can delete it.
+if kubectl cluster-info &>/dev/null 2>&1; then
+  log "Pre-pause: removing Rancher extension APIService to prevent cold-start crash..."
+  kubectl delete apiservice v1.ext.cattle.io 2>/dev/null || true
+  for _ns in cattle-system cattle-fleet-system cattle-fleet-local-system cattle-capi-system cattle-turtles-system; do
+    kubectl get deploy -n "$_ns" --no-headers 2>/dev/null \
+      | awk '{print $1}' \
+      | xargs -I{} kubectl scale deploy {} -n "$_ns" --replicas=0 2>/dev/null || true
+  done
+  success "Rancher extension APIService removed — next resume will start cleanly"
+fi
+
 # 1) Host-side port-forwards: the self-healing wrappers (PID files) and any
 #    stray kubectl children. Killing the wrapper stops it respawning.
 for _pf_pid in /tmp/lab-pf-*.pid; do
