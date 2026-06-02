@@ -26,12 +26,15 @@ PostgreSQL               (1 replica, 1 Gi PVC)
 # See all TaskFlow resources at once
 kubectl get all -n taskapp
 
-# Three Deployments
+# Two Deployments (backend + frontend) and one StatefulSet (postgres)
 kubectl get deployment -n taskapp
 # NAME       READY   UP-TO-DATE
-# postgres   1/1     1
 # backend    2/2     2
 # frontend   2/2     2
+
+kubectl get statefulset -n taskapp
+# NAME       READY
+# postgres   1/1
 
 # The HorizontalPodAutoscaler watches the backend
 kubectl get hpa -n taskapp
@@ -69,12 +72,12 @@ for k, v in d.items():
 # POSTGRES_PASSWORD: taskpassword123
 
 # Connect to PostgreSQL with psql
-kubectl exec -n taskapp deploy/postgres -- \
+kubectl exec -n taskapp postgres-0 -- \
   psql -U taskuser -d taskdb -c "\dt"
 # Expect: tasks table (created on first backend startup)
 
 # Inspect the tasks table schema
-kubectl exec -n taskapp deploy/postgres -- \
+kubectl exec -n taskapp postgres-0 -- \
   psql -U taskuser -d taskdb -c "\d tasks"
 # id         SERIAL PRIMARY KEY
 # title      TEXT NOT NULL
@@ -82,11 +85,11 @@ kubectl exec -n taskapp deploy/postgres -- \
 # created_at TIMESTAMPTZ DEFAULT NOW()
 
 # See the current task rows
-kubectl exec -n taskapp deploy/postgres -- \
+kubectl exec -n taskapp postgres-0 -- \
   psql -U taskuser -d taskdb -c "SELECT * FROM tasks ORDER BY created_at DESC LIMIT 10;"
 
 # Check the PVC — data survives pod restarts
-kubectl get pvc postgres-pvc -n taskapp
+kubectl get pvc postgres-storage-postgres-0 -n taskapp
 # Expect: STATUS=Bound, CAPACITY=1Gi
 ```
 
@@ -94,18 +97,18 @@ kubectl get pvc postgres-pvc -n taskapp
 
 ```bash
 # Prove it: write a row, delete the pod, check the row still exists
-kubectl exec -n taskapp deploy/postgres -- \
+kubectl exec -n taskapp postgres-0 -- \
   psql -U taskuser -d taskdb -c "INSERT INTO tasks (title) VALUES ('survives restart');"
 
-kubectl delete pod -n taskapp -l app=postgres
-kubectl wait pod -n taskapp -l app=postgres --for=condition=Ready --timeout=60s
+kubectl delete pod -n taskapp postgres-0
+kubectl wait pod -n taskapp postgres-0 --for=condition=Ready --timeout=60s
 
-kubectl exec -n taskapp deploy/postgres -- \
+kubectl exec -n taskapp postgres-0 -- \
   psql -U taskuser -d taskdb -c "SELECT title FROM tasks WHERE title='survives restart';"
 # Row is still there
 ```
 
-**What you learn:** a PVC decouples storage from compute. The pod is ephemeral; the PVC is not. The `Recreate` deployment strategy on PostgreSQL ensures only one pod holds the PVC at a time (two pods trying to write to the same PostgreSQL data directory would corrupt it).
+**What you learn:** a PVC decouples storage from compute. The pod is ephemeral; the PVC is not. PostgreSQL runs as a StatefulSet (not a Deployment) — StatefulSets give each pod a stable name (`postgres-0`) and a dedicated PVC via `volumeClaimTemplates`, ensuring only one pod ever holds the data volume (two pods writing to the same PostgreSQL data directory would corrupt it).
 
 ---
 
@@ -318,7 +321,7 @@ curl -s -X POST https://taskflow.aks-lab.local:9444/api/tasks \
   -H 'Content-Type: application/json' \
   -d '{"title":"end to end test"}' | python3 -m json.tool
 
-kubectl exec -n taskapp deploy/postgres -- \
+kubectl exec -n taskapp postgres-0 -- \
   psql -U taskuser -d taskdb -c "SELECT title, created_at FROM tasks ORDER BY created_at DESC LIMIT 1;"
 ```
 
@@ -349,7 +352,7 @@ Browser POST https://taskflow.aks-lab.local:9444/api/tasks
 | List all tasks | `curl -s https://taskflow.aks-lab.local:9444/api/tasks` |
 | Create a task | `curl -s -X POST https://taskflow.aks-lab.local:9444/api/tasks -H 'Content-Type: application/json' -d '{"title":"..."}'` |
 | Backend health | `curl -s https://taskflow.aks-lab.local:9444/api/health` |
-| Connect to PostgreSQL | `kubectl exec -n taskapp deploy/postgres -- psql -U taskuser -d taskdb` |
+| Connect to PostgreSQL | `kubectl exec -n taskapp postgres-0 -- psql -U taskuser -d taskdb` |
 | Watch HPA | `kubectl get hpa backend-hpa -n taskapp -w` |
 | Backend logs | `kubectl logs -n taskapp deploy/backend -f` |
 | Frontend logs | `kubectl logs -n taskapp deploy/frontend -f` |
