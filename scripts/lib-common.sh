@@ -341,6 +341,42 @@ lab_coredns_patch_samba() {
   return 0
 }
 
+# After a cold multi-node start, the API server can crash-loop under the
+# simultaneous reconnection load of all workers (its PostStartHook
+# "start-service-ip-repair-controllers" times out). This pauses the workers,
+# lets the control-plane API stabilise on its own, drops the Rancher extension
+# APIService (a FailedDiscoveryCheck load source), then unpauses workers ONE AT
+# A TIME with a health gate between each. A worker that repeatedly destabilises
+# the API is left paused (its pods reschedule onto Ready nodes) so the cluster
+# stays up rather than crash-looping. $1 = profile. Always returns 0.
+lab_stabilise_workers() {
+  local profile="$1" w i ok waited
+  local workers
+  mapfile -t workers < <(docker ps -a --filter "name=^/${profile}-m" --format '{{.Names}}' 2>/dev/null | sort)
+  [[ ${#workers[@]} -gt 0 ]] || return 0
+
+  docker pause "${workers[@]}" 2>/dev/null || true   # quiet window for the API
+  waited=0
+  until kubectl get --raw=/readyz &>/dev/null 2>&1 || [[ $waited -ge 180 ]]; do
+    sleep 5; waited=$(( waited + 5 ))
+  done
+  kubectl delete apiservice v1.ext.cattle.io 2>/dev/null || true
+
+  for w in "${workers[@]}"; do
+    docker unpause "$w" 2>/dev/null || true
+    ok=0
+    for i in $(seq 1 24); do                          # up to 120s to confirm stable
+      sleep 5
+      if kubectl get --raw=/readyz &>/dev/null 2>&1; then ok=$(( ok + 1 )); else ok=0; fi
+      [[ $ok -ge 4 ]] && break                        # 20s continuously healthy
+    done
+    if ! kubectl get --raw=/readyz &>/dev/null 2>&1; then
+      docker pause "$w" 2>/dev/null || true           # this worker overloads the API — keep it out
+    fi
+  done
+  return 0
+}
+
 # A cold-restarted worker loses its /etc/hosts entry for
 # control-plane.minikube.internal and can't re-register with kubelet. Re-add it
 # (idempotent) and bounce kubelet on any worker missing it. No-op (returns 1) if

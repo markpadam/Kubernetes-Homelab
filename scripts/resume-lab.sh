@@ -224,49 +224,18 @@ if [[ "$_mk_status" == *"Running"* ]]; then
   warn "Cluster already running — skipping start."
 else
   log "Starting minikube profile '$PROFILE'..."
-  # Cold-start guard: pause worker containers immediately after minikube starts
-  # them so they don't flood the API server before it completes its PostStartHooks.
-  # A 4-node cluster resuming from cold has dozens of pods retrying simultaneously;
-  # if the API server's "start-service-ip-repair-controllers" hook times out under
-  # that load it crashes in a restart loop. Pausing workers gives the control plane
-  # ~20s of quiet to get through the hooks, then we unpause them.
-  minikube start -p "$PROFILE" &
-  _MK_START_PID=$!
-  # Wait until the control-plane container is up (workers haven't connected yet).
-  _boot_waited=0
-  while [[ $_boot_waited -lt 60 ]]; do
-    sleep 3; _boot_waited=$(( _boot_waited + 3 ))
-    docker inspect "${PROFILE}" --format '{{.State.Status}}' 2>/dev/null | grep -q running && break
-  done
-  # Pause workers now — they may not exist yet if minikube is still starting,
-  # but `docker pause` on a non-existent container is a silent no-op.
-  log "Pausing worker containers while control-plane API server completes startup..."
-  docker pause "${PROFILE}-m02" "${PROFILE}-m03" "${PROFILE}-m04" 2>/dev/null || true
-  wait $_MK_START_PID || true   # minikube start may exit non-zero when workers are paused — ignore
+  # Let minikube bring the whole cluster up (it updates the kubeconfig with the
+  # current API port — which changes on each docker restart). It prints "Done!"
+  # even if the API server then crashes under load, so we don't trust its exit.
+  minikube start -p "$PROFILE" || warn "minikube start returned non-zero — stabilising workers next"
 
-  # Wait until the API server is actually responding (not just the container up).
-  # The PostStartHook "start-service-ip-repair-controllers" needs the internal
-  # service-cache to sync; this only completes when kubectl can list resources.
-  # Give it up to 120s; then wait an extra 10s for internal caches to populate
-  # before the worker flood starts.
-  log "Waiting for API server to become ready before unpausing workers..."
-  _api_waited=0
-  until kubectl get nodes --request-timeout=5s &>/dev/null 2>&1 || [[ $_api_waited -ge 120 ]]; do
-    sleep 3; _api_waited=$(( _api_waited + 3 ))
-  done
-  sleep 10   # extra buffer for internal cache population
-
-  # Also remove the Rancher extension APIService now while workers are still
-  # paused — this stops FailedDiscoveryCheck retries from adding load as soon
-  # as workers reconnect.
-  if feature_enabled rancher; then
-    kubectl delete apiservice v1.ext.cattle.io 2>/dev/null || true
-    kubectl patch service imperative-api-extension -n cattle-system \
-      -p '{"spec":{"publishNotReadyAddresses":true}}' 2>/dev/null || true
-  fi
-
-  log "Unpausing worker containers..."
-  docker unpause "${PROFILE}-m02" "${PROFILE}-m03" "${PROFILE}-m04" 2>/dev/null || true
+  # Cold multi-node restarts crash the API server when all workers reconnect at
+  # once. lab_stabilise_workers pauses the workers, lets the control-plane API
+  # settle, drops the Rancher extension APIService, then re-adds workers ONE AT
+  # A TIME with a health gate — leaving any worker that overloads the API paused
+  # so the cluster stays up. (This is what makes resume reliable on this box.)
+  log "Stabilising workers (staggered) to avoid API-server overload on cold restart..."
+  lab_stabilise_workers "$PROFILE"
 fi
 
 log "Waiting for nodes to be Ready (repairs worker control-plane hosts entry if needed)..."
