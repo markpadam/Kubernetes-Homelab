@@ -1485,8 +1485,14 @@ if feature_enabled rancher; then
     # finish coming up instead of hanging until the 20m wait times out.
     ( for _i in $(seq 1 90); do
         if kubectl get svc imperative-api-extension -n cattle-system &>/dev/null; then
+          # Publish the not-ready pod's endpoint AND delete the stale, failing
+          # v1.ext.cattle.io APIService. The patch alone isn't enough — the
+          # APIService sits in FailedDiscoveryCheck (503s) until Rancher's :6666
+          # server is up, and those 503s block Rancher from starting. Deleting it
+          # clears the aggregation entry; Rancher re-registers it once ready.
           kubectl patch svc imperative-api-extension -n cattle-system \
             -p '{"spec":{"publishNotReadyAddresses":true}}' &>/dev/null
+          kubectl delete apiservice v1.ext.cattle.io &>/dev/null
           break
         fi
         sleep 10
