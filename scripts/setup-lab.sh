@@ -574,7 +574,7 @@ success "Features loaded: ${ENABLED_FEATURES:-none}"
 #   Standard   2C/4G  per node × 3  → 12 GB cluster  ~14 GB Colima  (16 GB Mac, recommended)
 #   High       3C/5G  per node × 3  → 15 GB cluster  ~18 GB Colima  (16-32 GB Mac, full feature set)
 #   Very High  4C/7G  per node × 3  → 21 GB cluster  ~24 GB Colima  (32 GB Mac, all services + replicas)
-#   Extra High 4C/10G per node × 4  → 40 GB cluster  ~44 GB Colima  (48 GB Mac Pro / workstation)
+#   Extra High 4C/10G per node × 3  → 30 GB cluster  ~34 GB Colima  (48 GB Mac Pro / workstation)
 if [[ -n "${LAB_RESOURCE_TIER:-}" || "$CI_MODE" == "1" ]]; then
   _tier="${LAB_RESOURCE_TIER:-1}"
   [[ "$CI_MODE" == "1" ]] && log "CI mode: resource tier auto-set to Low (override with LAB_RESOURCE_TIER)"
@@ -585,7 +585,7 @@ else
   printf "    2) Standard  — 2 CPU / 4 GB × 3 nodes  (12 GB cluster, ~14 GB Colima) [default]\n" >&3
   printf "    3) High      — 3 CPU / 5 GB × 3 nodes  (15 GB cluster, ~18 GB Colima, full feature set)\n" >&3
   printf "    4) Very High — 4 CPU / 7 GB × 3 nodes  (21 GB cluster, ~24 GB Colima, 32 GB Mac)\n" >&3
-  printf "    5) Extra High — 4 CPU /10 GB × 4 nodes  (40 GB cluster, ~44 GB Colima, 48 GB Mac/workstation)\n" >&3
+  printf "    5) Extra High — 4 CPU /10 GB × 3 nodes  (30 GB cluster, ~34 GB Colima, 48 GB Mac/workstation)\n" >&3
   printf "\n" >&3
   printf "  Choice [1-5, Enter=2]: " >&3
   read -r _tier <&0
@@ -611,13 +611,13 @@ case "${_tier:-2}" in
     success "Resource tier: Very High  (4 CPU / 7 GB × 3 nodes)"
     ;;
   5)
-    # 4-node cluster sized for a 12-core / 48 GB workstation.
-    # Leaves ~4 GB + 2 cores for macOS and Colima overhead.
-    NODES=4
+    # 3-node high-memory tier for a 12-core / 48 GB workstation.
+    # A 4th node was tried but the API server can't absorb all 4 reconnecting on
+    # a cold restart (resume becomes unreliable); 3 nodes is the supported max.
     CPUS=4; MEMORY=10240
     SAMBA_CPUS=4; SAMBA_MEM="6G"; SAMBA_DISK="60G"
     CLIENT_CPUS=4; CLIENT_MEM="6G"; CLIENT_DISK="40G"
-    success "Resource tier: Extra High  (4 CPU / 10 GB × 4 nodes)"
+    success "Resource tier: Extra High  (4 CPU / 10 GB × 3 nodes)"
     ;;
   *)
     CPUS=2; MEMORY=4096
