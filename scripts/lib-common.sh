@@ -73,11 +73,14 @@ lab_vault_dev_start() {
     return 0
   fi
   pkill -f "vault server -dev" 2>/dev/null || true
-  # Always bind to 0.0.0.0 so vault starts even when LAB_HOST_IP is not yet
-  # assigned to a local interface (e.g. right after Colima starts).
+  # Bind to 127.0.0.1 only. Binding 0.0.0.0:8200 conflicts with the socat
+  # publish daemon which owns <LAN_IP>:8200 — both share the same port number
+  # and macOS refuses the dual bind. Vault on loopback is fine: socat forwards
+  # LAN traffic (192.168.5.89:8200) → 127.0.0.1:8200, and the cluster reaches
+  # Vault via host.minikube.internal which also resolves to loopback.
   VAULT_DEV_ROOT_TOKEN_ID="${token}" \
     vault server -dev \
-    -dev-listen-address="0.0.0.0:8200" \
+    -dev-listen-address="127.0.0.1:8200" \
     >> /tmp/vault-dev.log 2>&1 &
   echo $! > /tmp/vault-dev.pid
   local i

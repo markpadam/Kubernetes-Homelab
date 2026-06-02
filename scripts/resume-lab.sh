@@ -224,14 +224,43 @@ if [[ "$_mk_status" == *"Running"* ]]; then
   warn "Cluster already running — skipping start."
 else
   log "Starting minikube profile '$PROFILE'..."
-  minikube start -p "$PROFILE"
+  # Cold-start guard: pause worker containers immediately after minikube starts
+  # them so they don't flood the API server before it completes its PostStartHooks.
+  # A 4-node cluster resuming from cold has dozens of pods retrying simultaneously;
+  # if the API server's "start-service-ip-repair-controllers" hook times out under
+  # that load it crashes in a restart loop. Pausing workers gives the control plane
+  # ~20s of quiet to get through the hooks, then we unpause them.
+  minikube start -p "$PROFILE" &
+  _MK_START_PID=$!
+  # Wait until the control-plane container is up (workers haven't connected yet).
+  local _boot_waited=0
+  while [[ $_boot_waited -lt 60 ]]; do
+    sleep 3; _boot_waited=$(( _boot_waited + 3 ))
+    docker inspect "${PROFILE}" --format '{{.State.Status}}' 2>/dev/null | grep -q running && break
+  done
+  # Pause workers now — they may not exist yet if minikube is still starting,
+  # but `docker pause` on a non-existent container is a silent no-op.
+  log "Pausing worker containers while control-plane API server completes startup..."
+  docker pause "${PROFILE}-m02" "${PROFILE}-m03" "${PROFILE}-m04" 2>/dev/null || true
+  wait $_MK_START_PID || true   # minikube start may exit non-zero when workers are paused — ignore
+  sleep 5
+  log "Unpausing worker containers..."
+  docker unpause "${PROFILE}-m02" "${PROFILE}-m03" "${PROFILE}-m04" 2>/dev/null || true
+fi
+
+# Remove the Rancher extension APIService if Rancher is enabled — after a cold
+# restart the Rancher pod isn't ready when the API server starts, so the
+# FailedDiscoveryCheck retries add enough load to crash the API server's
+# PostStartHook. Delete it here; Rancher will re-register it once its pod is up.
+if feature_enabled rancher; then
+  log "Removing Rancher extension APIService (will be re-registered once Rancher pod is ready)..."
+  kubectl delete apiservice v1.ext.cattle.io 2>/dev/null || true
+  # Ensure the service publishes endpoints even before Rancher is fully ready.
+  kubectl patch service imperative-api-extension -n cattle-system \
+    -p '{"spec":{"publishNotReadyAddresses":true}}' 2>/dev/null || true
 fi
 
 log "Waiting for nodes to be Ready (repairs worker control-plane hosts entry if needed)..."
-# A cold multi-node restart is slow on a 2013 Mac and a worker can be stuck
-# NotReady because it lost its control-plane.minikube.internal /etc/hosts entry.
-# lab_wait_nodes_ready waits for the API, then re-applies that repair between
-# polls until all nodes are Ready or the budget (7 min) expires.
 if ! lab_wait_nodes_ready "$PROFILE" 420; then
   kubectl get nodes 2>/dev/null || true
   error "Nodes did not all reach Ready within 7 min. Check: kubectl get nodes ; minikube logs -p $PROFILE"
