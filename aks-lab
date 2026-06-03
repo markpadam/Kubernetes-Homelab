@@ -51,6 +51,7 @@ _usage() {
   echo -e "                                     reset the enabled list
 "
   echo -e "${BOLD}Other:${RESET}"
+  echo -e "  wake [--set-mac <MAC>] [--wait]    send Wake-on-LAN magic packet to the lab host"
   echo -e "  publish                            make the lab reachable from other machines on the LAN"
   echo -e "  dashboard                          open the web dashboard"
   echo -e "  help                               show this message
@@ -107,6 +108,10 @@ case "${1:-}" in
   feature|features)
     shift
     exec bash "$SCRIPTS/lab-feature.sh" "$@"
+    ;;
+  wake)
+    shift
+    exec bash "$SCRIPTS/wake-lab.sh" "$@"
     ;;
   publish)
     shift
