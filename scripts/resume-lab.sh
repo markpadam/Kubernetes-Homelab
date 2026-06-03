@@ -259,6 +259,16 @@ if ! lab_wait_nodes_ready "$PROFILE" 420; then
 fi
 success "Cluster up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes ready"
 
+# ── Rancher ───────────────────────────────────
+# pause-lab.sh scaled the cattle-system deployments to 0; bring the Rancher core
+# back up now (early) so it has a head start — Rancher is slow to initialise and
+# would otherwise still be CrashLooping when the final readiness watcher runs.
+if feature_enabled rancher; then
+  step "Restoring Rancher"
+  lab_rancher_restore "$PROFILE"
+  success "Rancher restore kicked — webhook scaled up, extension-API deadlock fix re-applied"
+fi
+
 # ── SambaAD VMs ───────────────────────────────
 SAMBA_IP=""
 if feature_enabled samba-ad; then

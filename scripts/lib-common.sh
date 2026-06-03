@@ -418,6 +418,47 @@ lab_wait_nodes_ready() {
   done
 }
 
+# pause-lab.sh scales every deployment in cattle-system (and the fleet/capi
+# namespaces) to 0 on pause, so the Rancher extension APIService can be deleted
+# without being re-registered mid-delete. Resume must bring the Rancher CORE back
+# up — otherwise Rancher CrashLoops on restart:
+#   1. rancher-webhook at 0 replicas + its validating webhook
+#      (rancher.cattle.io.namespaces.create-non-kubesystem, failurePolicy=Fail)
+#      means Rancher's own namespace-create calls are refused → [FATAL] → CrashLoop.
+#   2. The imperative-api-extension Service is recreated without
+#      publishNotReadyAddresses, so v1.ext.cattle.io stays MissingEndpoints and
+#      the pod never goes Ready (the v2.9+ extension-API deadlock).
+# Fleet/CAPI are intentionally left at 0 (RAM saving — matches _enable_rancher).
+# Kicks the restore and returns; the live readiness watcher tracks the rest.
+# $1 = profile (unused today, kept for signature parity). Always returns 0.
+lab_rancher_restore() {
+  kubectl get ns cattle-system &>/dev/null || return 0
+
+  # 1) Webhook FIRST — it must be serving before Rancher retries, or Rancher's
+  #    namespace-create calls FATAL with "connection refused".
+  if kubectl get deploy rancher-webhook -n cattle-system &>/dev/null; then
+    [[ "$(kubectl get deploy rancher-webhook -n cattle-system -o jsonpath='{.spec.replicas}' 2>/dev/null)" == "0" ]] \
+      && kubectl scale deploy rancher-webhook -n cattle-system --replicas=1 &>/dev/null
+    kubectl rollout status deploy rancher-webhook -n cattle-system --timeout=120s &>/dev/null \
+      || warn "rancher-webhook not ready yet — Rancher may take longer to start"
+  fi
+
+  # 2) Re-apply the v2.9+ extension-API deadlock fix (publishNotReadyAddresses) —
+  #    the Service is recreated by Rancher without it on each restart.
+  kubectl patch service imperative-api-extension -n cattle-system \
+    -p '{"spec":{"publishNotReadyAddresses":true}}' &>/dev/null || true
+
+  # 3) Scale the Rancher server back up; if it isn't Available (its pod likely
+  #    FATAL'd against the previously-absent webhook), restart it to retry now.
+  if kubectl get deploy rancher -n cattle-system &>/dev/null; then
+    [[ "$(kubectl get deploy rancher -n cattle-system -o jsonpath='{.spec.replicas}' 2>/dev/null)" == "0" ]] \
+      && kubectl scale deploy rancher -n cattle-system --replicas=1 &>/dev/null
+    kubectl wait deploy rancher -n cattle-system --for=condition=available --timeout=5s &>/dev/null \
+      || kubectl rollout restart deploy rancher -n cattle-system &>/dev/null || true
+  fi
+  return 0
+}
+
 # ─────────────────────────────────────────────
 #  Shared health-check + readiness-watcher engine
 #
