@@ -271,6 +271,18 @@
   <div class="panel">
     <div class="cmd-row">ssh aks-toolbox<button class="copy-btn" onclick="cp(this,'ssh aks-toolbox')">copy</button></div>
     <div class="cmd-row">ssh -p 2222 root@localhost<button class="copy-btn" onclick="cp(this,'ssh -p 2222 root@localhost')">copy</button></div>
+    <div style="font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:12px 0 6px">Exec</div>
+    <div class="cmd-row">kubectl exec -it -n toolbox deploy/toolbox -- bash<button class="copy-btn" onclick="cp(this,'kubectl exec -it -n toolbox deploy/toolbox -- bash')">copy</button></div>
+    <div class="cmd-row">kubectl exec -it -n azure-sql deploy/mssql -- bash<button class="copy-btn" onclick="cp(this,'kubectl exec -it -n azure-sql deploy/mssql -- bash')">copy</button></div>
+    <div class="cmd-row">kubectl exec -it -n vault vault-0 -- sh<button class="copy-btn" onclick="cp(this,'kubectl exec -it -n vault vault-0 -- sh')">copy</button></div>
+    <div style="font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:12px 0 6px">Port-forward</div>
+    <div class="cmd-row">kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090<button class="copy-btn" onclick="cp(this,'kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090')">copy</button></div>
+    <div class="cmd-row">kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-alertmanager 9093:9093<button class="copy-btn" onclick="cp(this,'kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-alertmanager 9093:9093')">copy</button></div>
+    <div class="cmd-row">kubectl -n argocd port-forward svc/argocd-server 8080:443<button class="copy-btn" onclick="cp(this,'kubectl -n argocd port-forward svc/argocd-server 8080:443')">copy</button></div>
+    <div style="font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:12px 0 6px">Debug</div>
+    <div class="cmd-row">kubectl top pods -A --sort-by=cpu<button class="copy-btn" onclick="cp(this,'kubectl top pods -A --sort-by=cpu')">copy</button></div>
+    <div class="cmd-row">kubectl get events -A --sort-by=.lastTimestamp<button class="copy-btn" onclick="cp(this,'kubectl get events -A --sort-by=.lastTimestamp')">copy</button></div>
+    <div class="cmd-row">kubectl describe node<button class="copy-btn" onclick="cp(this,'kubectl describe node')">copy</button></div>
   </div>
 </div>
 
