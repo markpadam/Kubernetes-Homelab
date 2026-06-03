@@ -385,6 +385,51 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._stream(key, ["bash", LAB_FEATURE, action, comp_id])
             return
 
+        # ── Docs listing ──────────────────────────────────────────
+        if path == "/api/docs":
+            docs_root = REPO_ROOT / "docs"
+            docs = []
+            category_map = {
+                "services":  "Services",
+                "guides":    "Guides",
+                "cli":       "CLI Tools",
+                "iac":       "IaC",
+                "tools":     "Tools",
+            }
+            for md_file in sorted(docs_root.rglob("*.md")):
+                rel = md_file.relative_to(docs_root)
+                parts = rel.parts
+                if len(parts) == 1:
+                    category = "Overview"
+                elif parts[0] == "guides" and len(parts) > 2 and parts[1] == "incidenthub":
+                    category = "IncidentHub"
+                else:
+                    category = category_map.get(parts[0], parts[0].title())
+                stem = md_file.stem
+                if stem.upper() == "README":
+                    title = (rel.parts[-2].replace("-", " ").title() + " — Index") if len(parts) > 1 else "Overview"
+                else:
+                    title = re.sub(r"^\d+-", "", stem).replace("-", " ").title()
+                docs.append({"path": str(rel), "title": title, "category": category})
+            self._send_json(200, json.dumps(docs).encode())
+            return
+
+        # ── Doc content ────────────────────────────────────────────
+        if path == "/api/docs/content":
+            qs = parse_qs(urlparse(self.path).query)
+            doc_path = (qs.get("path", [""]) or [""])[0]
+            try:
+                docs_root = (REPO_ROOT / "docs").resolve()
+                target = (docs_root / doc_path).resolve()
+                target.relative_to(docs_root)  # raises ValueError if outside docs/
+                if not target.is_file() or target.suffix != ".md":
+                    self._text(404, "Not found")
+                    return
+                self._send_json(200, json.dumps({"content": target.read_text()}).encode())
+            except (ValueError, OSError):
+                self._text(400, "Invalid path")
+            return
+
         self._text(404, "Not found")
 
     def do_POST(self):

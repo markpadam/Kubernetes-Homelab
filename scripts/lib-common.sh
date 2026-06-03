@@ -443,12 +443,7 @@ lab_rancher_restore() {
       || warn "rancher-webhook not ready yet — Rancher may take longer to start"
   fi
 
-  # 2) Re-apply the v2.9+ extension-API deadlock fix (publishNotReadyAddresses) —
-  #    the Service is recreated by Rancher without it on each restart.
-  kubectl patch service imperative-api-extension -n cattle-system \
-    -p '{"spec":{"publishNotReadyAddresses":true}}' &>/dev/null || true
-
-  # 3) Scale the Rancher server back up; if it isn't Available (its pod likely
+  # 2) Scale the Rancher server back up; if it isn't Available (its pod likely
   #    FATAL'd against the previously-absent webhook), restart it to retry now.
   if kubectl get deploy rancher -n cattle-system &>/dev/null; then
     [[ "$(kubectl get deploy rancher -n cattle-system -o jsonpath='{.spec.replicas}' 2>/dev/null)" == "0" ]] \
@@ -456,6 +451,16 @@ lab_rancher_restore() {
     kubectl wait deploy rancher -n cattle-system --for=condition=available --timeout=5s &>/dev/null \
       || kubectl rollout restart deploy rancher -n cattle-system &>/dev/null || true
   fi
+
+  # 3) Re-apply the v2.9+ extension-API deadlock fix (publishNotReadyAddresses).
+  #    Rancher recreates imperative-api-extension on every startup, wiping the flag.
+  #    Patch AFTER the scale/restart so we're patching the freshly-created Service,
+  #    not a pre-restart copy that Rancher will overwrite moments later.
+  local deadline=$(( $(date +%s) + 30 ))
+  until kubectl get service imperative-api-extension -n cattle-system &>/dev/null \
+      || (( $(date +%s) >= deadline )); do sleep 2; done
+  kubectl patch service imperative-api-extension -n cattle-system \
+    -p '{"spec":{"publishNotReadyAddresses":true}}' &>/dev/null || true
   return 0
 }
 

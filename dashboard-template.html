@@ -94,6 +94,51 @@
     .bar-fill.danger { background: #f85149; }
     .node-updated { font-size: 10px; color: var(--muted); margin-top: 4px; text-align: right; }
     #node-metrics-err { font-size: 12px; color: var(--muted); padding: 8px 0; }
+    /* ── Wiki / Docs ─────────────────────────────────────────────── */
+    .docs-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 4px 14px; font-size: 13px; cursor: pointer; margin-left: auto; transition: border-color .15s, color .15s; }
+    .docs-btn:hover { border-color: var(--blue); color: var(--blue); }
+    .wiki-page { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 200; flex-direction: column; }
+    .wiki-page.wiki-open { display: flex; }
+    .wiki-topbar { display: flex; align-items: center; gap: 14px; padding: 12px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .wiki-back-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 4px 14px; font-size: 13px; cursor: pointer; flex-shrink: 0; transition: border-color .15s, color .15s; }
+    .wiki-back-btn:hover { border-color: var(--blue); color: var(--blue); }
+    .wiki-topbar-title { font-size: 14px; font-weight: 600; color: var(--text); }
+    .wiki-search { margin-left: auto; background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 5px 12px; font-size: 13px; width: 220px; outline: none; }
+    .wiki-search:focus { border-color: var(--blue); }
+    .wiki-body { display: flex; flex: 1; overflow: hidden; }
+    .wiki-nav { width: 230px; flex-shrink: 0; border-right: 1px solid var(--border); overflow-y: auto; padding: 12px 0; }
+    .wiki-sec-hdr { display: flex; align-items: center; justify-content: space-between; padding: 5px 14px 4px; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); cursor: pointer; user-select: none; }
+    .wiki-sec-hdr:hover { color: var(--text); }
+    .wiki-sec-hdr .chev { display: inline-block; transition: transform .18s; }
+    .wiki-sec-hdr.collapsed .chev { transform: rotate(-90deg); }
+    .wiki-sec-items { padding: 2px 8px 8px; }
+    .wiki-sec-items.hidden { display: none; }
+    .wiki-nav-item { display: block; width: 100%; background: none; border: none; text-align: left; padding: 5px 10px; border-radius: 5px; font-size: 13px; color: var(--text); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wiki-nav-item:hover { background: var(--card); }
+    .wiki-nav-item.active { background: #1f6feb22; color: var(--blue); }
+    .wiki-content { flex: 1; overflow-y: auto; padding: 36px 52px; }
+    .wiki-welcome { color: var(--muted); font-size: 14px; margin-top: 60px; text-align: center; }
+    /* Markdown rendering */
+    .wiki-md { line-height: 1.75; font-size: 15px; max-width: 780px; }
+    .wiki-md h1 { font-size: 24px; font-weight: 700; margin: 0 0 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+    .wiki-md h2 { font-size: 18px; font-weight: 600; margin: 32px 0 10px; }
+    .wiki-md h3 { font-size: 15px; font-weight: 600; margin: 22px 0 7px; }
+    .wiki-md h4 { font-size: 14px; font-weight: 600; margin: 18px 0 6px; }
+    .wiki-md p { margin: 0 0 13px; }
+    .wiki-md ul, .wiki-md ol { margin: 0 0 13px; padding-left: 22px; }
+    .wiki-md li { margin-bottom: 4px; }
+    .wiki-md code { background: #161b22; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-family: monospace; font-size: 13px; color: #e3b341; }
+    .wiki-md pre { background: #010409; border: 1px solid var(--border); border-radius: 8px; padding: 16px; overflow-x: auto; margin: 0 0 16px; }
+    .wiki-md pre code { background: none; border: none; padding: 0; color: #c9d1d9; font-size: 13px; }
+    .wiki-md blockquote { border-left: 3px solid var(--border); margin: 0 0 13px; padding: 4px 16px; color: var(--muted); }
+    .wiki-md table { border-collapse: collapse; margin: 0 0 16px; width: 100%; font-size: 14px; }
+    .wiki-md th { background: var(--card); padding: 8px 12px; text-align: left; border: 1px solid var(--border); font-weight: 600; }
+    .wiki-md td { padding: 7px 12px; border: 1px solid var(--border); }
+    .wiki-md tr:nth-child(even) td { background: #0d111744; }
+    .wiki-md a { color: var(--blue); text-decoration: none; }
+    .wiki-md a:hover { text-decoration: underline; }
+    .wiki-md hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+    .wiki-md img { max-width: 100%; border-radius: 6px; }
   </style>
 </head>
 <body>
@@ -102,6 +147,7 @@
   <div class="dot"></div>
   <h1>AKS Lab</h1>
   <span class="badge">${PROFILE}</span>
+  <button class="docs-btn" onclick="showWiki()">Docs &#x2197;</button>
 </div>
 
 <div class="section-title">Node Monitoring <span id="node-updated" style="font-size:10px;color:var(--muted);font-weight:400;margin-left:8px"></span></div>
@@ -417,6 +463,23 @@
     <div class="modal-btns">
       <button class="modal-cancel" onclick="closeTeardownModal()">Cancel</button>
       <button class="modal-confirm" onclick="closeTeardownModal(); runScript('teardown')">Teardown</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Wiki / Docs overlay ──────────────────────────────────────────────── -->
+<div id="wiki-page" class="wiki-page">
+  <div class="wiki-topbar">
+    <button class="wiki-back-btn" onclick="hideWiki()">&#x2190; Dashboard</button>
+    <span class="wiki-topbar-title">Documentation</span>
+    <input id="wiki-search" class="wiki-search" type="text" placeholder="Filter docs…" oninput="wikiFilter(this.value)" />
+  </div>
+  <div class="wiki-body">
+    <nav id="wiki-nav" class="wiki-nav">
+      <div style="padding:16px;color:var(--muted);font-size:13px">Loading…</div>
+    </nav>
+    <div id="wiki-content" class="wiki-content">
+      <div class="wiki-welcome">Select a document from the sidebar to get started.</div>
     </div>
   </div>
 </div>
@@ -1037,6 +1100,111 @@
         btn.style.color = '#f85149';
         setTimeout(function() { btn.textContent = 'Connect Desktop'; btn.style.color = ''; btn.disabled = false; }, 3000);
       });
+  }
+
+  // ── Wiki / Docs ──────────────────────────────────────────────────────────
+  var _wikiDocs = null;
+  var _wikiActiveBtn = null;
+  var _wikiFilterVal = '';
+  var _WIKI_CAT_ORDER = ['Overview', 'Services', 'Guides', 'IncidentHub', 'CLI Tools', 'IaC', 'Tools'];
+
+  function showWiki() {
+    document.getElementById('wiki-page').classList.add('wiki-open');
+    if (!_wikiDocs) _wikiLoadDocs();
+  }
+
+  function hideWiki() {
+    document.getElementById('wiki-page').classList.remove('wiki-open');
+  }
+
+  function _wikiLoadDocs() {
+    _authFetch('/api/docs')
+      .then(function(r) { return r.json(); })
+      .then(function(docs) {
+        _wikiDocs = docs;
+        _wikiRenderNav(docs);
+      })
+      .catch(function() {
+        document.getElementById('wiki-nav').innerHTML =
+          '<div style="padding:16px;color:#f85149;font-size:13px">Failed to load docs — is the server running?</div>';
+      });
+  }
+
+  function _wikiRenderNav(docs) {
+    var f = _wikiFilterVal.toLowerCase();
+    var visible = f ? docs.filter(function(d) {
+      return d.title.toLowerCase().indexOf(f) !== -1 || d.category.toLowerCase().indexOf(f) !== -1;
+    }) : docs;
+
+    var groups = {};
+    visible.forEach(function(d) {
+      if (!groups[d.category]) groups[d.category] = [];
+      groups[d.category].push(d);
+    });
+
+    var order = _WIKI_CAT_ORDER.concat(Object.keys(groups).filter(function(c) {
+      return _WIKI_CAT_ORDER.indexOf(c) === -1;
+    }));
+
+    var html = '';
+    order.forEach(function(cat) {
+      if (!groups[cat]) return;
+      html += '<div class="wiki-section">'
+        + '<div class="wiki-sec-hdr" onclick="wikiToggleSec(this)">'
+        + '<span>' + cat + '</span><span class="chev">&#x25BE;</span>'
+        + '</div><div class="wiki-sec-items">';
+      groups[cat].forEach(function(d) {
+        var esc = d.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        html += '<button class="wiki-nav-item" data-path="' + d.path + '" onclick="wikiOpenDoc(\'' + esc + '\',this)">'
+          + d.title + '</button>';
+      });
+      html += '</div></div>';
+    });
+
+    document.getElementById('wiki-nav').innerHTML =
+      html || '<div style="padding:16px;color:var(--muted);font-size:13px">No docs match filter.</div>';
+  }
+
+  function wikiToggleSec(hdr) {
+    var items = hdr.nextElementSibling;
+    var now = hdr.classList.toggle('collapsed');
+    items.classList.toggle('hidden', now);
+  }
+
+  function wikiFilter(val) {
+    _wikiFilterVal = val;
+    if (_wikiDocs) _wikiRenderNav(_wikiDocs);
+  }
+
+  function wikiOpenDoc(path, btn) {
+    if (_wikiActiveBtn) _wikiActiveBtn.classList.remove('active');
+    _wikiActiveBtn = btn;
+    btn.classList.add('active');
+    var content = document.getElementById('wiki-content');
+    content.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:13px">Loading…</div>';
+    _authFetch('/api/docs/content?path=' + encodeURIComponent(path))
+      .then(function(r) { return r.json(); })
+      .then(function(data) { _wikiRender(data.content, content); })
+      .catch(function(e) {
+        content.innerHTML = '<div style="padding:20px;color:#f85149;font-size:13px">Failed to load: ' + e + '</div>';
+      });
+  }
+
+  function _wikiRender(md, container) {
+    if (window.marked) {
+      container.innerHTML = '<div class="wiki-md">' + marked.parse(md) + '</div>';
+      container.scrollTop = 0;
+    } else {
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/marked@9/marked.min.js';
+      s.onload = function() { _wikiRender(md, container); };
+      s.onerror = function() {
+        container.innerHTML = '<pre style="white-space:pre-wrap;font-size:13px;color:var(--text);line-height:1.6">'
+          + md.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</pre>';
+        container.scrollTop = 0;
+      };
+      document.head.appendChild(s);
+    }
   }
 </script>
 </body>
