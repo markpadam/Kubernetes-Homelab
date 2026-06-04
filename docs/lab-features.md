@@ -125,4 +125,4 @@ Example:
 
 ---
 
-See also: [auth-walkthrough.md](auth-walkthrough.md) (for the full SSO identity stack)
+See also: [auth-walkthrough.md](guides/auth-walkthrough.md) (for the full SSO identity stack)

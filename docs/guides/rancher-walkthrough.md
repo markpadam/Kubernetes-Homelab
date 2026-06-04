@@ -242,4 +242,4 @@ Fleet will begin reconciling the repository alongside Flux. Because both would a
 | Fleet status | Rancher UI → Continuous Delivery |
 | RAM impact | ~1–2 GB extra — only enable on Standard/High memory tiers |
 
-See also: [rancher.md](../services/rancher.md), [lab-features.md](lab-features.md)
+See also: [rancher.md](../services/rancher.md), [lab-features.md](../lab-features.md)
