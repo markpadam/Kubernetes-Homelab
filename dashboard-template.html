@@ -1117,6 +1117,7 @@
   // ── Wiki / Docs ──────────────────────────────────────────────────────────
   var _wikiDocs = null;
   var _wikiActiveBtn = null;
+  var _wikiCurrentPath = '';
   var _wikiFilterVal = '';
   var _WIKI_CAT_ORDER = ['Overview', 'Services', 'Guides', 'IncidentHub', 'CLI Tools', 'IaC', 'Tools'];
 
@@ -1189,9 +1190,10 @@
   }
 
   function wikiOpenDoc(path, btn) {
+    _wikiCurrentPath = path;
     if (_wikiActiveBtn) _wikiActiveBtn.classList.remove('active');
-    _wikiActiveBtn = btn;
-    btn.classList.add('active');
+    _wikiActiveBtn = btn || null;
+    if (btn) btn.classList.add('active');
     var content = document.getElementById('wiki-content');
     content.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:13px">Loading…</div>';
     _authFetch('/api/docs/content?path=' + encodeURIComponent(path))
@@ -1202,9 +1204,50 @@
       });
   }
 
+  function _wikiResolvePath(base, href) {
+    // base = docs-root-relative path of the current doc; href = relative link.
+    // Resolve href against the current doc's directory, collapsing ./ and ../
+    var dir = base.indexOf('/') >= 0 ? base.replace(/\/[^/]*$/, '') : '';
+    var stack = dir ? dir.split('/') : [];
+    var parts = href.split('/');
+    for (var i = 0; i < parts.length; i++) {
+      var seg = parts[i];
+      if (seg === '' || seg === '.') continue;
+      if (seg === '..') { stack.pop(); continue; }
+      stack.push(seg);
+    }
+    return stack.join('/');
+  }
+
+  function _wikiFixLinks(container) {
+    // Rendered markdown links to other .md docs are relative paths the browser
+    // would try to navigate to (e.g. /guides/foo.md), which the server doesn't
+    // route. Intercept them and load through the docs API instead.
+    var links = container.querySelectorAll('a[href]');
+    for (var i = 0; i < links.length; i++) {
+      (function(a) {
+        var href = a.getAttribute('href');
+        if (!href) return;
+        if (href.charAt(0) === '#') return;                       // in-page anchor
+        if (/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(href)) return;     // external/absolute
+        var hashIdx = href.indexOf('#');
+        var bare = hashIdx >= 0 ? href.slice(0, hashIdx) : href;
+        if (!/\.md$/i.test(bare)) return;                         // only markdown docs
+        var resolved = _wikiResolvePath(_wikiCurrentPath, bare);
+        a.setAttribute('href', '#');
+        a.addEventListener('click', function(ev) {
+          ev.preventDefault();
+          var navBtn = document.querySelector('.wiki-nav-item[data-path="' + resolved + '"]');
+          wikiOpenDoc(resolved, navBtn);
+        });
+      })(links[i]);
+    }
+  }
+
   function _wikiRender(md, container) {
     if (window.marked) {
       container.innerHTML = '<div class="wiki-md">' + marked.parse(md) + '</div>';
+      _wikiFixLinks(container);
       container.scrollTop = 0;
     } else {
       var s = document.createElement('script');
