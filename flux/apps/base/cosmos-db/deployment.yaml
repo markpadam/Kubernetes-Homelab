@@ -15,68 +15,71 @@ spec:
       labels:
         app: cosmosdb
     spec:
-      # The internal health_check_server checks the gateway via the hostname in
-      # GATEWAY_PUBLIC_ENDPOINT. In minikube (Docker driver) a pod cannot reach
-      # its own ClusterIP (no hairpin NAT), so the check always fails. Mapping
-      # the service hostname to 127.0.0.1 in /etc/hosts makes the health_check_server
-      # connect to localhost where the gateway IS reachable, without altering the
-      # GATEWAY_PUBLIC_ENDPOINT value used in the gateway's own API responses.
-      hostAliases:
-        - ip: "127.0.0.1"
-          hostnames:
-            - "cosmosdb.cosmos-db.svc.cluster.local"
+      # Classic .NET Cosmos emulator (2.x). The vnext-preview image is
+      # PostgreSQL-backed and its Postgres build requires AVX2, which this
+      # Mac Pro 2013 (Ivy Bridge Xeon) lacks -> SIGILL. The classic emulator
+      # runs the Windows engine under a compatibility layer and works here.
+      # NOTE: the node has no egress to mcr.microsoft.com, so this image must
+      # be pre-loaded:  minikube image load <image> -p aks-lab
       initContainers:
         - name: fix-data-permissions
           image: busybox:1.35
-          command: ["sh", "-c", "chmod 777 /usr/cosmos/data"]
+          command: ["sh", "-c", "mkdir -p /tmp/cosmos/appdata && chmod -R 777 /tmp/cosmos/appdata"]
           volumeMounts:
             - name: cosmos-data
-              mountPath: /usr/cosmos/data
+              mountPath: /tmp/cosmos/appdata
       containers:
         - name: cosmosdb
-          image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
+          image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:2.14.24
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8081
-              name: nosql
-            - containerPort: 8080
-              name: health
-            - containerPort: 1234
-              name: explorer
+              name: gateway
+            - containerPort: 10251
+              name: direct1
+            - containerPort: 10252
+              name: direct2
+            - containerPort: 10253
+              name: direct3
+            - containerPort: 10254
+              name: direct4
           env:
-            - name: PROTOCOL
-              value: "http"
-            - name: GATEWAY_PUBLIC_ENDPOINT
-              value: "cosmosdb.cosmos-db.svc.cluster.local"
-            - name: DATA_PATH
-              value: "/usr/cosmos/data"
-            - name: ENABLE_TELEMETRY
-              value: "false"
+            # Fewer partitions = lower RAM/startup cost (default is 10).
+            - name: AZURE_COSMOS_EMULATOR_PARTITION_COUNT
+              value: "3"
+            - name: AZURE_COSMOS_EMULATOR_ENABLE_DATA_PERSISTENCE
+              value: "true"
           resources:
             requests:
-              memory: "512Mi"
+              memory: "1Gi"
               cpu: "250m"
             limits:
-              memory: "2Gi"
-              cpu: "1000m"
+              memory: "3Gi"
+              cpu: "2000m"
+          # Gateway serves HTTPS with a self-signed cert; the kubelet HTTPS
+          # probe does not validate the cert. /_explorer/emulator.pem is a
+          # cheap 200 once the gateway is up.
           readinessProbe:
             httpGet:
-              path: /ready
-              port: 8080
-            initialDelaySeconds: 60
+              path: /_explorer/emulator.pem
+              port: 8081
+              scheme: HTTPS
+            initialDelaySeconds: 45
             periodSeconds: 15
             timeoutSeconds: 5
-            failureThreshold: 30
+            failureThreshold: 40
           livenessProbe:
             httpGet:
-              path: /alive
-              port: 8080
-            initialDelaySeconds: 60
-            periodSeconds: 20
+              path: /_explorer/emulator.pem
+              port: 8081
+              scheme: HTTPS
+            initialDelaySeconds: 240
+            periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 10
           volumeMounts:
             - name: cosmos-data
-              mountPath: /usr/cosmos/data
+              mountPath: /tmp/cosmos/appdata
       volumes:
         - name: cosmos-data
           persistentVolumeClaim:

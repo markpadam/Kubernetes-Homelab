@@ -33,7 +33,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "Layer 2 load balancer — assigns real routable IPs (172.16.3.0/24) to LoadBalancer services via MetalLB. Requires minikube tunnel to route those IPs from the host into the cluster."
+      "desc": "Layer 2 load balancer \u2014 assigns real routable IPs (172.16.3.0/24) to LoadBalancer services via MetalLB. Requires minikube tunnel to route those IPs from the host into the cluster."
     },
     {
       "id": "cert-manager",
@@ -44,9 +44,11 @@
       "ns": "cert-manager",
       "flux_dir": "flux/infrastructure/base/cert-manager",
       "manifest": "",
-      "depends": ["vault"],
+      "depends": [
+        "vault"
+      ],
       "port_forwards": [],
-      "desc": "TLS certificate lifecycle management — issues, renews and revokes HTTPS certs for all lab services via Vault PKI (root CA + intermediate CA, CRL/OCSP)"
+      "desc": "TLS certificate lifecycle management \u2014 issues, renews and revokes HTTPS certs for all lab services via Vault PKI (root CA + intermediate CA, CRL/OCSP)"
     },
     {
       "id": "vault",
@@ -59,7 +61,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "Simulates Azure Key Vault — KV v2 secrets, Kubernetes auth backend, PKI root and intermediate CA"
+      "desc": "Simulates Azure Key Vault \u2014 KV v2 secrets, Kubernetes auth backend, PKI root and intermediate CA"
     },
     {
       "id": "monitoring",
@@ -72,7 +74,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "Prometheus + Grafana — metrics, dashboards, alerting"
+      "desc": "Prometheus + Grafana \u2014 metrics, dashboards, alerting"
     },
     {
       "id": "argocd",
@@ -85,7 +87,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "GitOps CD platform — visual deployments from Git"
+      "desc": "GitOps CD platform \u2014 visual deployments from Git"
     },
     {
       "id": "kubernetes-dashboard",
@@ -98,7 +100,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "Official Kubernetes web UI — cluster explorer, workloads, logs"
+      "desc": "Official Kubernetes web UI \u2014 cluster explorer, workloads, logs"
     },
     {
       "id": "keda",
@@ -111,7 +113,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "Kubernetes Event-driven Autoscaling — scale workloads to zero based on external triggers (queues, topics, metrics)"
+      "desc": "Kubernetes Event-driven Autoscaling \u2014 scale workloads to zero based on external triggers (queues, topics, metrics)"
     },
     {
       "id": "reflector",
@@ -124,7 +126,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "Mirrors Secrets and ConfigMaps across namespaces — annotation-driven, keeps mirrors in sync on rotation"
+      "desc": "Mirrors Secrets and ConfigMaps across namespaces \u2014 annotation-driven, keeps mirrors in sync on rotation"
     },
     {
       "id": "kyverno",
@@ -137,7 +139,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "Kubernetes-native policy engine — validate / mutate / generate / verifyImages, with audit-mode sample policies"
+      "desc": "Kubernetes-native policy engine \u2014 validate / mutate / generate / verifyImages, with audit-mode sample policies"
     },
     {
       "id": "falco",
@@ -150,7 +152,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "eBPF-based runtime threat detection — shell-in-container, sensitive-file access, unexpected network flows. UI at falco.aks-lab.local"
+      "desc": "eBPF-based runtime threat detection \u2014 shell-in-container, sensitive-file access, unexpected network flows. UI at falco.aks-lab.local"
     },
     {
       "id": "istio",
@@ -163,7 +165,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "Service mesh — mTLS by default, traffic shifting, L7 authorization. ClusterIP gateway (does not replace NGINX)"
+      "desc": "Service mesh \u2014 mTLS by default, traffic shifting, L7 authorization. ClusterIP gateway (does not replace NGINX)"
     },
     {
       "id": "cilium",
@@ -176,7 +178,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "eBPF CNI + flow observability — runs alongside default CNI unless LAB_CNI=cilium ./aks-lab setup. UI at hubble.aks-lab.local"
+      "desc": "eBPF CNI + flow observability \u2014 runs alongside default CNI unless LAB_CNI=cilium ./aks-lab setup. UI at hubble.aks-lab.local"
     },
     {
       "id": "rancher",
@@ -189,7 +191,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "Rancher multi-cluster management platform — cluster UI, app catalog, RBAC"
+      "desc": "Rancher multi-cluster management platform \u2014 cluster UI, app catalog, RBAC"
     },
     {
       "id": "toolbox",
@@ -202,9 +204,14 @@
       "manifest": "flux/infrastructure/base/toolbox/toolbox.yaml",
       "depends": [],
       "port_forwards": [
-        {"local": 2222, "svc": "toolbox-ssh", "ns": "toolbox", "remote": 22}
+        {
+          "local": 2222,
+          "svc": "toolbox-ssh",
+          "ns": "toolbox",
+          "remote": 22
+        }
       ],
-      "desc": "In-cluster Ubuntu pod — SSH access for debugging"
+      "desc": "In-cluster Ubuntu pod \u2014 SSH access for debugging"
     },
     {
       "id": "exam-sim",
@@ -215,11 +222,18 @@
       "ns": "exam-sim",
       "flux_dir": "",
       "manifest": "flux/infrastructure/base/exam-sim/exam-sim.yaml",
-      "depends": ["toolbox"],
-      "port_forwards": [
-        {"local": 2224, "svc": "exam-sim-ssh", "ns": "exam-sim", "remote": 22}
+      "depends": [
+        "toolbox"
       ],
-      "desc": "Ubuntu 22.04 SSH pod matching the official CKA/CKAD/CKS PSI exam terminal — 5 kubeconfig contexts, exam aliases, etcdctl, crictl, trivy"
+      "port_forwards": [
+        {
+          "local": 2224,
+          "svc": "exam-sim-ssh",
+          "ns": "exam-sim",
+          "remote": 22
+        }
+      ],
+      "desc": "Ubuntu 22.04 SSH pod matching the official CKA/CKAD/CKS PSI exam terminal \u2014 5 kubeconfig contexts, exam aliases, etcdctl, crictl, trivy"
     },
     {
       "id": "samba-ad",
@@ -230,10 +244,14 @@
       "ns": "",
       "flux_dir": "",
       "manifest": "",
-      "tf_targets": ["null_resource.lima_check", "null_resource.samba_vm", "time_sleep.samba_stabilise"],
+      "tf_targets": [
+        "null_resource.lima_check",
+        "null_resource.samba_vm",
+        "time_sleep.samba_stabilise"
+      ],
       "depends": [],
       "port_forwards": [],
-      "desc": "Samba 4 Active Directory — LDAP :389, Kerberos :88, corp.internal DNS"
+      "desc": "Samba 4 Active Directory \u2014 LDAP :389, Kerberos :88, corp.internal DNS"
     },
     {
       "id": "dex",
@@ -246,7 +264,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "OIDC identity provider — static login without SambaAD, full AD when samba-ad is enabled"
+      "desc": "OIDC identity provider \u2014 static login without SambaAD, full AD when samba-ad is enabled"
     },
     {
       "id": "oauth2-proxy",
@@ -257,9 +275,11 @@
       "ns": "oauth2-proxy",
       "flux_dir": "flux/infrastructure/base/identity/oauth2-proxy",
       "manifest": "",
-      "depends": ["dex"],
+      "depends": [
+        "dex"
+      ],
       "port_forwards": [],
-      "desc": "SSO authentication gateway — protects all web services via ingress"
+      "desc": "SSO authentication gateway \u2014 protects all web services via ingress"
     },
     {
       "id": "corp-client",
@@ -270,8 +290,12 @@
       "ns": "",
       "flux_dir": "",
       "manifest": "",
-      "tf_targets": ["null_resource.corp_client_vm"],
-      "depends": ["samba-ad"],
+      "tf_targets": [
+        "null_resource.corp_client_vm"
+      ],
+      "depends": [
+        "samba-ad"
+      ],
       "port_forwards": [],
       "desc": "Domain-joined Ubuntu VM with XFCE desktop (VNC :5901)"
     },
@@ -299,9 +323,14 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [
-        {"local": 1433, "svc": "mssql", "ns": "azure-sql", "remote": 1433}
+        {
+          "local": 1433,
+          "svc": "mssql",
+          "ns": "azure-sql",
+          "remote": 1433
+        }
       ],
-      "desc": "Azure SQL / SQL Server emulator — localhost:1433"
+      "desc": "Azure SQL / SQL Server emulator \u2014 localhost:1433"
     },
     {
       "id": "cosmos-db",
@@ -314,10 +343,14 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [
-        {"local": 8081, "svc": "cosmosdb", "ns": "cosmos-db", "remote": 8081},
-        {"local": 1234, "svc": "cosmosdb", "ns": "cosmos-db", "remote": 1234}
+        {
+          "local": 8081,
+          "svc": "cosmosdb",
+          "ns": "cosmos-db",
+          "remote": 8081
+        }
       ],
-      "desc": "Azure Cosmos DB NoSQL emulator — API :8081, Explorer :1234"
+      "desc": "Azure Cosmos DB NoSQL emulator (classic) \u2014 API + Data Explorer on https://localhost:8081/_explorer/"
     },
     {
       "id": "service-bus",
@@ -328,12 +361,24 @@
       "ns": "service-bus",
       "flux_dir": "flux/apps/base/service-bus",
       "manifest": "",
-      "depends": ["azure-sql"],
-      "port_forwards": [
-        {"local": 5672, "svc": "servicebus", "ns": "service-bus", "remote": 5672},
-        {"local": 5300, "svc": "servicebus", "ns": "service-bus", "remote": 5300}
+      "depends": [
+        "azure-sql"
       ],
-      "desc": "Azure Service Bus emulator — AMQP :5672, Management :5300 (requires azure-sql backend)"
+      "port_forwards": [
+        {
+          "local": 5672,
+          "svc": "servicebus",
+          "ns": "service-bus",
+          "remote": 5672
+        },
+        {
+          "local": 5300,
+          "svc": "servicebus",
+          "ns": "service-bus",
+          "remote": 5300
+        }
+      ],
+      "desc": "Azure Service Bus emulator \u2014 AMQP :5672, Management :5300 (requires azure-sql backend)"
     },
     {
       "id": "container-registry",
@@ -346,9 +391,14 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [
-        {"local": 5000, "svc": "registry", "ns": "container-registry", "remote": 5000}
+        {
+          "local": 5000,
+          "svc": "registry",
+          "ns": "container-registry",
+          "remote": 5000
+        }
       ],
-      "desc": "Local Docker registry — localhost:5000"
+      "desc": "Local Docker registry \u2014 localhost:5000"
     },
     {
       "id": "taskflow",
@@ -361,7 +411,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "Three-tier demo app — Nginx → Node.js → PostgreSQL"
+      "desc": "Three-tier demo app \u2014 Nginx \u2192 Node.js \u2192 PostgreSQL"
     },
     {
       "id": "blob-explorer",
@@ -372,7 +422,9 @@
       "ns": "blob-explorer",
       "flux_dir": "flux/apps/base/blob-explorer",
       "manifest": "",
-      "depends": ["azurite"],
+      "depends": [
+        "azurite"
+      ],
       "port_forwards": [],
       "desc": "ASP.NET Core Azure Blob Storage browser"
     },
@@ -385,9 +437,12 @@
       "ns": "keda-servicebus",
       "flux_dir": "flux/apps/base/keda-servicebus",
       "manifest": "",
-      "depends": ["keda", "service-bus"],
+      "depends": [
+        "keda",
+        "service-bus"
+      ],
       "port_forwards": [],
-      "desc": "Event-driven message processor — scales 0→5 pods based on Service Bus queue.1 depth"
+      "desc": "Event-driven message processor \u2014 scales 0\u21925 pods based on Service Bus queue.1 depth"
     },
     {
       "id": "argo-workflows",
@@ -400,9 +455,14 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [
-        {"local": 2746, "svc": "argo-server", "ns": "argo", "remote": 2746}
+        {
+          "local": 2746,
+          "svc": "argo-server",
+          "ns": "argo",
+          "remote": 2746
+        }
       ],
-      "desc": "Kubernetes-native workflow engine — run steps as pods, DAG pipelines, reusable WorkflowTemplates, UI at localhost:2746"
+      "desc": "Kubernetes-native workflow engine \u2014 run steps as pods, DAG pipelines, reusable WorkflowTemplates, UI at localhost:2746"
     },
     {
       "id": "azdo-agent",
@@ -415,7 +475,7 @@
       "manifest": "",
       "depends": [],
       "port_forwards": [],
-      "desc": "Self-hosted Azure Pipelines agent — runs YAML pipeline jobs in the cluster"
+      "desc": "Self-hosted Azure Pipelines agent \u2014 runs YAML pipeline jobs in the cluster"
     }
   ]
 }

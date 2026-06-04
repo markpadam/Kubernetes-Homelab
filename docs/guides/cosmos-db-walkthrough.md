@@ -5,33 +5,50 @@ A progressive, six-stage guide to understanding the Azure Cosmos DB emulator —
 **Azure equivalent:** Azure Cosmos DB (NoSQL API)  
 **Namespace:** `cosmos-db`
 
+> **Lab note — which emulator image.** This lab runs the **classic .NET emulator**
+> (`mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:2.14.24`). The newer
+> `vnext-preview` image is PostgreSQL-backed and its Postgres build requires the
+> **AVX2** CPU instruction set, which the lab host (Mac Pro 2013, Ivy Bridge Xeon)
+> does not have — it crashes on start with SIGILL. The classic emulator runs the
+> Windows engine under a compatibility layer and works on this hardware.
+>
+> Two consequences run through this whole guide:
+> - The endpoint is **HTTPS with a self-signed certificate** (the classic emulator
+>   has no HTTP mode). SDK clients must use **Gateway connection mode** and either
+>   trust the emulator cert or disable TLS verification (`connection_verify=False`).
+> - The **Data Explorer is served on the same port** as the API, at
+>   `https://<host>:8081/_explorer/` — there is no separate port `1234`.
+>
+> The node has **no egress to `mcr.microsoft.com`**, so the image is pre-loaded onto
+> the cluster (`minikube image load`). A cluster rebuild needs that load repeated.
+
 ---
 
 ## Stage 1 — What the Cosmos DB emulator is
 
 **Goal:** understand what the emulator provides and its limitations compared to production.
 
-The official Microsoft Cosmos DB Linux emulator (`vnext-preview` tag) is a native ARM64 image that implements the Cosmos DB NoSQL API over plain HTTP. Applications using the Azure Cosmos DB SDK (`Azure.Cosmos`, `@azure/cosmos`, `azure-cosmos` for Python) connect without code changes — only the endpoint and key differ.
+The Microsoft Cosmos DB emulator implements the Cosmos DB NoSQL API. Applications using the Azure Cosmos DB SDK (`Azure.Cosmos`, `@azure/cosmos`, `azure-cosmos` for Python) connect without code changes — only the endpoint, key, and (for a self-signed emulator) the TLS-verification setting differ.
 
 ```bash
 # Confirm the emulator is running
 kubectl get pod -n cosmos-db -l app=cosmosdb
 kubectl get svc cosmosdb -n cosmos-db
 
-# Ports: 8081 (NoSQL API), 8080 (health/readiness), 1234 (Data Explorer)
+# Ports: 8081 (NoSQL API + Data Explorer over HTTPS),
+#        10251-10254 (direct-mode replica ports; the Python SDK uses Gateway mode
+#        and does not need them)
+# The gateway speaks HTTPS with a self-signed cert, so curl needs -k.
 kubectl exec -n toolbox deploy/toolbox -- \
-  curl -s http://cosmosdb.cosmos-db.svc.cluster.local:8080/ready
-# Expect: "Emulator is ready" or similar
+  curl -sk -o /dev/null -w "gateway HTTP %{http_code}\n" \
+  https://cosmosdb.cosmos-db.svc.cluster.local:8081/_explorer/emulator.pem
+# Expect: gateway HTTP 200  (the self-signed cert is downloadable here)
 
-kubectl exec -n toolbox deploy/toolbox -- \
-  curl -s http://cosmosdb.cosmos-db.svc.cluster.local:8080/alive
-# Expect: 200 OK
-
-# Read the emulator key from the Kubernetes Secret
-kubectl get secret cosmosdb-secret -n cosmos-db -o jsonpath='{.data.ACCOUNT_KEY}' | base64 -d
+# Read the emulator key from the Kubernetes Secret (field is account-key)
+kubectl get secret cosmosdb-secret -n cosmos-db -o jsonpath='{.data.account-key}' | base64 -d
 # C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==
 
-# Check the probe configuration — readiness has a 20s initial delay to allow startup
+# Check the probe configuration — readiness is an HTTPS GET against /_explorer/emulator.pem
 kubectl get deployment cosmosdb -n cosmos-db \
   -o jsonpath='{.spec.template.spec.containers[0].readinessProbe}' | python3 -m json.tool
 ```
@@ -43,11 +60,18 @@ kubectl get deployment cosmosdb -n cosmos-db \
 | APIs | NoSQL API only | NoSQL, MongoDB, Cassandra, Gremlin, Table |
 | Partition keys | Supported | Supported |
 | Multi-region | Simulated via DNS alias | Real geo-replication |
-| Throughput (RU/s) | Unlimited | Provisioned or serverless |
-| TLS | HTTP (lab config) | HTTPS required |
-| `GATEWAY_PUBLIC_ENDPOINT` | Set to cluster DNS name | Managed by Azure |
+| Throughput (RU/s) | Not enforced | Provisioned or serverless |
+| TLS | HTTPS, self-signed cert | HTTPS, CA-signed cert |
+| Connection mode | Gateway only (lab) | Gateway or Direct |
+| Licence | 180-day evaluation | N/A |
 
-**What you learn:** the `PROTOCOL=http` environment variable disables TLS in the emulator. In production you always use HTTPS. The `GATEWAY_PUBLIC_ENDPOINT` must be set to the hostname the SDK will use to reach the emulator — if this does not match the DNS name the SDK resolves, the emulator returns the wrong base URL in response bodies.
+**What you learn:** the classic emulator only serves **HTTPS** and presents a
+**self-signed certificate** whose name does not match the in-cluster DNS name. Real
+clients verify the server cert against a trusted CA; against the emulator you must
+either import its cert (downloadable at `/_explorer/emulator.pem`) or tell the SDK to
+skip verification. Because the emulator's Direct-mode endpoints advertise addresses
+that are not reachable through a Kubernetes Service, clients must also use **Gateway
+connection mode**, where every request goes through port 8081.
 
 ---
 
@@ -55,20 +79,21 @@ kubectl get deployment cosmosdb -n cosmos-db \
 
 **Goal:** use the Data Explorer to create a database and container interactively.
 
-The Data Explorer is a browser-based GUI for managing Cosmos DB resources — equivalent to the Azure Portal's Data Explorer blade.
+The Data Explorer is a browser-based GUI for managing Cosmos DB resources — equivalent to the Azure Portal's Data Explorer blade. The classic emulator serves it from the gateway port under `/_explorer/`.
 
 ```bash
-# The Data Explorer is port-forwarded by ./aks-lab setup / ./aks-lab resume
-# Open in browser: http://localhost:1234
+# The gateway (8081) is port-forwarded by ./aks-lab setup / ./aks-lab resume.
+# Open in browser:  https://localhost:8081/_explorer/index.html
+# Your browser will warn about the self-signed cert — accept it for the lab.
 
-# Or access directly from inside the cluster
+# Or fetch it from inside the cluster (HTTPS, self-signed → -k)
 kubectl exec -n toolbox deploy/toolbox -- \
-  curl -s http://cosmosdb.cosmos-db.svc.cluster.local:1234 | head -10
+  curl -sk https://cosmosdb.cosmos-db.svc.cluster.local:8081/_explorer/index.html | head -10
 # Returns HTML of the Data Explorer SPA
 ```
 
 **Navigate the Data Explorer:**
-1. Open `http://localhost:1234` in a browser
+1. Open `https://localhost:8081/_explorer/index.html` in a browser (accept the cert warning)
 2. Click **New Database** — create `labdb` (fixed throughput, 400 RU/s is the minimum)
 3. Inside `labdb`, click **New Container** — create `products` with partition key `/category`
 4. Click **Items** → **New Item** — add a document:
@@ -91,26 +116,17 @@ kubectl exec -n toolbox deploy/toolbox -- \
 
 ## Stage 3 — NoSQL API operations with the REST API
 
-**Goal:** interact with Cosmos DB using raw HTTP to understand the API surface.
+**Goal:** interact with Cosmos DB using raw HTTPS to understand the API surface.
 
-The Cosmos DB NoSQL API is a REST API over HTTP(S). The SDK wraps this with authentication, retry, and serialisation.
+The Cosmos DB NoSQL API is a REST API over HTTPS. The SDK wraps this with authentication, retry, and serialisation.
 
 ```bash
-COSMOS=http://cosmosdb.cosmos-db.svc.cluster.local:8081
+COSMOS=https://cosmosdb.cosmos-db.svc.cluster.local:8081
 
-# List all databases (requires authentication headers — simplified for emulator)
+# Hit the account root (requires HMAC-signed auth headers for real calls — the
+# emulator is lenient on some endpoints). -k because the cert is self-signed.
 kubectl exec -n toolbox deploy/toolbox -- \
-  curl -s "${COSMOS}/dbs" \
-  -H "x-ms-date: $(date -u '+%a, %d %b %Y %H:%M:%S GMT')" \
-  -H "x-ms-version: 2018-12-31" \
-  -H "Authorization: type%3Dmaster%26ver%3D1.0%26sig%3D$(echo -n '' | base64)" | \
-  python3 -m json.tool 2>/dev/null | grep -E '"id":|"_count"'
-# Note: raw REST requires HMAC signing — use the SDK for proper auth (see Stage 4)
-# The emulator is lenient about auth in some cases
-
-# Check the emulator endpoint info
-kubectl exec -n toolbox deploy/toolbox -- \
-  curl -s "${COSMOS}/" | python3 -m json.tool | head -20
+  curl -sk "${COSMOS}/" | python3 -m json.tool | head -20
 # Returns emulator version, writable locations, readable locations
 ```
 
@@ -121,20 +137,23 @@ kubectl exec -n toolbox deploy/toolbox -- \
   pip3 install azure-cosmos --quiet
 
 kubectl exec -n toolbox deploy/toolbox -- python3 - << 'EOF'
+import urllib3
+urllib3.disable_warnings()  # quiet the self-signed-cert warnings
 from azure.cosmos import CosmosClient
 
 client = CosmosClient(
-    url="http://cosmosdb.cosmos-db.svc.cluster.local:8081",
-    credential="C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw=="
+    url="https://cosmosdb.cosmos-db.svc.cluster.local:8081",
+    credential="C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
+    connection_verify=False,   # emulator uses a self-signed cert
 )
 
-# List databases
+# List databases (Python SDK uses Gateway mode by default — correct for the emulator)
 dbs = list(client.list_databases())
 print("Databases:", [d['id'] for d in dbs])
 EOF
 ```
 
-**What you learn:** the Cosmos DB REST API requires HMAC-SHA256 signed authorization headers for every request. The SDK computes these automatically from the account key. Using the SDK is strongly preferred over raw HTTP for this reason.
+**What you learn:** the Cosmos DB REST API requires HMAC-SHA256 signed authorization headers for every request. The SDK computes these automatically from the account key. Note `connection_verify=False` — without it the SDK rejects the emulator's self-signed certificate. In production you would instead trust a real CA-signed cert and leave verification on.
 
 ---
 
@@ -144,13 +163,14 @@ EOF
 
 ```bash
 kubectl exec -n toolbox deploy/toolbox -- python3 - << 'EOF'
+import urllib3
+urllib3.disable_warnings()
 from azure.cosmos import CosmosClient, PartitionKey
-import json
 
-ENDPOINT = "http://cosmosdb.cosmos-db.svc.cluster.local:8081"
+ENDPOINT = "https://cosmosdb.cosmos-db.svc.cluster.local:8081"
 KEY = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw=="
 
-client = CosmosClient(ENDPOINT, KEY)
+client = CosmosClient(ENDPOINT, KEY, connection_verify=False)
 
 # ── Create database ──────────────────────────────────────────
 db = client.create_database_if_not_exists("labdb")
@@ -178,8 +198,7 @@ print(f"Inserted {len(items)} items")
 results = list(container.query_items(
     query="SELECT * FROM c WHERE c.category = @cat",
     parameters=[{"name": "@cat", "value": "electronics"}],
-    enable_cross_partition_query=False,  # single partition — efficient
-    partition_key="electronics"
+    partition_key="electronics"   # single partition — efficient
 ))
 print(f"\nElectronics ({len(results)} items):")
 for r in results:
@@ -224,35 +243,34 @@ EOF
 
 ## Stage 5 — Data persistence and startup behaviour
 
-**Goal:** understand the PVC, the startup delay, and what `GATEWAY_PUBLIC_ENDPOINT` does.
+**Goal:** understand the PVC, the long startup, and the emulator's environment.
 
 ```bash
 # Check the PVC
 kubectl get pvc cosmosdb-data -n cosmos-db
-# 5Gi bound, mounts at /usr/cosmos/data
+# 5Gi bound, mounts at /tmp/cosmos/appdata (the emulator's data + cert directory)
 
-# The emulator has a longer startup time than most services
-# Readiness probe: initialDelaySeconds=20, failureThreshold=10
-# → allows up to 120 seconds before Kubernetes marks it unhealthy
+# The emulator has a longer startup than most services — it boots N partitions
+# one at a time. The readiness probe is an HTTPS GET on /_explorer/emulator.pem
+# with a generous initialDelay/failureThreshold to ride out the boot.
 kubectl describe pod -n cosmos-db -l app=cosmosdb | grep -A15 "Readiness"
 
-# GATEWAY_PUBLIC_ENDPOINT must match how the SDK connects
+# The classic emulator's behaviour is driven by these env vars
 kubectl get deployment cosmosdb -n cosmos-db \
-  -o jsonpath='{.spec.template.spec.containers[0].env}' | \
-  python3 -m json.tool | python3 -c "
-import sys, json
-for e in json.load(sys.stdin):
-    if 'GATEWAY' in e.get('name','') or 'ENDPOINT' in e.get('name','') or 'DATA_PATH' in e.get('name',''):
-        print(f\"{e['name']}: {e.get('value','')}\")
-"
-# GATEWAY_PUBLIC_ENDPOINT: cosmosdb.cosmos-db.svc.cluster.local
-# DATA_PATH:               /usr/cosmos/data
+  -o jsonpath='{.spec.template.spec.containers[0].env}' | python3 -m json.tool
+# AZURE_COSMOS_EMULATOR_PARTITION_COUNT:          3   (fewer = less RAM / faster boot)
+# AZURE_COSMOS_EMULATOR_ENABLE_DATA_PERSISTENCE:  true (persist to the mounted PVC)
+
+# Watch the partitions come up
+kubectl logs -n cosmos-db deploy/cosmosdb | grep -E "Started [0-9]+/[0-9]+ partitions|^Started"
 
 # Prove data survives a pod restart
 kubectl exec -n toolbox deploy/toolbox -- python3 - << 'EOF'
+import urllib3; urllib3.disable_warnings()
 from azure.cosmos import CosmosClient, PartitionKey
-client = CosmosClient("http://cosmosdb.cosmos-db.svc.cluster.local:8081",
-    "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==")
+client = CosmosClient("https://cosmosdb.cosmos-db.svc.cluster.local:8081",
+    "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
+    connection_verify=False)
 db = client.create_database_if_not_exists("persisttest")
 c = db.create_container_if_not_exists("t", partition_key=PartitionKey("/pk"))
 c.upsert_item({"id":"check","pk":"a","value":"survived"})
@@ -260,12 +278,14 @@ print("Written")
 EOF
 
 kubectl delete pod -n cosmos-db -l app=cosmosdb
-kubectl wait pod -n cosmos-db -l app=cosmosdb --for=condition=Ready --timeout=120s
+kubectl wait pod -n cosmos-db -l app=cosmosdb --for=condition=Ready --timeout=240s
 
 kubectl exec -n toolbox deploy/toolbox -- python3 - << 'EOF'
+import urllib3; urllib3.disable_warnings()
 from azure.cosmos import CosmosClient
-client = CosmosClient("http://cosmosdb.cosmos-db.svc.cluster.local:8081",
-    "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==")
+client = CosmosClient("https://cosmosdb.cosmos-db.svc.cluster.local:8081",
+    "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
+    connection_verify=False)
 item = client.get_database_client("persisttest").get_container_client("t").read_item("check","a")
 print(f"Value after restart: {item['value']}")
 client.delete_database("persisttest")
@@ -273,7 +293,7 @@ EOF
 # Value after restart: survived
 ```
 
-**What you learn:** `GATEWAY_PUBLIC_ENDPOINT` is the hostname the emulator embeds in its response bodies (e.g., in `_self` links). If the SDK connects to `localhost:8081` but the emulator reports its endpoint as `cosmosdb.cosmos-db.svc.cluster.local`, the SDK will try to follow links to the wrong host. Setting it to the in-cluster DNS name keeps all URLs consistent.
+**What you learn:** with `AZURE_COSMOS_EMULATOR_ENABLE_DATA_PERSISTENCE=true` the emulator keeps its data — and its generated TLS cert — under `/tmp/cosmos/appdata`, which is backed by the PVC, so both survive pod restarts. `AZURE_COSMOS_EMULATOR_PARTITION_COUNT` trades capacity for startup time and memory; the lab uses 3 to keep the footprint small on modest hardware.
 
 ---
 
@@ -285,16 +305,16 @@ EOF
 # Resolve the private link hostname
 kubectl exec -n toolbox deploy/toolbox -- \
   nslookup mycosmosdb.privatelink.documents.azure.com
-# Expect: Cosmos DB ClusterIP
+# Expect: Cosmos DB Service IP
 
 # The secondary-region endpoint also resolves to the same emulator
 kubectl exec -n toolbox deploy/toolbox -- \
   nslookup mycosmosdb-eastus.privatelink.documents.azure.com
-# Expect: same ClusterIP
+# Expect: same IP
 
-# Both names work as Cosmos DB endpoints
+# Both names work as Cosmos DB endpoints (HTTPS, self-signed → -k)
 kubectl exec -n toolbox deploy/toolbox -- \
-  curl -s "http://mycosmosdb.privatelink.documents.azure.com:8081/" | \
+  curl -sk "https://mycosmosdb.privatelink.documents.azure.com:8081/" | \
   python3 -m json.tool | grep -E "id|writableLocations"
 ```
 
@@ -310,12 +330,14 @@ The lab creates both DNS entries pointing at the single emulator. The SDK can be
 ```bash
 # Simulate a multi-region SDK client
 kubectl exec -n toolbox deploy/toolbox -- python3 - << 'EOF'
+import urllib3; urllib3.disable_warnings()
 from azure.cosmos import CosmosClient
 
 # Primary region endpoint
 client = CosmosClient(
-    url="http://mycosmosdb.privatelink.documents.azure.com:8081",
-    credential="C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw=="
+    url="https://mycosmosdb.privatelink.documents.azure.com:8081",
+    credential="C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
+    connection_verify=False,
 )
 dbs = list(client.list_databases())
 print(f"Connected via private link name. Databases: {[d['id'] for d in dbs]}")
@@ -330,14 +352,15 @@ EOF
 
 | Task | Command |
 |------|---------|
-| Data Explorer UI | `http://localhost:1234` |
-| Health endpoint | `curl -s http://cosmosdb.cosmos-db.svc.cluster.local:8080/ready` |
+| Data Explorer UI | `https://localhost:8081/_explorer/index.html` |
+| Gateway health | `curl -sk -o /dev/null -w "%{http_code}\n" https://cosmosdb.cosmos-db.svc.cluster.local:8081/_explorer/emulator.pem` |
 | Cosmos DB logs | `kubectl logs -n cosmos-db deploy/cosmosdb -f` |
 | Check PVC | `kubectl get pvc cosmosdb-data -n cosmos-db` |
-| In-cluster endpoint | `http://cosmosdb.cosmos-db.svc.cluster.local:8081` |
+| In-cluster endpoint | `https://cosmosdb.cosmos-db.svc.cluster.local:8081` |
 | Private link hostname | `mycosmosdb.privatelink.documents.azure.com:8081` |
 | Secondary region | `mycosmosdb-eastus.privatelink.documents.azure.com:8081` |
 | Account key | `C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==` |
-| Connection string | `AccountEndpoint=http://cosmosdb.cosmos-db.svc.cluster.local:8081/;AccountKey=<key>;` |
+| Connection string | `AccountEndpoint=https://cosmosdb.cosmos-db.svc.cluster.local:8081/;AccountKey=<key>;` |
+| SDK note | Gateway mode + `connection_verify=False` (self-signed cert) |
 
 See also: [cosmos-db.md](../services/cosmos-db.md), [dns-walkthrough.md](dns-walkthrough.md)
