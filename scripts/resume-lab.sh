@@ -1,4 +1,17 @@
 #!/usr/bin/env bash
+
+# ── Bulletproofing: ensure bash 4+ ──────────────────────────────
+# macOS /bin/bash is 3.2 (no mapfile/associative arrays). launchd and other
+# launchers may invoke /bin/bash directly, bypassing the shebang above. Re-exec
+# under a newer bash if we were started with one that is too old.
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+  for _newbash in /usr/local/bin/bash /opt/homebrew/bin/bash /opt/local/bin/bash; do
+    [ -x "$_newbash" ] && exec "$_newbash" "$0" "$@"
+  done
+  echo "resume-lab.sh requires bash 4+ (found ${BASH_VERSION:-unknown}); install via Homebrew/MacPorts" >&2
+  exit 1
+fi
+
 set -euo pipefail
 export PATH="/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/local/bin:/opt/local/sbin:$PATH"
 
@@ -330,6 +343,19 @@ if feature_enabled vault; then
     # up (the cluster may have been recreated since Vault last started).
     lab_create_vault_host_service "$PROFILE" \
       || warn "Could not (re)create vault-host Service — cert-manager may not reach Vault"
+    # Dev-mode Vault keeps all state in memory. If the host (or the Vault
+    # process) restarted, Vault is UP but UNCONFIGURED — no Kubernetes auth,
+    # no PKI — which silently breaks the lab-ca ClusterIssuer and blocks Flux.
+    # Detect a missing kubernetes auth method and re-run the provisioning.
+    if ! curl -sf -H "X-Vault-Token: ${VAULT_TOKEN:-root}" \
+         "http://127.0.0.1:8200/v1/sys/auth" 2>/dev/null | grep -q '"kubernetes/"'; then
+      warn "Vault running but unconfigured (dev state wiped) — re-provisioning..."
+      terraform -chdir=IaC/terraform init -input=false >>/tmp/vault-terraform-apply.log 2>&1
+      terraform -chdir=IaC/terraform apply -auto-approve -input=false \
+        -var="minikube_profile=${PROFILE}" \
+        2>&1 | tee -a /tmp/vault-terraform-apply.log
+      success "Vault re-configured"
+    fi
   else
     warn "Vault not running — restarting dev server..."
     if lab_vault_dev_start; then
