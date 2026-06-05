@@ -160,6 +160,19 @@ _at_exit() {
     fi
 
     echo -e "    Dashboard: ${GREEN}http://localhost:9997/${RESET}"
+    case "${LAB_PUBLISH_STATUS:-}" in
+      skipped-sudo)
+        echo -e "    ${YELLOW}LAN access skipped${RESET} — auto-publish needs sudo. Run ${CYAN}./aks-lab publish${RESET}"
+        echo -e "    ${DIM}Dashboard stays loopback-only by design — reach it via:${RESET}"
+        echo -e "    ${DIM}  ssh -L 9997:localhost:9997 -L 9998:localhost:9998 $(whoami)@${LAB_HOST_IP:-<mac-pro>}${RESET}"
+        ;;
+      skipped-noip)
+        echo -e "    ${YELLOW}LAN access skipped${RESET} — no LAN IP detected. Run ${CYAN}./aks-lab publish${RESET} once networked"
+        ;;
+      failed)
+        echo -e "    ${YELLOW}LAN auto-publish failed${RESET} — run ${CYAN}./aks-lab publish${RESET} (see log)"
+        ;;
+    esac
     echo -e "    Log:       ${log}"
     echo -e "  ${BOLD}════════════════════════════════════════════════════════════════════${RESET}"
     echo ""
