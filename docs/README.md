@@ -44,6 +44,7 @@ Mirrors the tools used in production AKS. All optional — `./aks-lab feature en
 | [falco.md](services/falco.md) | `falco` | Runtime security (open-source alternative to Microsoft Defender for Containers) |
 | [istio.md](services/istio.md) | `istio-system` | Service mesh — mTLS, traffic shifting, L7 authorization (upstream of AKS Istio add-on) |
 | [cilium.md](services/cilium.md) | `kube-system` | eBPF CNI + Hubble flow observability (overlay or `LAB_CNI=cilium` for sole-CNI) |
+| [renovate.md](services/renovate.md) | `renovate` | Self-hosted dependency bot — CronJob that PRs Flux chart / base-image / Action bumps (self-hosted Mend Renovate) |
 
 ## Shared Services (Azure emulators)
 
