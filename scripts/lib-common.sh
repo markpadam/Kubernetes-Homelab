@@ -721,21 +721,31 @@ _wait_until_ready() {
 # and sudo usable WITHOUT a prompt (so it never blocks the run waiting for a
 # password — e.g. the no-TTY login auto-resume agent just skips it). Non-fatal.
 # Args: scripts_dir (the dir containing lab-publish.sh).
+#
+# Records the outcome in LAB_PUBLISH_STATUS so the caller's end-banner can
+# surface a skip (easy to miss in quiet mode, where the warn scrolls past):
+#   published | skipped-noip | skipped-sudo | failed
+# shellcheck disable=SC2034  # consumed by the caller's end-banner (resume-lab.sh)
+LAB_PUBLISH_STATUS=""
 lab_auto_publish() {
   local scripts_dir="$1"
-  [[ "${CI_MODE:-0}" == "1" ]] && return 0
+  [[ "${CI_MODE:-0}" == "1" ]] && { LAB_PUBLISH_STATUS="skipped-ci"; return 0; }
   [[ -n "${LAB_HOST_IP:-}" && "$LAB_HOST_IP" != "127.0.0.1" ]] || {
+    LAB_PUBLISH_STATUS="skipped-noip"
     warn "Skipping auto-publish — no LAN host IP detected (run ./aks-lab publish later if wanted)"
     return 0
   }
   if ! sudo -n true 2>/dev/null; then
+    LAB_PUBLISH_STATUS="skipped-sudo"
     warn "Skipping auto-publish — sudo would prompt. Run ./aks-lab publish to enable LAN/MacBook access."
     return 0
   fi
   log "Auto-publishing the lab to the LAN (${LAB_HOST_IP})..."
   if LAB_HOST_IP="$LAB_HOST_IP" bash "${scripts_dir}/lab-publish.sh" >>"${LAB_LOG:-/tmp/lab-publish-auto.log}" 2>&1; then
+    LAB_PUBLISH_STATUS="published"
     success "Lab published on the LAN — reachable at *.aks-lab.local from machines pointing DNS at ${LAB_HOST_IP}"
   else
+    LAB_PUBLISH_STATUS="failed"
     warn "Auto-publish hit an issue — run ./aks-lab publish manually (details in ${LAB_LOG:-the publish log})"
   fi
 }
