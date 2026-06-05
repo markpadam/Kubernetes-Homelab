@@ -65,7 +65,16 @@ _lima_copy() {
 }
 
 _lima_stop()   { limactl stop "$1" 2>/dev/null || true; }
-_lima_start()  { limactl start "$1"; }
+# Start an existing Lima VM. Resilient to the hostagent race where
+# `limactl start` can hang (default has no deadline) or exit non-zero even
+# though the VM actually comes up: cap the wait with --timeout, swallow the
+# exit code, and report success iff the VM is Running afterwards. This is
+# what lets resume survive a "another hostagent may already be running" race.
+_lima_start()  {
+  local name="$1" timeout="${2:-240}"
+  limactl start --timeout "${timeout}s" "$name" >/dev/null 2>&1 || true
+  [[ "$(_lima_status "$name")" == "Running" ]]
+}
 _lima_delete() { limactl delete --force "$1" 2>/dev/null || true; }
 
 # Create and start a Lima VM using the shared vmnet network.
