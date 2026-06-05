@@ -74,7 +74,7 @@ The lab dashboard (http://localhost:9997) has a **Lab Management** section at th
 | `infrastructure` | cert-manager, vault, monitoring, argocd, toolbox |
 | `identity` | samba-ad, dex, oauth2-proxy, corp-client |
 | `storage` | azurite, azure-sql, cosmos-db, service-bus, container-registry |
-| `apps` | taskflow, blob-explorer, argo-workflows |
+| `apps` | taskflow, blob-explorer, argo-workflows, azdo-agent, renovate |
 
 ---
 
@@ -92,6 +92,8 @@ Optional (not on by default):
 - `cosmos-db` — Cosmos DB NoSQL emulator (heavier)
 - `argo-workflows` — Argo Workflows engine
 - `keda`, `keda-servicebus` — event-driven autoscaling demo
+- `azdo-agent` — self-hosted Azure Pipelines agent (needs `~/.lab-ado`)
+- `renovate` — self-hosted dependency-update bot (needs a GitHub token; see the [Renovate Walkthrough](guides/renovate-walkthrough.md))
 
 ---
 

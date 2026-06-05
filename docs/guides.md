@@ -32,6 +32,7 @@ The guides below are sequenced so that each one builds on concepts introduced ea
 | 20 | [Postman & the Kubernetes API Walkthrough](guides/postman-kubernetes-api-walkthrough.md) | Call the Kubernetes REST API directly from Postman. ServiceAccount auth, CA certificate setup, health endpoints, API discovery, querying pods/deployments/services, reading logs, and understanding RBAC via SelfSubjectAccessReview. |
 | 21 | [Argo Workflows Walkthrough](guides/argo-workflows-walkthrough.md) | Optional. Kubernetes-native workflow orchestration — running steps as pods, building DAG pipelines, reusing WorkflowTemplates, and the Argo Server UI. Azure equivalent of Logic Apps / Container Apps Jobs. |
 | 22 | [Exam Simulator Walkthrough](guides/exam-sim-walkthrough.md) | Use the exam-sim pod and the dashboard's exam mode to practise for the CKA, CKAD, and CKS certifications. Scenarios are calibrated to killer.sh difficulty — harder than the real exam. |
+| 23 | [Renovate Walkthrough](guides/renovate-walkthrough.md) | Optional. Self-hosted dependency bot — a CronJob that scans this repo and opens PRs to bump Flux chart versions, Dockerfile base images, and GitHub Actions. Covers the bot-vs-repo config split, the Dependency Dashboard, manager scoping, and self-update via GitOps. |
 
 > **Looking for an end-to-end project?** The [IncidentHub master walkthrough](guides/incidenthub/README.md) ties many of these topics together into a single multi-stage build of one real application, from local .NET app to GitOps delivery, security, and disaster recovery.
 

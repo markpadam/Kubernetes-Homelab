@@ -1078,6 +1078,88 @@ _disable_azdo_agent() {
   success "Azure DevOps agent disabled"
 }
 
+_enable_renovate() {
+  if ! kubectl cluster-info &>/dev/null; then
+    error "Cannot reach the Kubernetes API server. Run ./resume-lab.sh first."
+  fi
+  local _RENOVATE_CONFIG="$HOME/.lab-renovate"
+  # Default the repo to this checkout's origin so the prompt has a sane suggestion.
+  local _DEFAULT_REPO
+  _DEFAULT_REPO=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null \
+    | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')
+  RENOVATE_DRY_RUN=""
+  if [[ -f "$_RENOVATE_CONFIG" ]]; then
+    # shellcheck source=/dev/null
+    source "$_RENOVATE_CONFIG"
+    log "Renovate credentials loaded from $_RENOVATE_CONFIG"
+    [[ -n "${RENOVATE_TOKEN:-}"        ]] || error "RENOVATE_TOKEN missing from $_RENOVATE_CONFIG — run: ./aks-lab feature enable renovate"
+    [[ -n "${RENOVATE_REPOSITORIES:-}" ]] || error "RENOVATE_REPOSITORIES missing from $_RENOVATE_CONFIG — run: ./aks-lab feature enable renovate"
+  else
+    echo ""
+    printf "  GitHub repo to manage (owner/name) [%s]: " "${_DEFAULT_REPO:-owner/repo}"
+    read -r RENOVATE_REPOSITORIES
+    [[ -z "$RENOVATE_REPOSITORIES" ]] && RENOVATE_REPOSITORIES="$_DEFAULT_REPO"
+    [[ "$RENOVATE_REPOSITORIES" =~ ^[^/]+/[^/]+$ ]] || error "Repository must be in owner/name form (got: '$RENOVATE_REPOSITORIES')"
+    RENOVATE_TOKEN=""
+    while [[ -z "$RENOVATE_TOKEN" ]]; do
+      printf "  GitHub PAT (classic: repo scope, or fine-grained: Contents+PRs RW): "
+      read -rs RENOVATE_TOKEN
+      printf "\n"
+      [[ -n "$RENOVATE_TOKEN" ]] || echo "[!] Token cannot be empty — try again"
+    done
+    printf "  Dry run first? (opens no PRs, just logs what it would do) [y/N]: "
+    local _dry; read -r _dry
+    [[ "$_dry" =~ ^[Yy]$ ]] && RENOVATE_DRY_RUN="full"
+    printf 'RENOVATE_REPOSITORIES="%s"\nRENOVATE_TOKEN="%s"\nRENOVATE_DRY_RUN="%s"\n' \
+      "$RENOVATE_REPOSITORIES" "$RENOVATE_TOKEN" "$RENOVATE_DRY_RUN" > "$_RENOVATE_CONFIG"
+    chmod 600 "$_RENOVATE_CONFIG"
+    log "Credentials saved to $_RENOVATE_CONFIG (edit RENOVATE_DRY_RUN there to toggle later)"
+  fi
+
+  kubectl create namespace renovate --dry-run=client -o yaml | kubectl apply --validate=false -f -
+  # GITHUB_COM_TOKEN lets Renovate fetch changelogs/release notes from github.com
+  # (same token is fine for a single-repo lab). Empty RENOVATE_DRY_RUN => real PRs.
+  kubectl create secret generic renovate-env \
+    --from-literal=RENOVATE_TOKEN="$RENOVATE_TOKEN" \
+    --from-literal=GITHUB_COM_TOKEN="$RENOVATE_TOKEN" \
+    --from-literal=RENOVATE_REPOSITORIES="$RENOVATE_REPOSITORIES" \
+    --from-literal=RENOVATE_DRY_RUN="${RENOVATE_DRY_RUN:-}" \
+    --namespace renovate \
+    --dry-run=client -o yaml | kubectl apply --validate=false -f -
+
+  kubectl apply --validate=false -k "$REPO_ROOT/flux/apps/base/renovate/"
+
+  # Kick an immediate run so the user gets feedback now instead of at 02:00.
+  local _job
+  _job="renovate-bootstrap-$(date +%s)"
+  log "Triggering a first Renovate run (job/$_job)..."
+  kubectl -n renovate create job --from=cronjob/renovate "$_job" >/dev/null
+  local _RC=0
+  kubectl -n renovate wait --for=condition=complete "job/$_job" --timeout=300s 2>/dev/null || _RC=$?
+  if [[ $_RC -ne 0 ]]; then
+    # Distinguish a hard failure (bad token) from "still running / slow".
+    if kubectl -n renovate get "job/$_job" -o jsonpath='{.status.failed}' 2>/dev/null | grep -q '[1-9]'; then
+      warn "Renovate run failed — check the token/repo: kubectl -n renovate logs job/$_job"
+      return 1
+    fi
+    warn "Renovate run still in progress after 5m — it will finish in the background. Logs: kubectl -n renovate logs job/$_job -f"
+    return 0
+  fi
+  if [[ -n "${RENOVATE_DRY_RUN:-}" ]]; then
+    success "Renovate dry run complete — no PRs opened. Logs: kubectl -n renovate logs job/$_job"
+  else
+    success "Renovate run complete — check $RENOVATE_REPOSITORIES for PRs + the Dependency Dashboard issue"
+  fi
+}
+
+_disable_renovate() {
+  kubectl delete cronjob renovate -n renovate 2>/dev/null || true
+  kubectl delete job -n renovate -l app=renovate 2>/dev/null || true
+  kubectl delete secret renovate-env -n renovate 2>/dev/null || true
+  _kubectl_delete_ns renovate
+  success "Renovate disabled (open PRs on GitHub are left untouched)"
+}
+
 # ── Main enable/disable dispatchers ──────────────────────────────
 do_enable() {
   local id="$1"
@@ -1106,6 +1188,7 @@ do_enable() {
     corp-client)          _enable_corp_client ;;
     argo-workflows)       _enable_argo_workflows ;;
     azdo-agent)           _enable_azdo_agent ;;
+    renovate)             _enable_renovate ;;
     *)
       _kubectl_apply "$id"
       _start_comp_portforwards "$id"
@@ -1168,6 +1251,7 @@ do_disable() {
     corp-client)          _disable_corp_client ;;
     argo-workflows)       _disable_argo_workflows ;;
     azdo-agent)           _disable_azdo_agent ;;
+    renovate)             _disable_renovate ;;
     *)
       _stop_comp_portforwards "$id"
       local ns; ns=$(comp_field "$id" ns)

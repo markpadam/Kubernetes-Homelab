@@ -476,6 +476,19 @@
       "depends": [],
       "port_forwards": [],
       "desc": "Self-hosted Azure Pipelines agent \u2014 runs YAML pipeline jobs in the cluster"
+    },
+    {
+      "id": "renovate",
+      "name": "Renovate",
+      "group": "apps",
+      "default": false,
+      "type": "special",
+      "ns": "renovate",
+      "flux_dir": "flux/apps/base/renovate",
+      "manifest": "",
+      "depends": [],
+      "port_forwards": [],
+      "desc": "Self-hosted dependency bot \u2014 CronJob that scans this repo and opens PRs to bump Flux charts, Dockerfile base images, and GitHub Actions"
     }
   ]
 }

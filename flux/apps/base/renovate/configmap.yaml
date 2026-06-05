@@ -1,0 +1,30 @@
+# Self-hosted (bot-side) Renovate configuration.
+#
+# This is the GLOBAL config that only makes sense to the running bot — platform,
+# onboarding behaviour, autodiscover. It must NOT live in the repo's renovate.json
+# (that file is read *after* the bot has already decided which platform/repos to
+# act on). Everything a user normally tunes — which managers run, packageRules,
+# schedules, the dependency dashboard — lives in the repo's renovate.json instead.
+#
+# Token + repository list are injected as RENOVATE_TOKEN / RENOVATE_REPOSITORIES
+# env vars from the `renovate-env` Secret (created by `./aks-lab feature enable
+# renovate`), so no credentials are ever committed here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: renovate-config
+  namespace: renovate
+data:
+  config.js: |
+    module.exports = {
+      platform: 'github',
+      endpoint: 'https://api.github.com/',
+      // We target an explicit repo via RENOVATE_REPOSITORIES — never crawl the org.
+      autodiscover: false,
+      // This repo isn't onboarded via a Renovate PR; it ships renovate.json directly.
+      onboarding: false,
+      requireConfig: 'optional',
+      gitAuthor: 'Renovate Bot <renovate@aks-lab.local>',
+      // Keep the clone/cache on the writable emptyDir, not the image rootfs.
+      baseDir: '/tmp/renovate',
+    };

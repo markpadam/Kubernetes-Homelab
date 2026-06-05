@@ -1,0 +1,69 @@
+# Renovate runs as a CronJob: it scans the target GitHub repo, opens/refreshes
+# dependency-update PRs, then exits. There is nothing long-running to keep up —
+# unlike the azdo-agent Deployment — so a scheduled batch job is the right shape.
+#
+# Trigger an immediate run without waiting for the schedule:
+#   kubectl -n renovate create job --from=cronjob/renovate renovate-now-$(date +%s)
+#
+# The `renovate-env` Secret (RENOVATE_TOKEN, RENOVATE_REPOSITORIES, optionally
+# RENOVATE_DRY_RUN / GITHUB_COM_TOKEN) is created imperatively by
+# `./aks-lab feature enable renovate`, so it is intentionally absent from git.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: renovate
+  namespace: renovate
+spec:
+  schedule: "0 2 * * *"          # daily at 02:00 — quiet hours
+  concurrencyPolicy: Forbid       # never overlap two scans of the same repo
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800  # 30 min hard cap on a single run
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: renovate
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+            - name: renovate
+              # Floating `latest` keeps first-run frictionless; the guide shows how
+              # to pin a version and let Renovate bump its own pin (a nice meta-demo).
+              image: ghcr.io/renovatebot/renovate:latest
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: RENOVATE_CONFIG_FILE
+                  value: /opt/renovate/config.js
+                - name: LOG_LEVEL
+                  value: info
+                # RENOVATE_TOKEN / RENOVATE_REPOSITORIES (+ optional dry-run) arrive here:
+              envFrom:
+                - secretRef:
+                    name: renovate-env
+              volumeMounts:
+                - name: config
+                  mountPath: /opt/renovate
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 512Mi
+                limits:
+                  memory: 1Gi
+          volumes:
+            - name: config
+              configMap:
+                name: renovate-config
+            - name: tmp
+              emptyDir: {}

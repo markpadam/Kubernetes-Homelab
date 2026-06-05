@@ -94,6 +94,7 @@ readonly DEPLOY_ORDER=(
   "cilium|7|heavy"
   # Phase 8 — Credential-dependent
   "azdo-agent|8|needs ~/.lab-ado"
+  "renovate|8|needs ~/.lab-renovate"
 )
 
 TOTAL_COMPONENTS=${#DEPLOY_ORDER[@]}
@@ -146,6 +147,11 @@ _wait_pods_ready() {
     fi
     # KEDA scale-to-zero: 0 pods is healthy when a ScaledObject exists
     if [[ "$total" -eq 0 ]] && kubectl get scaledobject -n "$ns" --no-headers &>/dev/null 2>&1; then
+      return 0
+    fi
+    # CronJob components (e.g. Renovate): the bootstrap Job has Completed, so 0
+    # active pods is healthy as long as the CronJob is registered.
+    if [[ "$total" -eq 0 ]] && [[ -n "$(kubectl get cronjob -n "$ns" --no-headers 2>/dev/null)" ]]; then
       return 0
     fi
     sleep 5
@@ -432,6 +438,12 @@ for entry in "${DEPLOY_ORDER[@]}"; do
   # azdo-agent: skip gracefully if credentials not configured
   if [[ "$id" == "azdo-agent" && ! -f "$HOME/.lab-ado" ]]; then
     _record_result SKIP "$id" 0 "no ~/.lab-ado — configure with: ./aks-lab feature enable azdo-agent"
+    continue
+  fi
+
+  # renovate: skip gracefully if a GitHub token isn't configured
+  if [[ "$id" == "renovate" && ! -f "$HOME/.lab-renovate" ]]; then
+    _record_result SKIP "$id" 0 "no ~/.lab-renovate — configure with: ./aks-lab feature enable renovate"
     continue
   fi
 

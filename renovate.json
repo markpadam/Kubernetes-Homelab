@@ -1,0 +1,59 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommitsDisabled",
+    ":timezone(Europe/London)"
+  ],
+  "dependencyDashboardTitle": "Renovate Dependency Dashboard",
+  "labels": ["dependencies", "renovate"],
+  "commitMessagePrefix": "chore(deps):",
+  "enabledManagers": [
+    "flux",
+    "helm-values",
+    "dockerfile",
+    "kubernetes",
+    "github-actions"
+  ],
+  "flux": {
+    "managerFilePatterns": ["/flux/.+\\.ya?ml$/"]
+  },
+  "kubernetes": {
+    "managerFilePatterns": [
+      "/flux/.+\\.ya?ml$/",
+      "/scenarios/.+\\.ya?ml$/"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "Locally-built lab images have no upstream registry to track — never propose updates for them.",
+      "matchManagers": ["kubernetes"],
+      "matchPackageNames": [
+        "/^aks-lab\\//",
+        "/^azdo-agent$/"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Group all non-major Flux HelmRelease chart bumps into one PR to cut noise.",
+      "matchManagers": ["flux"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "flux charts (non-major)"
+    },
+    {
+      "description": "Group base-image digest/patch bumps across the lab Dockerfiles.",
+      "matchManagers": ["dockerfile"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "container base images (non-major)"
+    },
+    {
+      "description": "Keep the Renovate bot image itself current (the CronJob runs :latest, but a pinned tag would be bumped here).",
+      "matchManagers": ["kubernetes"],
+      "matchPackageNames": ["ghcr.io/renovatebot/renovate"],
+      "groupName": "renovate self-update"
+    }
+  ],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 0
+}
