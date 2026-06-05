@@ -234,6 +234,8 @@ cat <<EOF
     ${CYAN}KUBECONFIG=~/.kube/aks-lab-config kubectl get nodes${RESET}
 
   ${DIM}Then browse http://grafana.aks-lab.local etc. (kubeconfig already has insecure-skip-tls-verify).${RESET}
+  ${DIM}Control dashboard: run ${RESET}${CYAN}./aks-lab dashboard${RESET}${DIM} on the MacBook — it installs a self-healing${RESET}
+  ${DIM}  SSH tunnel LaunchAgent (needs Remote Login on the Mac Pro + ssh-copy-id $(whoami)@${LAB_HOST_IP}).${RESET}
   ${DIM}If the macOS firewall is on, allow incoming connections for socat and dnsmasq (or disable it to test).${RESET}
   ${DIM}Full guide: docs/network-setup.md${RESET}
 

@@ -60,6 +60,105 @@ _usage() {
   echo -e "if you prefer — ./aks-lab is just a thin dispatcher.${RESET}"
 }
 
+# ── Dashboard tunnel (client / MacBook side) ─────────────────────────────────
+# The dashboard (:9997 + its :9998 terminal WebSocket) is deliberately bound to
+# loopback on the Mac Pro — the terminal WS is effectively a shell into the host,
+# so it is NOT republished to the LAN by `publish`. From a client like the
+# MacBook we reach it over SSH instead. Rather than ask the user to keep an
+# `ssh -L` open by hand, `./aks-lab dashboard` (run on the client) installs a
+# self-healing LaunchAgent that maintains the forward across sleep / network
+# drops. Idempotent; the lab host itself never hits this path (its dashboard is
+# already on localhost:9997).
+_LAB_TUNNEL_LABEL="local.aks-lab-tunnel"
+_LAB_TUNNEL_PLIST="$HOME/Library/LaunchAgents/${_LAB_TUNNEL_LABEL}.plist"
+_DASH_PORT=9997
+_TERM_PORT=9998
+
+_open_url() {
+  if command -v code &>/dev/null; then code --open-url "$1"; else open "$1"; fi
+}
+
+# Derive the lab host IP from the kubeconfig that `publish` hands the client
+# (server → https://<HOST_IP>:8443). No separate config to keep in sync.
+_lab_host_ip() {
+  local f
+  for f in "$HOME/.kube/aks-lab-config" "$HOME/.kube/aks-lab.yaml"; do
+    [[ -f "$f" ]] || continue
+    sed -nE 's#.*server: https://([0-9.]+):[0-9]+.*#\1#p' "$f" | head -1 && return 0
+  done
+  return 1
+}
+
+# Install + load (or reuse) the LaunchAgent that keeps the SSH tunnel up.
+# Returns 0 once localhost:9997 is being served.
+_ensure_dashboard_tunnel() {
+  local host user uid
+  uid="$(id -u)"
+  host="$(_lab_host_ip)" || true
+  if [[ -z "$host" ]]; then
+    echo -e "${YELLOW}${BOLD}[!]${RESET} No lab kubeconfig found (~/.kube/aks-lab-config)."
+    echo -e "    Run ${CYAN}./aks-lab publish${RESET} on the Mac Pro and copy the kubeconfig over first."
+    return 1
+  fi
+  user="${LAB_SSH_USER:-$(whoami)}"
+
+  # Verify key-based SSH works before installing a KeepAlive agent — otherwise it
+  # would hot-loop on a password prompt. BatchMode makes that fail fast.
+  if ! ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
+        "${user}@${host}" true 2>/dev/null; then
+    echo -e "${YELLOW}${BOLD}[!]${RESET} Passwordless SSH to ${user}@${host} isn't set up."
+    echo -e "    Enable Remote Login on the Mac Pro, then run: ${CYAN}ssh-copy-id ${user}@${host}${RESET}"
+    echo -e "    (Override the login with ${CYAN}LAB_SSH_USER=<user>${RESET} if it differs.)"
+    return 1
+  fi
+
+  # (Re)write the plist when missing or pointing at a stale host/user.
+  if ! { [[ -f "$_LAB_TUNNEL_PLIST" ]] && grep -q "${user}@${host}" "$_LAB_TUNNEL_PLIST"; }; then
+    mkdir -p "$HOME/Library/LaunchAgents"
+    cat > "$_LAB_TUNNEL_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${_LAB_TUNNEL_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/ssh</string>
+    <string>-N</string>
+    <string>-o</string><string>BatchMode=yes</string>
+    <string>-o</string><string>ExitOnForwardFailure=yes</string>
+    <string>-o</string><string>ServerAliveInterval=30</string>
+    <string>-o</string><string>ServerAliveCountMax=3</string>
+    <string>-o</string><string>StrictHostKeyChecking=accept-new</string>
+    <string>-L</string><string>${_DASH_PORT}:localhost:${_DASH_PORT}</string>
+    <string>-L</string><string>${_TERM_PORT}:localhost:${_TERM_PORT}</string>
+    <string>${user}@${host}</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>/tmp/aks-lab-tunnel.log</string>
+  <key>StandardErrorPath</key><string>/tmp/aks-lab-tunnel.log</string>
+</dict>
+</plist>
+PLIST
+    launchctl bootout "gui/${uid}/${_LAB_TUNNEL_LABEL}" 2>/dev/null || true
+  fi
+
+  # Ensure it's loaded (bootstrap is the modern API; load is the fallback).
+  if ! launchctl print "gui/${uid}/${_LAB_TUNNEL_LABEL}" &>/dev/null; then
+    launchctl bootstrap "gui/${uid}" "$_LAB_TUNNEL_PLIST" 2>/dev/null \
+      || launchctl load "$_LAB_TUNNEL_PLIST" 2>/dev/null || true
+  fi
+
+  local _i
+  for _i in $(seq 1 15); do
+    curl -sf "http://localhost:${_DASH_PORT}/" &>/dev/null && return 0
+    sleep 1
+  done
+  return 1
+}
+
 # ── Subcommand dispatch ──────────────────────
 case "${1:-}" in
   ""|menu|tui)
@@ -119,12 +218,24 @@ case "${1:-}" in
     ;;
   dashboard)
     if curl -sf http://localhost:9997/ &>/dev/null; then
+      # Already served locally — the lab host, or a client whose tunnel is up.
       echo -e "${CYAN}${BOLD}[lab]${RESET} Opening http://localhost:9997 ..."
-      if command -v code &>/dev/null; then code --open-url http://localhost:9997/; else open http://localhost:9997/; fi
-    else
+      _open_url http://localhost:9997/
+    elif [[ -d "$HOME/.minikube/profiles/$PROFILE" ]]; then
+      # We're on the lab host (Mac Pro) but the dashboard server isn't running.
       echo -e "${YELLOW}${BOLD}[!]${RESET} Dashboard server is not running."
       echo -e "    Start it with: ${CYAN}./aks-lab resume${RESET} (if cluster is paused) or ${CYAN}./aks-lab setup${RESET}"
       exit 1
+    else
+      # Client (e.g. MacBook): bring up / reuse the persistent SSH tunnel.
+      echo -e "${CYAN}${BOLD}[lab]${RESET} Dashboard is loopback-only on the lab host — ensuring SSH tunnel..."
+      if _ensure_dashboard_tunnel; then
+        echo -e "${GREEN}${BOLD}[✓]${RESET} Tunnel up (LaunchAgent ${_LAB_TUNNEL_LABEL}) — opening http://localhost:9997 ..."
+        _open_url http://localhost:9997/
+      else
+        echo -e "${YELLOW}${BOLD}[!]${RESET} Could not establish the dashboard tunnel. See /tmp/aks-lab-tunnel.log"
+        exit 1
+      fi
     fi
     ;;
   -h|--help|help)
