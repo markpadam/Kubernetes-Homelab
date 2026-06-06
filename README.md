@@ -438,6 +438,7 @@ git add ado && git commit -m "chore: bump ado submodule"
 | [docs/network-setup.md](docs/network-setup.md) | Remote-access network model — reach the lab from a MacBook on the LAN |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Detailed diagrams — cluster layout, GitOps flow, secrets, DNS |
 | [docs/README.md](docs/README.md) | Full service documentation index |
+| [docs/guides.md](docs/guides.md) | All hands-on walkthroughs, in recommended learning order |
 | [docs/iac/ado.md](docs/iac/ado.md) | Azure DevOps submodule — Bicep templates, YAML pipelines, and self-hosted agent setup |
 
 ---

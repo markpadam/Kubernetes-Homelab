@@ -65,18 +65,30 @@ export KUBECONFIG=~/.kube/aks-lab.yaml
 | **kubectl** | Works via the published `:8443` (self-tracking forwarder — survives resumes/reboots). |
 | **Non-HTTP services** (SQL 1433, registry 5000, Service Bus 5672, Cosmos 8081, Azurite 10000-2) | Reach them at `<MAC_PRO_IP>:<port>` (published when the feature is enabled). |
 | **Vault UI/API** | `http://<MAC_PRO_IP>:8200` (Vault binds all interfaces directly). |
-| **Control dashboard** (`:9997`) | **SSH tunnel** — see below (deliberately not on the LAN). |
+| **Control dashboard** (`:9997`) | **`./aks-lab dashboard`** (SSH tunnel) — see below (deliberately not on the LAN). |
 
 #### Control dashboard from the MacBook — SSH tunnel
 
 The control dashboard has `exec`-into-pods and **teardown** controls, so it stays
 bound to `127.0.0.1` for safety and its terminal hardcodes `ws://localhost:9998`.
-Reach it securely with a tunnel (both ports), which also makes the terminal work:
+The simplest path from the MacBook is:
+
+```bash
+./aks-lab dashboard
+```
+
+It installs a self-healing SSH-tunnel LaunchAgent (forwarding both `9997` and
+`9998`, so the terminal works too) that survives sleep and network drops, then
+opens `http://localhost:9997`. It needs Remote Login on the Mac Pro plus
+`ssh-copy-id <you>@<MAC_PRO_IP>`. To forward by hand instead:
 
 ```bash
 ssh -fN -L 9997:localhost:9997 -L 9998:localhost:9998 <you>@<MAC_PRO_IP>
 # then open http://localhost:9997 on the MacBook
 ```
+
+On an **iPad**, reproduce the same forward with an SSH app (Blink Shell /
+Termius) — see [network-setup](network-setup.md#ipad--ios--access-from-a-tablet).
 
 ### When do I need to re-run anything for remote access?
 

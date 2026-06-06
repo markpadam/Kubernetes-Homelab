@@ -32,7 +32,7 @@ Or install manually:
 brew install terraform lima socket_vmnet
 ```
 
-The lab launcher (`setup-lab.sh`) and `scripts/lab-feature.sh` invoke Terraform automatically — there is no need to run `terraform` directly under normal operation.
+The lab launcher (`scripts/setup-lab.sh`) and `scripts/lab-feature.sh` invoke Terraform automatically — there is no need to run `terraform` directly under normal operation.
 
 ## How it's invoked
 
@@ -40,7 +40,7 @@ Terraform is driven by the lab scripts, not run by hand:
 
 | Script | What it runs |
 |--------|--------------|
-| [setup-lab.sh](../../setup-lab.sh) | Initial Vault + identity stack provisioning |
+| [setup-lab.sh](../../scripts/setup-lab.sh) | Initial Vault + identity stack provisioning |
 | [scripts/resume-lab.sh](../../scripts/resume-lab.sh) | Re-applies Vault config on lab resume |
 | [scripts/lab-feature.sh](../../scripts/lab-feature.sh) | Enables/disables Vault, samba-ad, corp-client |
 | [scripts/teardown-lab.sh](../../scripts/teardown-lab.sh) | Releases state lock + cleans tfstate on full teardown |

@@ -1,4 +1,4 @@
-# Network Setup — Remote Access from the MacBook
+# Network Setup — Remote Access from the MacBook & iPad
 
 This lab runs on the **Mac Pro** (Intel, macOS 12 Monterey) using **Colima** for
 the Docker daemon and **minikube (docker driver)** for the cluster. By default
@@ -114,6 +114,60 @@ On the **Mac Pro**, confirm what the tunnel binds (the forwarders point here):
 sudo lsof -nP -iTCP -sTCP:LISTEN | grep -E ':80|:443|:1433'
 tail -f /var/log/lab-publish.log        # socat forwarder daemon log
 ```
+
+---
+
+## iPad / iOS — access from a tablet
+
+The iPad can reach the lab too, but iOS has no `launchctl`, so it can't run the
+self-healing tunnel `LaunchAgent` that `./aks-lab dashboard` installs on a Mac
+(see [the dashboard tunnel in `aks-lab`](../aks-lab)). You reproduce the pieces
+by hand. There are two cases.
+
+### Control dashboard (`:9997`) — via an SSH app
+
+The control dashboard binds **loopback only** on the Mac Pro (`127.0.0.1:9997`
+HTTP + `127.0.0.1:9998` terminal WebSocket) and is never published to the LAN —
+its terminal tab is a shell into the host. Reach it with an SSH app that does
+**local port forwarding**: [Blink Shell] or [Termius] (Blink survives
+backgrounding better).
+
+1. **Mac Pro:** enable **System Settings → General → Sharing → Remote Login**,
+   then add the iPad app's SSH public key to `~/.ssh/authorized_keys`. Key-based
+   login is required — a password prompt would just hang the tunnel.
+2. **iPad:** open a forward of **both** ports to the Mac Pro's loopback:
+
+   ```bash
+   ssh -N -L 9997:localhost:9997 -L 9998:localhost:9998 <user>@<LAB_HOST_IP>
+   ```
+
+   In Termius this is two Port-Forwarding rules
+   (`9997 → localhost:9997` and `9998 → localhost:9998`).
+3. **iPad Safari:** browse **`http://localhost:9997`** — *not* the Mac Pro's IP.
+
+That last point matters. The server only accepts `Origin: http://localhost:9997`
+(`ALLOWED_ORIGINS` in `dashboard-server.py`) and the terminal JS hardcodes
+`ws://localhost:9998`, so reaching it through the forwarded `localhost` is what
+makes both the page auth (a `SameSite=Strict` cookie) and the terminal work. iOS
+loopback is shared across apps, so Safari sees the port the SSH app forwards.
+
+> **No auto-heal.** Unlike the Mac LaunchAgent, this tunnel won't restart
+> itself. iOS suspends backgrounded apps, so keep the SSH app in the foreground
+> or in split-view; the tunnel drops when it's suspended and you reconnect by
+> hand.
+
+### Published web apps (`*.aks-lab.local`) — via DNS
+
+Grafana and the other ingress-served apps are already on the LAN, so the iPad
+only needs to resolve `*.aks-lab.local`. iOS has no `/etc/resolver`, so set DNS
+for the Wi-Fi network instead: **Settings → Wi-Fi → (network) ⓘ → Configure DNS
+→ Manual**, and add `<LAB_HOST_IP>` as the first server. dnsmasq on the Mac Pro
+answers `*.aks-lab.local` and forwards everything else upstream, so general
+browsing still works. Then open `http://grafana.aks-lab.local`, etc. Switch DNS
+back to **Automatic** when you're done.
+
+[Blink Shell]: https://blink.sh
+[Termius]: https://termius.com
 
 ---
 

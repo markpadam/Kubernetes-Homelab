@@ -31,7 +31,8 @@ Installed by default. Azure equivalent: Azure Monitor + Azure Managed Grafana + 
 | [vault.md](services/vault.md) | Mac host | HashiCorp Vault dev server — simulates Azure Key Vault + private CA |
 | [cert-manager.md](services/cert-manager.md) | `cert-manager` | TLS certificate lifecycle — issues, renews and revokes HTTPS certs via Vault PKI |
 | [kubernetes-dashboard.md](services/kubernetes-dashboard.md) | `kubernetes-dashboard` | Official Kubernetes web UI — cluster explorer, workloads, logs |
-| [toolbox.md](tools/toolbox.md) | `toolbox` | Ubuntu SSH pod for in-cluster debugging |
+| [argocd.md](services/argocd.md) | `argocd` | ArgoCD GitOps UI + controller — declarative delivery alongside the default Flux (`argocd.aks-lab.local:9444`) |
+| [toolbox.md](services/toolbox.md) | `toolbox` | Ubuntu SSH pod for in-cluster debugging |
 
 ## Production AKS parity (optional)
 
@@ -45,6 +46,9 @@ Mirrors the tools used in production AKS. All optional — `./aks-lab feature en
 | [istio.md](services/istio.md) | `istio-system` | Service mesh — mTLS, traffic shifting, L7 authorization (upstream of AKS Istio add-on) |
 | [cilium.md](services/cilium.md) | `kube-system` | eBPF CNI + Hubble flow observability (overlay or `LAB_CNI=cilium` for sole-CNI) |
 | [renovate.md](services/renovate.md) | `renovate` | Self-hosted dependency bot — CronJob that PRs Flux chart / base-image / Action bumps (self-hosted Mend Renovate) |
+| [keda.md](services/keda.md) | `keda` | Event-driven autoscaling — scale-to-zero on queue depth / cron / Prometheus (AKS KEDA add-on) |
+| [argo-workflows.md](services/argo-workflows.md) | `argo` | Kubernetes-native workflow / DAG orchestration (Azure Logic Apps / Container Apps Jobs) |
+| [rancher.md](services/rancher.md) | `cattle-system` | Cluster management UI — workload explorer, Helm catalog, Fleet GitOps (3rd-party; no AKS-native peer) |
 
 ## Shared Services (Azure emulators)
 
@@ -62,6 +66,7 @@ Mirrors the tools used in production AKS. All optional — `./aks-lab feature en
 |-----|-----------|-------------|
 | [taskflow.md](services/taskflow.md) | `taskapp` | Three-tier task app — Nginx → Node.js → PostgreSQL |
 | [blob-explorer.md](services/blob-explorer.md) | `blob-explorer` | ASP.NET Core Blob Storage browser |
+| [exam-sim.md](services/exam-sim.md) | `exam-sim` | CKA/CKAD/CKS practice terminal — killer.sh-calibrated scenarios + dashboard exam mode |
 
 ## IaC
 
@@ -70,6 +75,7 @@ Mirrors the tools used in production AKS. All optional — `./aks-lab feature en
 | [terraform.md](iac/terraform.md) | Terraform lab provisioner — Vault dev server, Vault config (KV/PKI/K8s auth), and Lima VMs |
 | [packer.md](iac/packer.md) | Packer VM image builder — pre-bake samba-ad and corp-client base images |
 | [ado.md](iac/ado.md) | Azure DevOps submodule — Bicep templates, YAML pipeline definitions, and self-hosted agent setup |
+| [azdo-agent.md](services/azdo-agent.md) | Self-hosted Azure DevOps pipeline agent — runs `ado/` pipelines against the lab from inside the cluster |
 
 ## CLI tool references
 
@@ -86,17 +92,20 @@ Per-tool references for working fast in the exam terminal (CKA / CKAD / CKS). Ev
 
 ## Guides
 
+**[guides.md](guides.md) is the complete, ordered index** of all hands-on walkthroughs — TaskFlow, DNS, Flux, Vault, cert-manager, the Azure emulators, the security stack, autoscaling, and more, sequenced for first-time learning. A few high-value entry points:
+
 | Doc | Description |
 |-----|-------------|
+| [guides.md](guides.md) | **Index** — every walkthrough in recommended learning order |
 | [incidenthub/](guides/incidenthub/) | **Master walkthrough** — 26 stages building a .NET app while learning the cluster, covering CKAD + CKA + CKS topics |
 | [monitoring-walkthrough.md](guides/monitoring-walkthrough.md) | Six-stage guide — scrape pipeline, PromQL, dashboards, alerting, custom instrumentation, Azure parity |
 | [auth-walkthrough.md](guides/auth-walkthrough.md) | Nine-stage guide to the full SSO authentication chain |
-| [vault-walkthrough.md](guides/vault-walkthrough.md) | Eight-stage guide to Vault KV, Kubernetes auth, and Private Link DNS |
-| [cert-manager-walkthrough.md](guides/cert-manager-walkthrough.md) | Seven-stage guide to PKI hierarchy, cert issuance, revocation, and auto-renewal |
-| [reflector-walkthrough.md](guides/reflector-walkthrough.md) | Four-stage guide — mirror cert-manager TLS secrets across namespaces with rotation |
-| [kyverno-walkthrough.md](guides/kyverno-walkthrough.md) | Five-stage guide — audit → enforce → mutate → generate → image verification |
-| [falco-walkthrough.md](guides/falco-walkthrough.md) | Four-stage guide — trigger detections, tune false positives, forward events |
-| [istio-walkthrough.md](guides/istio-walkthrough.md) | Six-stage guide — sidecar injection, mTLS, traffic shifting, AuthorizationPolicy |
-| [cilium-walkthrough.md](guides/cilium-walkthrough.md) | Five-stage guide — Hubble flows, identity-aware policy, L7 enforcement, audit mode |
+
+## Reference
+
+| Doc | Description |
+|-----|-------------|
 | [lab-features.md](lab-features.md) | How to enable / disable optional lab components |
 | [system-requirements.md](system-requirements.md) | Hardware requirements, memory profiles, and recommended deployment configurations |
+| [network-setup.md](network-setup.md) | Remote access from the MacBook & iPad — DNS, port forwarders, and the dashboard SSH tunnel |
+| [operations.md](operations.md) | Everyday management — lifecycle, remote access, components, troubleshooting playbook |

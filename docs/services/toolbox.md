@@ -14,6 +14,14 @@ Most lab walkthroughs use the toolbox to test DNS resolution, hit private-link e
 
 ## Access
 
+`./aks-lab setup` adds an `aks-toolbox` alias to `~/.ssh/config` (HostName `localhost`, Port `2222`, User `root`), so the shortest way in is:
+
+```bash
+ssh aks-toolbox
+```
+
+Equivalently, without the alias:
+
 ```bash
 # SSH (port-forward must be active — restored by ./aks-lab resume)
 ssh -p 2222 root@localhost
@@ -58,6 +66,17 @@ The toolbox shell is pre-configured with the official CKA/CKAD/CKS exam aliases 
 | `kl` | `kubectl logs` |
 
 Bash completion is enabled for both `kubectl` and `k`. Helm completion is also active.
+
+## Under the hood
+
+| Setting | Value |
+|---------|-------|
+| Manifest | `flux/infrastructure/base/toolbox/toolbox.yaml` (Namespace + ConfigMap + Deployment + Service) |
+| Image | `aks-lab/toolbox:latest` — built from `toolbox/Dockerfile` and loaded into the cluster (`imagePullPolicy: Never`) |
+| Service | `toolbox-ssh` — `LoadBalancer` at `172.16.3.8:22` (MetalLB); `./aks-lab setup`/`resume` port-forwards it to `localhost:2222` |
+| SSH keys | injected into the `toolbox-ssh-keys` ConfigMap from your local public key |
+| Resources | requests 256Mi / 100m · limits 512Mi / 500m |
+| Probes | readiness + liveness via TCP socket on port 22 |
 
 ## Disabling
 
