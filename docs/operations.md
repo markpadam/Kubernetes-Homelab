@@ -90,6 +90,13 @@ ssh -fN -L 9997:localhost:9997 -L 9998:localhost:9998 <you>@<MAC_PRO_IP>
 On an **iPad**, reproduce the same forward with an SSH app (Blink Shell /
 Termius) — see [network-setup](network-setup.md#ipad--ios--access-from-a-tablet).
 
+#### From outside the LAN (over the internet)
+
+Use a private overlay (Tailscale) rather than port-forwarding — `publish`
+auto-binds the tailnet, and `LAB_SSH_HOST=<tailnet-ip> ./aks-lab dashboard`
+reaches the dashboard. Full guide (incl. the Cloudflare option and what to never
+expose): [network-setup → Remote access over the internet](network-setup.md#remote-access-over-the-internet).
+
 ### When do I need to re-run anything for remote access?
 
 | After… | kubectl | Web UIs | Action |

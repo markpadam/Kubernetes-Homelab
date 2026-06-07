@@ -94,10 +94,14 @@ _lab_host_ip() {
 _ensure_dashboard_tunnel() {
   local host user uid
   uid="$(id -u)"
-  host="$(_lab_host_ip)" || true
+  # LAB_SSH_HOST lets you target a specific address — e.g. the Mac Pro's Tailscale
+  # IP or MagicDNS name for remote access over the internet; otherwise derive the
+  # host from the kubeconfig that `publish` handed this client.
+  host="${LAB_SSH_HOST:-$(_lab_host_ip)}" || true
   if [[ -z "$host" ]]; then
-    echo -e "${YELLOW}${BOLD}[!]${RESET} No lab kubeconfig found (~/.kube/aks-lab-config)."
-    echo -e "    Run ${CYAN}./aks-lab publish${RESET} on the Mac Pro and copy the kubeconfig over first."
+    echo -e "${YELLOW}${BOLD}[!]${RESET} No lab host found (no ~/.kube/aks-lab-config)."
+    echo -e "    Run ${CYAN}./aks-lab publish${RESET} on the Mac Pro and copy the kubeconfig over,"
+    echo -e "    or set ${CYAN}LAB_SSH_HOST=<mac-pro-ip-or-tailscale-name>${RESET} and re-run."
     return 1
   fi
   user="${LAB_SSH_USER:-$(whoami)}"

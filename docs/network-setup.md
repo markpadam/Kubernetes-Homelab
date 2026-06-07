@@ -171,6 +171,80 @@ back to **Automatic** when you're done.
 
 ---
 
+## Remote access over the internet
+
+Everything above keeps the lab on your LAN. To reach it from outside the house,
+**don't port-forward the lab to the public internet** — use a private overlay
+network instead. The lab is built LAN-only and exposing it directly is unsafe:
+
+- the **control dashboard** (`:9997`/`:9998`) has `exec`/teardown controls and a
+  host shell — effectively remote code execution;
+- **Vault** runs as a dev server on `0.0.0.0:8200` with a well-known root token;
+- services ship **weak default credentials** (e.g. `admin / admin123` for
+  Grafana — see the Security note in the root `README.md`);
+- the Mac Pro runs **macOS 12 (end-of-life)**, and many home ISPs use **CGNAT**,
+  so classic router port-forwarding often won't work anyway.
+
+The goal is "reach my lab from anywhere as if I were on the LAN" — that's a
+private VPN, not public exposure.
+
+### Tailscale (recommended)
+
+[Tailscale](https://tailscale.com) is a WireGuard mesh VPN. Install it on the Mac
+Pro and on each client (iPad, laptop, phone); every device gets a stable
+`100.x.y.z` tailnet address, with no router or firewall changes, and it works
+through CGNAT. The lab is already wired for it:
+
+**Ports, kubectl and Vault.** `./aks-lab publish` auto-detects Tailscale and also
+binds the forwarders on the tailnet IP, so ingress (`:80`/`:443`), the Kubernetes
+API (`:8443`) and any enabled non-HTTP services answer on the `100.x` address;
+Vault already binds all interfaces. (Set `LAB_NO_TAILSCALE=1` to opt out.) For
+kubectl, publish with the tailnet IP so the generated kubeconfig uses it:
+
+```bash
+LAB_HOST_IP="$(tailscale ip -4 | head -1)" ./aks-lab publish
+```
+
+**Control dashboard.** From a client, SSH to the Mac Pro's tailnet address and
+forward both ports — exactly like the LAN / iPad flow:
+
+```bash
+ssh -N -L 9997:localhost:9997 -L 9998:localhost:9998 <user>@<mac-pro-tailnet-ip>
+```
+
+On a remote Mac, point the helper at the tailnet host and it sets this up for you:
+
+```bash
+LAB_SSH_HOST=<mac-pro-tailnet-ip> ./aks-lab dashboard
+```
+
+**Web apps by name** (`*.aks-lab.local`). The names must resolve to the Mac Pro's
+tailnet IP for tailnet clients. In the Tailscale admin console add a **split-DNS**
+nameserver for `aks-lab.local` → the Mac Pro's tailnet IP, and publish with
+`LAB_HOST_IP="$(tailscale ip -4 | head -1)"` so dnsmasq answers with that address.
+This makes the hostname records tailnet-facing, so LAN browsers should then also
+join the tailnet (or keep a local `hosts` entry).
+
+> Tailscale's **Funnel** exposes a service to the *public* internet — do not use
+> it for this lab. `tailscale serve` (tailnet-only) is fine.
+
+### Cloudflare Tunnel — share a single web app publicly
+
+If the goal is to let someone else open one web UI (e.g. Grafana) over a public
+URL, run [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+on the Mac Pro. It dials *out* to Cloudflare (no inbound ports, works behind
+CGNAT) and maps a public hostname to one local service. Put **Cloudflare Access
+(Zero Trust)** in front so it requires SSO / email-OTP first. Use this only for
+individual published web UIs.
+
+### Never expose publicly — by any method
+
+Keep the **control dashboard** (`9997`/`9998`), **Vault** (`8200`) and the
+**Kubernetes API** (`8443`) strictly on the VPN / SSH-tunnel path. Never put them
+behind a public hostname or a router port-forward.
+
+---
+
 ## Active Directory (`corp.internal`) — stretch
 
 With the SambaAD stack enabled, `publish` makes `corp.internal` *resolve* from
