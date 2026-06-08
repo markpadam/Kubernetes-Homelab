@@ -328,6 +328,7 @@ if [[ -z "$ONLY_COMPONENT" ]]; then
     /tmp/ingress-portforward.log
 
   feature_enabled toolbox            && _start_portforward "Toolbox SSH"       2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"                          /tmp/toolbox-portforward.log
+  feature_enabled exam-sim           && _start_portforward "Exam-sim SSH"      2224 "kubectl port-forward svc/exam-sim-ssh 2224:22 -n exam-sim"                        /tmp/exam-sim-portforward.log
   feature_enabled argo-workflows     && _start_portforward "Argo Workflows"    2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"                           /tmp/argo-workflows-portforward.log
   feature_enabled azure-sql          && _start_portforward "Azure SQL"         1433 "kubectl port-forward svc/mssql 1433:1433 -n azure-sql"                            /tmp/azure-sql-portforward.log
   feature_enabled service-bus        && _start_portforward "Service Bus AMQP"  5672 "kubectl port-forward svc/servicebus 5672:5672 -n service-bus"                     /tmp/servicebus-portforward.log

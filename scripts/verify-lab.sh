@@ -16,6 +16,8 @@
 
 set -uo pipefail
 
+export PATH="/usr/local/bin:$PATH"
+
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'
 CYAN='\033[0;36m';  BOLD='\033[1m';      DIM='\033[2m'; RESET='\033[0m'
 
@@ -114,6 +116,11 @@ check_pods_or_keda() {
     # Also accept: namespace exists + deployment exists but scaled to 0
     if kubectl get deployment -n "$ns" --no-headers 2>/dev/null | grep -q .; then
       echo "scaled to 0 (idle)"
+      return 0
+    fi
+    # Also accept: namespace exists + CronJob only (e.g. renovate)
+    if kubectl get cronjob -n "$ns" --no-headers 2>/dev/null | grep -q .; then
+      echo "scheduled (no active run)"
       return 0
     fi
   fi
