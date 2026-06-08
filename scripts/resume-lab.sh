@@ -356,6 +356,8 @@ if feature_enabled vault; then
     # up (the cluster may have been recreated since Vault last started).
     lab_create_vault_host_service "$PROFILE" \
       || warn "Could not (re)create vault-host Service — cert-manager may not reach Vault"
+    lab_vault_colima_proxy_start "$PROFILE" \
+      || warn "colima vault proxy failed — pods may not reach Vault"
     # Dev-mode Vault keeps all state in memory. If the host (or the Vault
     # process) restarted, Vault is UP but UNCONFIGURED — no Kubernetes auth,
     # no PKI — which silently breaks the lab-ca ClusterIssuer and blocks Flux.
@@ -376,6 +378,8 @@ if feature_enabled vault; then
       # Recreate the Service cert-manager uses to reach the host Vault.
       lab_create_vault_host_service "$PROFILE" \
         || warn "Could not create vault-host Service — cert-manager may not reach Vault"
+      lab_vault_colima_proxy_start "$PROFILE" \
+        || warn "colima vault proxy failed — pods may not reach Vault"
       log "Reconfiguring Vault (KV v2, PKI, policies, Kubernetes auth)..."
       terraform -chdir=IaC/terraform init -input=false >>/tmp/vault-terraform-apply.log 2>&1
       terraform -chdir=IaC/terraform apply -auto-approve -input=false \

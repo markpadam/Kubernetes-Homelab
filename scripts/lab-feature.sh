@@ -286,6 +286,11 @@ _enable_vault() {
     -target=vault_kubernetes_auth_backend_role.cert_manager \
     2>&1 | tee /tmp/vault-terraform-apply.log
 
+  lab_create_vault_host_service "$PROFILE" \
+    || warn "vault-host Service creation failed — cert-manager may not reach Vault"
+  lab_vault_colima_proxy_start "$PROFILE" \
+    || warn "colima vault proxy failed — pods may not reach Vault"
+
   log "Trusting Vault Root CA in macOS login Keychain..."
   _CA_FILE="/tmp/aks-lab-root-ca.crt"
   curl -sf "${VAULT_ADDR}/v1/pki/ca/pem" -o "$_CA_FILE"

@@ -65,16 +65,19 @@ lab_start_port_forward() {
 # Create the in-cluster Service that cert-manager's Vault ClusterIssuer targets
 # (server: http://vault-host.vault.svc.cluster.local:8200). The Vault dev server
 # runs on the Mac host (not in-cluster), so this is a selector-less Service with
-# a manually-managed Endpoints object pointing at the minikube host gateway
-# (host.minikube.internal). Without it, cert-manager can't reach Vault and every
-# *.aks-lab.local TLS certificate stays stuck (ingress/argocd/grafana/etc. fail).
-# $1 = minikube profile (control-plane container name). Returns 1 if the host
-# gateway can't be determined.
+# a manually-managed Endpoints object. The endpoint points at the colima Docker
+# bridge gateway (e.g. 192.168.49.1) where lab_vault_colima_proxy_start() runs a
+# socat proxy — pods cannot reach the slirp gateway (host.minikube.internal)
+# directly through double-NAT, but CAN reach the bridge gateway. Without this
+# Service every *.aks-lab.local TLS certificate stays stuck.
+# $1 = minikube profile (control-plane container name). Returns 1 on failure.
 lab_create_vault_host_service() {
-  local profile="$1" hostgw
-  hostgw=$(docker exec "$profile" sh -c 'grep host.minikube.internal /etc/hosts' 2>/dev/null \
-            | awk '{print $1}' | head -1)
-  [[ -n "$hostgw" ]] || return 1
+  local profile="$1" bridgegw
+  # Get the Docker bridge gateway from the minikube node's default route —
+  # this is the colima VM's bridge IP where socat will proxy vault traffic.
+  bridgegw=$(docker exec "$profile" ip route show default 2>/dev/null \
+             | awk '{print $3}' | head -1)
+  [[ -n "$bridgegw" ]] || return 1
   kubectl apply -f - >/dev/null 2>&1 <<YAML || return 1
 apiVersion: v1
 kind: Namespace
@@ -100,7 +103,7 @@ metadata:
   namespace: vault
 subsets:
   - addresses:
-      - ip: ${hostgw}
+      - ip: ${bridgegw}
     ports:
       - name: vault
         port: 8200
@@ -120,11 +123,10 @@ lab_vault_dev_start() {
     return 0
   fi
   pkill -f "vault server -dev" 2>/dev/null || true
-  # Bind to 0.0.0.0 so Vault is reachable BOTH from the LAN (192.168.x:8200)
-  # AND from in-cluster pods via the minikube host gateway (host.minikube.internal
-  # → 192.168.5.2:8200). cert-manager's ClusterIssuer reaches Vault this way, so
-  # loopback-only binding breaks TLS issuance. NOTE: lab-publish.sh must NOT also
-  # socat-forward :8200 — that would steal the LAN bind from Vault.
+  # Bind to 0.0.0.0 so Vault is reachable from the LAN (192.168.x:8200).
+  # In-cluster pods reach Vault via the colima bridge-gateway socat proxy
+  # (lab_vault_colima_proxy_start), not directly through the slirp gateway.
+  # NOTE: lab-publish.sh must NOT socat-forward :8200 — that steals the bind.
   #
   # Detach Vault into its own session before backgrounding it. When resume-lab.sh
   # runs under the auto-resume LaunchAgent, launchd SIGKILLs the job's whole
@@ -150,6 +152,40 @@ os.execvp("vault", ["vault", "server", "-dev", "-dev-listen-address=0.0.0.0:8200
     sleep 1
   done
   return 1
+}
+
+# Start a socat TCP proxy inside the colima VM so in-cluster pods can reach the
+# Mac host Vault. Pods cannot reach the QEMU slirp gateway (host.minikube.internal)
+# through double-NAT, but CAN reach the colima Docker bridge gateway. socat
+# listens on <bridge_gateway>:8200 inside the colima VM and forwards to the slirp
+# gateway where Vault binds on port 8200.
+# No-op if socat is already listening on :8200 in the VM.
+# $1 = minikube profile (control-plane container name, default $PROFILE)
+lab_vault_colima_proxy_start() {
+  local profile="${1:-${PROFILE:-aks-lab}}"
+  local bridgegw slirpgw
+
+  bridgegw=$(docker exec "$profile" ip route show default 2>/dev/null \
+             | awk '{print $3}' | head -1)
+  [[ -n "$bridgegw" ]] || { warn "colima proxy: cannot determine bridge gateway"; return 1; }
+
+  # No-op if already listening
+  colima ssh -- sh -c "ss -tlnp 2>/dev/null | grep -q ':8200'" 2>/dev/null && return 0
+
+  slirpgw=$(docker exec "$profile" \
+            sh -c 'grep host.minikube.internal /etc/hosts 2>/dev/null' \
+            | awk '{print $1}' | head -1)
+  [[ -n "$slirpgw" ]] || slirpgw="192.168.10.2"
+
+  colima ssh << COLIMA 2>/dev/null
+nohup socat TCP-LISTEN:8200,bind=${bridgegw},fork,reuseaddr TCP:${slirpgw}:8200 >/tmp/socat-vault.log 2>&1 &
+echo \$! >/tmp/socat-vault.pid
+COLIMA
+
+  sleep 1
+  colima ssh -- sh -c "ss -tlnp 2>/dev/null | grep -q ':8200'" 2>/dev/null \
+    || { warn "colima vault proxy failed to start — pods may not reach Vault"; return 1; }
+  return 0
 }
 
 # Render the dashboard HTML from the template, substituting environment
