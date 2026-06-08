@@ -247,23 +247,12 @@ _kubectl_delete_ns() {
 
 # ── Special: Vault ────────────────────────────────────────────────
 _enable_vault() {
+  # shellcheck disable=SC2034  # VAULT_TOKEN is read by lab_vault_dev_start via dynamic scope
   local VAULT_ADDR="http://127.0.0.1:8200" VAULT_TOKEN="root"
-  if ! curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1; then
-    log "Starting Vault dev server..."
-    pkill -f "vault server -dev" 2>/dev/null || true
-    sleep 1
-    VAULT_DEV_ROOT_TOKEN_ID="${VAULT_TOKEN}" \
-      vault server -dev \
-      -dev-listen-address="${VAULT_ADDR#http://}" \
-      >> /tmp/vault-dev.log 2>&1 &
-    echo $! > /tmp/vault-dev.pid
-    for i in $(seq 1 30); do
-      curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1 && break
-      sleep 1
-    done
-    curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1 \
-      || error "Vault failed to start — check /tmp/vault-dev.log"
-  fi
+  # Start (and properly detach) the dev server via the shared helper so this path
+  # gets the same launchd-survival fix as resume-lab.sh — see lab_vault_dev_start
+  # in lib-common.sh. No-op if Vault is already responding on 127.0.0.1:8200.
+  lab_vault_dev_start || error "Vault failed to start — check /tmp/vault-dev.log"
   log "Applying Vault Terraform config..."
   VAULT_REPLACE_FLAGS=""
   if ! kubectl get secret vault-reviewer-token -n kube-system &>/dev/null; then

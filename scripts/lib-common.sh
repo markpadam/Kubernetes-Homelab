@@ -125,10 +125,24 @@ lab_vault_dev_start() {
   # → 192.168.5.2:8200). cert-manager's ClusterIssuer reaches Vault this way, so
   # loopback-only binding breaks TLS issuance. NOTE: lab-publish.sh must NOT also
   # socat-forward :8200 — that would steal the LAN bind from Vault.
-  VAULT_DEV_ROOT_TOKEN_ID="${token}" \
-    vault server -dev \
-    -dev-listen-address="0.0.0.0:8200" \
-    >> /tmp/vault-dev.log 2>&1 &
+  #
+  # Detach Vault into its own session before backgrounding it. When resume-lab.sh
+  # runs under the auto-resume LaunchAgent, launchd SIGKILLs the job's whole
+  # process group the moment the script returns — a plain `vault … &` child sits
+  # in that group and dies with it (this silently killed Vault on 2026-06-08,
+  # leaving the cluster's vault-host endpoint with nothing to reach). os.setsid()
+  # moves Vault into a fresh session the group-kill can't touch; nohup covers the
+  # interactive case where setsid can't run because the child is already a
+  # job-control group leader. execvp() keeps the same PID, so `$!` below and the
+  # `pkill -f "vault server -dev"` in pause-lab.sh both still match the process.
+  VAULT_DEV_ROOT_TOKEN_ID="${token}" nohup python3 -c '
+import os
+try:
+    os.setsid()
+except OSError:
+    pass
+os.execvp("vault", ["vault", "server", "-dev", "-dev-listen-address=0.0.0.0:8200"])
+' >> /tmp/vault-dev.log 2>&1 &
   echo $! > /tmp/vault-dev.pid
   local i
   for i in $(seq 1 30); do
