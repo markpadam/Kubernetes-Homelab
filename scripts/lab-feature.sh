@@ -1200,6 +1200,16 @@ do_enable() {
     argo-workflows)       _enable_argo_workflows ;;
     azdo-agent)           _enable_azdo_agent ;;
     renovate)             _enable_renovate ;;
+    blob-explorer)
+      _kubectl_apply "$id"  # applies namespace + ingress (HelmRelease is inert without Flux)
+      log "Deploying blob-explorer via helm..."
+      helm upgrade --install blob-explorer "$REPO_ROOT/helm/blob-explorer" \
+        -n blob-explorer \
+        --set image.pullPolicy=Never \
+        --wait --timeout 120s
+      _start_comp_portforwards "$id"
+      success "$name enabled"
+      ;;
     *)
       _kubectl_apply "$id"
       _start_comp_portforwards "$id"

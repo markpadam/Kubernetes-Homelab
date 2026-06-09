@@ -192,6 +192,20 @@ if component_enabled azdo-agent; then
   success "azdo-agent applied"
 fi
 
+# Blob Explorer — helm chart deployed directly (no Flux HelmController needed).
+# The kustomize dir contains a HelmRelease CRD that is inert without Flux, so
+# we apply it only for the namespace + ingress, then install the chart ourselves.
+if component_enabled blob-explorer; then
+  log "Applying blob-explorer namespace + ingress..."
+  kubectl apply -k flux/apps/base/blob-explorer/
+  log "Deploying blob-explorer via helm..."
+  helm upgrade --install blob-explorer helm/blob-explorer \
+    -n blob-explorer \
+    --set image.pullPolicy=Never \
+    --wait --timeout 120s
+  success "blob-explorer deployed"
+fi
+
 # Kubectl-type components managed via Flux — apply their kustomizations directly.
 # Reads flux_dir / manifest from lab-components.json so this list never drifts.
 python3 - ".lab-state.json" "$ONLY_COMPONENT" <<'PYEOF'
@@ -202,7 +216,7 @@ enabled = set()
 if os.path.exists(state_file):
     enabled = set(json.load(open(state_file)).get('enabled', []))
 
-SKIP = {'taskflow', 'azdo-agent'}  # handled explicitly above
+SKIP = {'taskflow', 'azdo-agent', 'blob-explorer'}  # handled explicitly above
 
 components = json.load(open('lab-components.json'))['components']
 applied = []
