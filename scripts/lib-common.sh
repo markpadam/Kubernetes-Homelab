@@ -232,10 +232,8 @@ lab_registry_mirror_configure() {
   local hosts_dir="/etc/containerd/certs.d/docker.io"
   local hosts_file="${hosts_dir}/hosts.toml"
 
-  mapfile -t _REG_NODES < <(minikube node list -p "$profile" 2>/dev/null \
-    | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
-
-  for node in "${_REG_NODES[@]}"; do
+  while IFS= read -r node; do
+    [[ -z "$node" ]] && continue
     if docker exec "$node" sh -c \
         "test -f ${hosts_file} && grep -q '${bridgegw}:5000' ${hosts_file}" 2>/dev/null; then
       continue
@@ -245,7 +243,8 @@ lab_registry_mirror_configure() {
       | docker exec -i "$node" sh -c \
           "mkdir -p ${hosts_dir} && cat > ${hosts_file} && systemctl restart containerd" 2>/dev/null \
       || warn "registry mirror: failed to configure node $node"
-  done
+  done < <(minikube node list -p "$profile" 2>/dev/null \
+    | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
 }
 
 lab_render_dashboard() {
