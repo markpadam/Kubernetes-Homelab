@@ -62,15 +62,25 @@ fi
 source ./env.sh
 
 echo "Configuring Azure Pipelines agent..."
-./config.sh --unattended \
-  --agent "${AZP_AGENT_NAME:-$(hostname)}" \
-  --url "${AZP_URL}" \
-  --auth PAT \
-  --token "$(cat "$AZP_TOKEN_FILE")" \
-  --pool "${AZP_POOL:-Default}" \
-  --work "${AZP_WORK:-_work}" \
-  --replace \
-  --acceptTeeEula
+for attempt in 1 2 3 4 5; do
+  if ./config.sh --unattended \
+    --agent "${AZP_AGENT_NAME:-$(hostname)}" \
+    --url "${AZP_URL}" \
+    --auth PAT \
+    --token "$(cat "$AZP_TOKEN_FILE")" \
+    --pool "${AZP_POOL:-Default}" \
+    --work "${AZP_WORK:-_work}" \
+    --replace \
+    --acceptTeeEula; then
+    break
+  fi
+  if [ "$attempt" -eq 5 ]; then
+    echo "Failed to configure agent after 5 attempts, exiting"
+    exit 1
+  fi
+  echo "config.sh attempt $attempt failed, retrying in $((attempt * 10))s..."
+  sleep $((attempt * 10))
+done
 
 echo "Running Azure Pipelines agent..."
 trap 'cleanup; exit 0' EXIT
