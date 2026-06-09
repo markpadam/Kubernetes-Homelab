@@ -250,6 +250,10 @@ else
   success "Docker daemon already running"
 fi
 
+lab_registry_mirror_start \
+  && log "Registry mirror running (docker.io pull-through on port 5000)" \
+  || warn "Registry mirror failed to start — docker.io pulls will bypass the cache"
+
 # ── Start cluster ─────────────────────────────
 step "Starting Cluster"
 
@@ -284,6 +288,9 @@ if ! lab_wait_nodes_ready "$PROFILE" 420; then
   error "Nodes did not all reach Ready within 7 min. Check: kubectl get nodes ; minikube logs -p $PROFILE"
 fi
 success "Cluster up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes ready"
+
+lab_registry_mirror_configure "$PROFILE" \
+  || warn "Containerd mirror configuration failed — nodes will pull docker.io images directly"
 
 # ── Rancher ───────────────────────────────────
 # pause-lab.sh scaled the cattle-system deployments to 0; bring the Rancher core

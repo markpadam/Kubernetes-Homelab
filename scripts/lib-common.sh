@@ -195,6 +195,59 @@ COLIMA
 #       output_path   (default: /tmp/lab-dashboard.html)
 # The caller must export every $VAR referenced by the template (PROFILE,
 # GRAFANA_PASSWORD, ARGOCD_PASSWORD, etc.) before calling.
+# ── Registry mirror (docker.io pull-through cache in Colima) ─────────────────
+
+# Start the registry:2 pull-through cache for docker.io in Colima's Docker
+# daemon. Idempotent — no-op if already running, restarts if stopped.
+# Uses --restart=always so it auto-starts whenever Colima comes up.
+lab_registry_mirror_start() {
+  local _sock="unix://$HOME/.colima/default/docker.sock"
+  if DOCKER_HOST="$_sock" docker inspect registry-mirror &>/dev/null 2>&1; then
+    if [[ "$(DOCKER_HOST="$_sock" docker inspect -f '{{.State.Running}}' registry-mirror 2>/dev/null)" != "true" ]]; then
+      DOCKER_HOST="$_sock" docker start registry-mirror >/dev/null
+    fi
+    return 0
+  fi
+  DOCKER_HOST="$_sock" docker run -d \
+    --name registry-mirror \
+    --restart always \
+    -p 5000:5000 \
+    -e REGISTRY_PROXY_REMOTEURL=https://registry-1.docker.io \
+    -v registry-mirror-data:/var/lib/registry \
+    registry:2 >/dev/null
+}
+
+# Configure containerd on every minikube node to use the Colima-hosted
+# registry:2 container as a pull-through mirror for docker.io.
+# Idempotent — skips nodes already pointing at the mirror.
+# $1 = minikube profile (default $PROFILE or aks-lab)
+lab_registry_mirror_configure() {
+  local profile="${1:-${PROFILE:-aks-lab}}"
+  local bridgegw
+  bridgegw=$(docker exec "$profile" ip route show default 2>/dev/null \
+             | awk '{print $3}' | head -1)
+  [[ -n "$bridgegw" ]] || { warn "registry mirror: cannot determine bridge gateway"; return 1; }
+
+  local mirror_url="http://${bridgegw}:5000"
+  local hosts_dir="/etc/containerd/certs.d/docker.io"
+  local hosts_file="${hosts_dir}/hosts.toml"
+
+  mapfile -t _REG_NODES < <(minikube node list -p "$profile" 2>/dev/null \
+    | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+
+  for node in "${_REG_NODES[@]}"; do
+    if docker exec "$node" sh -c \
+        "test -f ${hosts_file} && grep -q '${bridgegw}:5000' ${hosts_file}" 2>/dev/null; then
+      continue
+    fi
+    printf 'server = "https://registry-1.docker.io"\n\n[host."%s"]\n  capabilities = ["pull", "resolve"]\n' \
+      "$mirror_url" \
+      | docker exec -i "$node" sh -c \
+          "mkdir -p ${hosts_dir} && cat > ${hosts_file} && systemctl restart containerd" 2>/dev/null \
+      || warn "registry mirror: failed to configure node $node"
+  done
+}
+
 lab_render_dashboard() {
   local template="${1:-dashboard-template.html}"
   local output="${2:-/tmp/lab-dashboard.html}"

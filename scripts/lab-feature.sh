@@ -1024,27 +1024,39 @@ _enable_azdo_agent() {
     [[ -n "${AZP_TOKEN:-}" ]] || error "AZP_TOKEN missing from $_ADO_CONFIG — run: ./aks-lab feature enable azdo-agent"
     [[ -n "${AZP_POOL:-}"  ]] || error "AZP_POOL missing from $_ADO_CONFIG — run: ./aks-lab feature enable azdo-agent"
   else
-    # Interactive prompts — collect and save credentials for future runs
-    echo ""
-    AZP_URL=""
-    while [[ ! "$AZP_URL" =~ ^https://dev\.azure\.com/ ]]; do
-      printf "  Azure DevOps org URL  (e.g. https://dev.azure.com/yourorg): "
-      read -r AZP_URL
-      [[ "$AZP_URL" =~ ^https://dev\.azure\.com/ ]] || echo "[!] URL must start with https://dev.azure.com/ — try again"
-    done
-    printf "  Agent pool name       (must exist in ADO → Org Settings → Agent pools): "
-    read -r AZP_POOL
-    AZP_TOKEN=""
-    while [[ -z "$AZP_TOKEN" ]]; do
-      printf "  Personal Access Token (Agent Pools: Read & Manage scope): "
-      read -rs AZP_TOKEN
-      printf "\n"
-      [[ -n "$AZP_TOKEN" ]] || echo "[!] PAT cannot be empty — try again"
-    done
-    printf 'AZP_URL="%s"\nAZP_POOL="%s"\nAZP_TOKEN="%s"\n' \
-      "$AZP_URL" "$AZP_POOL" "$AZP_TOKEN" > "$_ADO_CONFIG"
-    chmod 600 "$_ADO_CONFIG"
-    log "Credentials saved to $_ADO_CONFIG"
+    # Try Keychain before prompting
+    AZP_URL=$(security find-generic-password -a "$USER" -s "aks-lab-ado-url"   -w 2>/dev/null || echo "")
+    AZP_TOKEN=$(security find-generic-password -a "$USER" -s "aks-lab-ado-token" -w 2>/dev/null || echo "")
+    AZP_POOL=$(security find-generic-password -a "$USER" -s "aks-lab-ado-pool"  -w 2>/dev/null || echo "")
+    if [[ -n "$AZP_URL" && -n "$AZP_TOKEN" && -n "$AZP_POOL" ]]; then
+      log "ADO credentials loaded from macOS Keychain"
+    else
+      # Interactive prompts — collect and save credentials for future runs
+      echo ""
+      AZP_URL=""
+      while [[ ! "$AZP_URL" =~ ^https://dev\.azure\.com/ ]]; do
+        printf "  Azure DevOps org URL  (e.g. https://dev.azure.com/yourorg): "
+        read -r AZP_URL
+        [[ "$AZP_URL" =~ ^https://dev\.azure\.com/ ]] || echo "[!] URL must start with https://dev.azure.com/ — try again"
+      done
+      printf "  Agent pool name       (must exist in ADO → Org Settings → Agent pools): "
+      read -r AZP_POOL
+      AZP_TOKEN=""
+      while [[ -z "$AZP_TOKEN" ]]; do
+        printf "  Personal Access Token (Agent Pools: Read & Manage scope): "
+        read -rs AZP_TOKEN
+        printf "\n"
+        [[ -n "$AZP_TOKEN" ]] || echo "[!] PAT cannot be empty — try again"
+      done
+      security add-generic-password -U -a "$USER" -s "aks-lab-ado-url"   -w "$AZP_URL"   2>/dev/null || true
+      security add-generic-password -U -a "$USER" -s "aks-lab-ado-token" -w "$AZP_TOKEN" 2>/dev/null || true
+      security add-generic-password -U -a "$USER" -s "aks-lab-ado-pool"  -w "$AZP_POOL"  2>/dev/null || true
+      log "ADO credentials saved to macOS Keychain"
+      printf 'AZP_URL="%s"\nAZP_POOL="%s"\nAZP_TOKEN="%s"\n' \
+        "$AZP_URL" "$AZP_POOL" "$AZP_TOKEN" > "$_ADO_CONFIG"
+      chmod 600 "$_ADO_CONFIG"
+      log "Credentials also saved to $_ADO_CONFIG"
+    fi
   fi
 
   kubectl create namespace azdo-agent --dry-run=client -o yaml | kubectl apply --validate=false -f -
@@ -1095,12 +1107,17 @@ _enable_renovate() {
     [[ -z "$RENOVATE_REPOSITORIES" ]] && RENOVATE_REPOSITORIES="$_DEFAULT_REPO"
     [[ "$RENOVATE_REPOSITORIES" =~ ^[^/]+/[^/]+$ ]] || error "Repository must be in owner/name form (got: '$RENOVATE_REPOSITORIES')"
     RENOVATE_TOKEN=""
-    while [[ -z "$RENOVATE_TOKEN" ]]; do
-      printf "  GitHub PAT (classic: repo scope, or fine-grained: Contents+PRs RW): "
-      read -rs RENOVATE_TOKEN
-      printf "\n"
-      [[ -n "$RENOVATE_TOKEN" ]] || echo "[!] Token cannot be empty — try again"
-    done
+    RENOVATE_TOKEN=$(security find-generic-password -a "$USER" -s "aks-lab-github-token" -w 2>/dev/null || echo "")
+    if [[ -n "$RENOVATE_TOKEN" ]]; then
+      log "GitHub PAT loaded from macOS Keychain (aks-lab-github-token)"
+    else
+      while [[ -z "$RENOVATE_TOKEN" ]]; do
+        printf "  GitHub PAT (classic: repo scope, or fine-grained: Contents+PRs RW): "
+        read -rs RENOVATE_TOKEN
+        printf "\n"
+        [[ -n "$RENOVATE_TOKEN" ]] || echo "[!] Token cannot be empty — try again"
+      done
+    fi
     printf "  Dry run first? (opens no PRs, just logs what it would do) [y/N]: "
     local _dry; read -r _dry
     [[ "$_dry" =~ ^[Yy]$ ]] && RENOVATE_DRY_RUN="full"
