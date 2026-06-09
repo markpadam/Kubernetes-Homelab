@@ -108,11 +108,13 @@ read_enabled() {
 write_state() {
   local enabled_json="$1"
   python3 -c "
-import json
-state = {'version': 1, 'enabled': $enabled_json}
-with open('$STATE_FILE', 'w') as f:
+import json, os
+path = '$STATE_FILE'
+state = json.load(open(path)) if os.path.exists(path) else {}
+state['version'] = 1
+state['enabled'] = $enabled_json
+with open(path, 'w') as f:
     json.dump(state, f, indent=2)
-print()
 "
 }
 
