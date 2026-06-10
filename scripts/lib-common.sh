@@ -195,31 +195,40 @@ COLIMA
 #       output_path   (default: /tmp/lab-dashboard.html)
 # The caller must export every $VAR referenced by the template (PROFILE,
 # GRAFANA_PASSWORD, ARGOCD_PASSWORD, etc.) before calling.
-# ── Registry mirror (docker.io pull-through cache in Colima) ─────────────────
+# ── Registry mirrors (pull-through caches in Colima) ─────────────────────────
 
-# Start the registry:2 pull-through cache for docker.io in Colima's Docker
-# daemon. Idempotent — no-op if already running, restarts if stopped.
-# Uses --restart=always so it auto-starts whenever Colima comes up.
+# Start registry:2 pull-through caches in Colima's Docker daemon.
+# Idempotent — no-op if already running, restarts if stopped.
+# Uses --restart=always so containers auto-start whenever Colima comes up.
+#   port 5000 → docker.io (registry-1.docker.io)
+#   port 5001 → ghcr.io
 lab_registry_mirror_start() {
   local _sock="unix://$HOME/.colima/default/docker.sock"
-  if DOCKER_HOST="$_sock" docker inspect registry-mirror &>/dev/null 2>&1; then
-    if [[ "$(DOCKER_HOST="$_sock" docker inspect -f '{{.State.Running}}' registry-mirror 2>/dev/null)" != "true" ]]; then
-      DOCKER_HOST="$_sock" docker start registry-mirror >/dev/null
+
+  _start_mirror() {
+    local name="$1" port="$2" remote="$3" vol="$4"
+    if DOCKER_HOST="$_sock" docker inspect "$name" &>/dev/null 2>&1; then
+      if [[ "$(DOCKER_HOST="$_sock" docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null)" != "true" ]]; then
+        DOCKER_HOST="$_sock" docker start "$name" >/dev/null
+      fi
+      return 0
     fi
-    return 0
-  fi
-  DOCKER_HOST="$_sock" docker run -d \
-    --name registry-mirror \
-    --restart always \
-    -p 5000:5000 \
-    -e REGISTRY_PROXY_REMOTEURL=https://registry-1.docker.io \
-    -v registry-mirror-data:/var/lib/registry \
-    registry:2 >/dev/null
+    DOCKER_HOST="$_sock" docker run -d \
+      --name "$name" \
+      --restart always \
+      -p "${port}:5000" \
+      -e REGISTRY_PROXY_REMOTEURL="$remote" \
+      -v "${vol}:/var/lib/registry" \
+      registry:2 >/dev/null
+  }
+
+  _start_mirror registry-mirror      5000 https://registry-1.docker.io registry-mirror-data
+  _start_mirror registry-mirror-ghcr 5001 https://ghcr.io              registry-mirror-ghcr-data
 }
 
 # Configure containerd on every minikube node to use the Colima-hosted
-# registry:2 container as a pull-through mirror for docker.io.
-# Idempotent — skips nodes already pointing at the mirror.
+# registry:2 containers as pull-through mirrors for docker.io and ghcr.io.
+# Idempotent — skips registries already configured on a node.
 # $1 = minikube profile (default $PROFILE or aks-lab)
 lab_registry_mirror_configure() {
   local profile="${1:-${PROFILE:-aks-lab}}"
@@ -228,21 +237,33 @@ lab_registry_mirror_configure() {
              | awk '{print $3}' | head -1)
   [[ -n "$bridgegw" ]] || { warn "registry mirror: cannot determine bridge gateway"; return 1; }
 
-  local mirror_url="http://${bridgegw}:5000"
-  local hosts_dir="/etc/containerd/certs.d/docker.io"
-  local hosts_file="${hosts_dir}/hosts.toml"
-
   while IFS= read -r node; do
     [[ -z "$node" ]] && continue
-    if docker exec "$node" sh -c \
-        "test -f ${hosts_file} && grep -q '${bridgegw}:5000' ${hosts_file}" 2>/dev/null; then
-      continue
+    local restart_needed=false
+
+    _configure_mirror() {
+      local registry="$1" port="$2" upstream="$3"
+      local dir="/etc/containerd/certs.d/${registry}"
+      local file="${dir}/hosts.toml"
+      if docker exec "$node" sh -c \
+          "test -f ${file} && grep -q '${bridgegw}:${port}' ${file}" 2>/dev/null; then
+        return 0
+      fi
+      printf 'server = "%s"\n\n[host."http://%s:%s"]\n  capabilities = ["pull", "resolve"]\n' \
+        "$upstream" "$bridgegw" "$port" \
+        | docker exec -i "$node" sh -c \
+            "mkdir -p ${dir} && cat > ${file}" 2>/dev/null \
+        || { warn "registry mirror: failed to configure ${registry} on node ${node}"; return 1; }
+      restart_needed=true
+    }
+
+    _configure_mirror docker.io 5000 https://registry-1.docker.io
+    _configure_mirror ghcr.io   5001 https://ghcr.io
+
+    if [[ "$restart_needed" == true ]]; then
+      docker exec "$node" systemctl restart containerd 2>/dev/null \
+        || warn "registry mirror: failed to restart containerd on node ${node}"
     fi
-    printf 'server = "https://registry-1.docker.io"\n\n[host."%s"]\n  capabilities = ["pull", "resolve"]\n' \
-      "$mirror_url" \
-      | docker exec -i "$node" sh -c \
-          "mkdir -p ${hosts_dir} && cat > ${hosts_file} && systemctl restart containerd" 2>/dev/null \
-      || warn "registry mirror: failed to configure node $node"
   done < <(minikube node list -p "$profile" 2>/dev/null \
     | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
 }

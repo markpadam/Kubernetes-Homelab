@@ -251,8 +251,8 @@ else
 fi
 
 lab_registry_mirror_start \
-  && log "Registry mirror running (docker.io pull-through on port 5000)" \
-  || warn "Registry mirror failed to start — docker.io pulls will bypass the cache"
+  && log "Registry mirrors running (docker.io :5000, ghcr.io :5001)" \
+  || warn "Registry mirror failed to start — docker.io/ghcr.io pulls will bypass the cache"
 
 # ── Start cluster ─────────────────────────────
 step "Starting Cluster"
@@ -290,7 +290,7 @@ fi
 success "Cluster up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes ready"
 
 lab_registry_mirror_configure "$PROFILE" \
-  || warn "Containerd mirror configuration failed — nodes will pull docker.io images directly"
+  || warn "Containerd mirror configuration failed — nodes will pull docker.io/ghcr.io images directly"
 
 # ── Rancher ───────────────────────────────────
 # pause-lab.sh scaled the cattle-system deployments to 0; bring the Rancher core

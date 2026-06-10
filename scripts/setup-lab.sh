@@ -988,14 +988,14 @@ lab_wait_nodes_ready "$PROFILE" 420 \
   || error "Nodes did not all reach Ready within 7 min — check $LAB_LOG and: kubectl get nodes"
 success "Cluster is up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes ready"
 
-log "Starting docker.io pull-through cache..."
+log "Starting pull-through caches (docker.io :5000, ghcr.io :5001)..."
 lab_registry_mirror_start \
-  && success "Registry mirror running in Colima (docker.io pull-through on port 5000)" \
-  || warn "Registry mirror failed to start — docker.io pulls will bypass the cache"
-log "Configuring containerd mirror on all nodes..."
+  && success "Registry mirrors running in Colima (docker.io :5000, ghcr.io :5001)" \
+  || warn "Registry mirror failed to start — docker.io/ghcr.io pulls will bypass the cache"
+log "Configuring containerd mirrors on all nodes..."
 lab_registry_mirror_configure "$PROFILE" \
-  && success "Containerd mirror configured on all nodes" \
-  || warn "Containerd mirror configuration failed — nodes will pull docker.io images directly"
+  && success "Containerd mirrors configured on all nodes" \
+  || warn "Containerd mirror configuration failed — nodes will pull docker.io/ghcr.io images directly"
 
 # ── Step 2: Build Lab Images ─────────────────
 step "Step 2 — Building Lab Images"
