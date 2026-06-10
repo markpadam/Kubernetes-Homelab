@@ -1489,6 +1489,12 @@ if feature_enabled rancher; then
              {"op":"replace","path":"/spec/template/spec/containers/0/livenessProbe/initialDelaySeconds","value":900},
              {"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/initialDelaySeconds","value":900}]' \
       2>/dev/null || warn "Rancher probe patch failed -- pod may restart before being ready"
+    # progressDeadlineSeconds defaults to 600s but readinessProbe initialDelaySeconds
+    # is 900s — the rollout would always exceed its deadline before readiness fires.
+    # Set to 1200s (readiness delay + 300s buffer) so the deployment can go Available.
+    kubectl patch deployment rancher -n cattle-system --type=merge \
+      -p='{"spec":{"progressDeadlineSeconds":1200}}' \
+      2>/dev/null || warn "Rancher progressDeadlineSeconds patch failed"
     kubectl patch deployment rancher -n cattle-system --type=merge \
       -p='{"spec":{"template":{"spec":{"nodeSelector":{"kubernetes.io/hostname":"aks-lab"}}}}}' \
       2>/dev/null || true

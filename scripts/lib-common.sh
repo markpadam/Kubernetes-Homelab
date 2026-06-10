@@ -547,9 +547,13 @@ lab_rancher_restore() {
 
   # 2) Scale the Rancher server back up; if it isn't Available (its pod likely
   #    FATAL'd against the previously-absent webhook), restart it to retry now.
+  #    Also ensure progressDeadlineSeconds is large enough to accommodate the
+  #    900s readiness probe delay (chart default 600s is too short).
   if kubectl get deploy rancher -n cattle-system &>/dev/null; then
     [[ "$(kubectl get deploy rancher -n cattle-system -o jsonpath='{.spec.replicas}' 2>/dev/null)" == "0" ]] \
       && kubectl scale deploy rancher -n cattle-system --replicas=1 &>/dev/null
+    kubectl patch deploy rancher -n cattle-system --type=merge \
+      -p='{"spec":{"progressDeadlineSeconds":1200}}' &>/dev/null || true
     kubectl wait deploy rancher -n cattle-system --for=condition=available --timeout=5s &>/dev/null \
       || kubectl rollout restart deploy rancher -n cattle-system &>/dev/null || true
   fi
