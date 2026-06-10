@@ -422,9 +422,18 @@ fi
 # ── K8s API Port-Forward ─────────────────────
 # Services reach the network via MetalLB real IPs — no port-forwards needed.
 # Only the K8s API server requires a port-forward (it is not a standard service).
-step "Exposing K8s API"
+step "Exposing K8s API and Service Port-Forwards"
 # _pf() lives in lib-common.sh (shared with setup-lab.sh).
 _pf "K8s API" 8443 "kubectl port-forward svc/kubernetes 8443:443 -n default --address 0.0.0.0" /tmp/k8s-api-portforward.log
+
+# ── Service Port-Forwards ─────────────────────
+# These are checked by ./aks-lab verify and are not provided by MetalLB.
+# Ingress :9980 is the primary web-app entry point (HTTP via NGINX Ingress).
+# SSH forwards and Argo UI require direct pod access, not MetalLB routes.
+_pf "Ingress"        9980 "kubectl port-forward svc/ingress-nginx-controller 9980:80 -n ingress-nginx --address 0.0.0.0" /tmp/ingress-portforward.log
+feature_enabled toolbox        && _pf "Toolbox SSH"    2222 "kubectl port-forward svc/toolbox-ssh 2222:22 -n toolbox"              /tmp/toolbox-portforward.log
+feature_enabled exam-sim       && _pf "Exam-sim SSH"   2224 "kubectl port-forward svc/exam-sim-ssh 2224:22 -n exam-sim"            /tmp/exam-sim-portforward.log
+feature_enabled argo-workflows && _pf "Argo Workflows" 2746 "kubectl port-forward svc/argo-server 2746:2746 -n argo"               /tmp/argo-workflows-portforward.log
 
 # ── minikube tunnel ───────────────────────────
 # Routes MetalLB IPs (172.16.3.0/24) from this host into the cluster.
