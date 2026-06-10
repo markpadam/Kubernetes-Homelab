@@ -357,6 +357,15 @@ fi
 if feature_enabled vault; then
   step "Restoring Vault"
 
+  # Derive current K8s API host for Vault's Kubernetes auth backend.
+  # Minikube changes the NodePort on every restart; always pass it explicitly so
+  # Terraform doesn't fall back to the stale default in variables.tf.
+  _K8S_API_HOST=$(kubectl config view --context="${PROFILE}" --minify \
+    -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || echo "")
+  [[ -z "$_K8S_API_HOST" ]] && _K8S_API_HOST=$(kubectl cluster-info 2>/dev/null \
+    | awk '/control plane/{print $NF}' | sed 's/\x1b\[[0-9;]*m//g')
+  [[ -z "$_K8S_API_HOST" ]] && _K8S_API_HOST="https://127.0.0.1:8443"
+
   if curl -sf "http://127.0.0.1:8200/v1/sys/health" >/dev/null 2>&1; then
     success "Vault already running at ${VAULT_ADDR}"
     # Ensure the in-cluster vault-host Service exists even when Vault was already
@@ -365,16 +374,18 @@ if feature_enabled vault; then
       || warn "Could not (re)create vault-host Service — cert-manager may not reach Vault"
     lab_vault_colima_proxy_start "$PROFILE" \
       || warn "colima vault proxy failed — pods may not reach Vault"
-    # Dev-mode Vault keeps all state in memory. If the host (or the Vault
-    # process) restarted, Vault is UP but UNCONFIGURED — no Kubernetes auth,
-    # no PKI — which silently breaks the lab-ca ClusterIssuer and blocks Flux.
-    # Detect a missing kubernetes auth method and re-run the provisioning.
-    if ! curl -sf -H "X-Vault-Token: ${VAULT_TOKEN:-root}" \
-         "http://127.0.0.1:8200/v1/sys/auth" 2>/dev/null | grep -q '"kubernetes/"'; then
-      warn "Vault running but unconfigured (dev state wiped) — re-provisioning..."
+    # Re-provision if: kubernetes/ auth is missing, OR its kubernetes_host is
+    # stale (minikube NodePort changed on restart). Both break cert-manager TLS.
+    _VAULT_K8S_HOST=$(curl -sf -H "X-Vault-Token: ${VAULT_TOKEN:-root}" \
+      "http://127.0.0.1:8200/v1/auth/kubernetes/config" 2>/dev/null \
+      | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('kubernetes_host',''))" \
+      2>/dev/null || echo "")
+    if [[ -z "$_VAULT_K8S_HOST" || "$_VAULT_K8S_HOST" != "$_K8S_API_HOST" ]]; then
+      warn "Vault Kubernetes auth stale or missing (${_VAULT_K8S_HOST:-none} → ${_K8S_API_HOST}) — re-provisioning..."
       terraform -chdir=IaC/terraform init -input=false >>/tmp/vault-terraform-apply.log 2>&1
       terraform -chdir=IaC/terraform apply -auto-approve -input=false \
         -var="minikube_profile=${PROFILE}" \
+        -var="minikube_k8s_host=${_K8S_API_HOST}" \
         2>&1 | tee -a /tmp/vault-terraform-apply.log
       success "Vault re-configured"
     fi
@@ -391,6 +402,7 @@ if feature_enabled vault; then
       terraform -chdir=IaC/terraform init -input=false >>/tmp/vault-terraform-apply.log 2>&1
       terraform -chdir=IaC/terraform apply -auto-approve -input=false \
         -var="minikube_profile=${PROFILE}" \
+        -var="minikube_k8s_host=${_K8S_API_HOST}" \
         2>&1 | tee /tmp/vault-terraform-apply.log
       success "Vault configured"
       # The -dev server regenerates its Root CA on every restart, so the old
