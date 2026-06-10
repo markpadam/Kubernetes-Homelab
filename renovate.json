@@ -52,6 +52,11 @@
       "matchManagers": ["kubernetes"],
       "matchPackageNames": ["ghcr.io/renovatebot/renovate"],
       "groupName": "renovate self-update"
+    },
+    {
+      "description": "Pin cosmos-db emulator at 2.14.24 — vnext tags require AVX2 which the Ivy Bridge Mac Pro 2013 lacks (SIGILL).",
+      "matchPackageNames": ["mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator"],
+      "enabled": false
     }
   ],
   "prConcurrentLimit": 5,
