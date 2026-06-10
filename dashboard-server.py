@@ -752,11 +752,24 @@ def _start_terminal_ws():
     asyncio.run(main())
 
 
+class _IPv6HTTPServer(http.server.HTTPServer):
+    address_family = __import__("socket").AF_INET6
+
+
 if __name__ == "__main__":
     os.chdir(REPO_ROOT)
 
     ws_thread = threading.Thread(target=_start_terminal_ws, daemon=True)
     ws_thread.start()
+
+    # Bind IPv6 loopback in a background thread so that sshd forwarding
+    # localhost:PORT (which resolves ::1 first on macOS) reaches this server
+    # instead of any other process that might hold the IPv6 socket.
+    try:
+        v6_server = _IPv6HTTPServer(("::1", PORT), Handler)
+        threading.Thread(target=v6_server.serve_forever, daemon=True).start()
+    except OSError:
+        pass
 
     server = http.server.HTTPServer(("127.0.0.1", PORT), Handler)
     print(f"[dashboard] http://localhost:{PORT}", flush=True)
