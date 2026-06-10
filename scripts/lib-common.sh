@@ -555,14 +555,28 @@ lab_rancher_restore() {
   fi
 
   # 3) Re-apply the v2.9+ extension-API deadlock fix (publishNotReadyAddresses).
-  #    Rancher recreates imperative-api-extension on every startup, wiping the flag.
-  #    Patch AFTER the scale/restart so we're patching the freshly-created Service,
-  #    not a pre-restart copy that Rancher will overwrite moments later.
-  local deadline=$(( $(date +%s) + 30 ))
-  until kubectl get service imperative-api-extension -n cattle-system &>/dev/null \
-      || (( $(date +%s) >= deadline )); do sleep 2; done
-  kubectl patch service imperative-api-extension -n cattle-system \
-    -p '{"spec":{"publishNotReadyAddresses":true}}' &>/dev/null || true
+  #    Rancher recreates imperative-api-extension on EVERY startup, wiping the flag.
+  #    A one-shot patch races against the crash loop — Rancher may restart and
+  #    recreate the service before the pod stabilises. Run a background watcher
+  #    that re-patches on each recreation until the pod is Ready or 10 minutes pass.
+  (
+    local _pna_deadline=$(( $(date +%s) + 600 ))
+    while (( $(date +%s) < _pna_deadline )); do
+      if kubectl get svc imperative-api-extension -n cattle-system &>/dev/null; then
+        local _pna
+        _pna=$(kubectl get svc imperative-api-extension -n cattle-system \
+          -o jsonpath='{.spec.publishNotReadyAddresses}' 2>/dev/null)
+        [[ "$_pna" != "true" ]] && kubectl patch svc imperative-api-extension \
+          -n cattle-system -p '{"spec":{"publishNotReadyAddresses":true}}' &>/dev/null || true
+      fi
+      # Stop once the pod is Ready — Rancher won't recreate the service after that.
+      if kubectl get deploy rancher -n cattle-system \
+          -o jsonpath='{.status.readyReplicas}' 2>/dev/null | grep -q '^[1-9]'; then
+        break
+      fi
+      sleep 5
+    done
+  ) &
   return 0
 }
 
