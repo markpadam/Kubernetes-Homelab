@@ -1,0 +1,41 @@
+namespace: bloods
+
+image:
+  # Built and pushed by the ADO pipeline to the in-cluster registry.
+  repository: registry.container-registry.svc.cluster.local:5000/bloods
+  webTag: latest
+  migratorTag: latest
+  pullPolicy: IfNotPresent
+
+web:
+  replicaCount: 2
+  port: 8080
+  resources:
+    requests: { cpu: 100m, memory: 160Mi }
+    limits:   { cpu: 750m, memory: 512Mi }
+
+ingress:
+  enabled: true
+  host: bloods.aks-lab.local
+  tlsSecret: bloods-tls
+  clusterIssuer: lab-ca
+
+networkPolicy:
+  enabled: true
+  # Namespaces this app must reach (matched by kubernetes.io/metadata.name).
+  sqlNamespace: azure-sql
+  blobNamespace: azure-storage
+
+autoscaling:
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPU: 70
+
+# Connection strings — hard-coded for the lab (these are the lab's well-known dev
+# credentials, matching IncidentHub). Move to Vault for anything sensitive.
+config:
+  sqlConnectionString: "Server=mssql.azure-sql.svc.cluster.local,1433;Database=bloods;User Id=sa;Password=AksLab!SqlDev1;TrustServerCertificate=True;"
+  # Azurite well-known dev connection string (safe to commit — not real credentials).
+  blobConnectionString: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite.azure-storage.svc.cluster.local:10000/devstoreaccount1;"

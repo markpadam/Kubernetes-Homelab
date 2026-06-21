@@ -1,0 +1,25 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bloods
+  namespace: flux-system
+spec:
+  targetNamespace: bloods
+  interval: 5m
+  chart:
+    spec:
+      chart: helm/bloods
+      sourceRef:
+        kind: GitRepository
+        name: homelab
+        namespace: flux-system
+      interval: 1m
+  install:
+    createNamespace: false
+  values:
+    # The ADO pipeline bumps these tags to the built image after pushing to the
+    # in-cluster registry; Flux then reconciles the new image.
+    image:
+      webTag: latest
+      migratorTag: latest
+      pullPolicy: IfNotPresent

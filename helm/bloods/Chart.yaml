@@ -1,0 +1,6 @@
+apiVersion: v2
+name: bloods
+description: Personal blood-test & health-data tracker — ASP.NET Core web + SQL migrator. Stores Medichecks/Optimale/SupplyLife and FitnessGenes reports parsed from PDF, backed by the in-cluster Azure SQL (mssql) with original PDFs in Azurite blob.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
