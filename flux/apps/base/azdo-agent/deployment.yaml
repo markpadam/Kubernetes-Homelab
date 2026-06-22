@@ -51,16 +51,24 @@ spec:
             # Point buildah at the MCR pull-through cache (see azdo-agent-registries).
             - name: CONTAINERS_REGISTRIES_CONF
               value: /opt/agent-registries/registries.conf
+            # The Azure Pipelines agent refuses to run as root unless this is set.
+            - name: AGENT_ALLOW_RUNASROOT
+              value: "1"
+          # Run the build agent rootful + privileged. Rootless buildah can't get a
+          # usable subuid RANGE in minikube's containerd (newuidmap write is denied),
+          # so image layers that chown to non-zero gids (the .NET SDK's /etc/gshadow
+          # → gid 42) fail to extract. As root with privileged, buildah chowns
+          # directly and uses native overlay — reliable on this dedicated lab box.
           securityContext:
-            capabilities:
-              add: ["MKNOD"]
+            privileged: true
+            runAsUser: 0
           resources:
             requests:
               cpu: 500m
               memory: 512Mi
             limits:
-              cpu: "2"
-              memory: 2Gi
+              cpu: "6"
+              memory: 6Gi
           volumeMounts:
             - name: work
               mountPath: /azp/work
