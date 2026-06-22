@@ -18,6 +18,11 @@ spec:
         - name: agent
           image: azdo-agent:local
           imagePullPolicy: Never
+          # Override the start.sh baked into the image with the resilient supervisor
+          # from the azdo-agent-start ConfigMap (re-registers + re-runs the listener
+          # on flaky-egress failures instead of flapping the agent offline). WORKDIR
+          # stays /azp from the image, so the script's relative paths still resolve.
+          command: ["bash", "/opt/agent-start/start.sh"]
           env:
             - name: AZP_URL
               valueFrom:
@@ -58,6 +63,8 @@ spec:
               mountPath: /azp/work
             - name: fuse-device
               mountPath: /dev/fuse
+            - name: start-script
+              mountPath: /opt/agent-start
       volumes:
         - name: work
           emptyDir: {}
@@ -65,3 +72,7 @@ spec:
           hostPath:
             path: /dev/fuse
             type: CharDevice
+        - name: start-script
+          configMap:
+            name: azdo-agent-start
+            defaultMode: 0755

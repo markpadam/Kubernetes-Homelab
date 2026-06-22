@@ -61,31 +61,46 @@ fi
 
 source ./env.sh
 
-echo "Configuring Azure Pipelines agent..."
-for attempt in 1 2 3 4 5; do
-  if ./config.sh --unattended \
-    --agent "${AZP_AGENT_NAME:-$(hostname)}" \
-    --url "${AZP_URL}" \
-    --auth PAT \
-    --token "$(cat "$AZP_TOKEN_FILE")" \
-    --pool "${AZP_POOL:-Default}" \
-    --work "${AZP_WORK:-_work}" \
-    --replace \
-    --acceptTeeEula; then
-    break
-  fi
-  if [ "$attempt" -eq 5 ]; then
-    echo "Failed to configure agent after 5 attempts, exiting"
-    exit 1
-  fi
-  echo "config.sh attempt $attempt failed, retrying in $((attempt * 10))s..."
-  sleep $((attempt * 10))
-done
-
-echo "Running Azure Pipelines agent..."
-trap 'cleanup; exit 0' EXIT
+# Only deregister on a real pod shutdown (TERM/INT) — NOT when run.sh exits on its
+# own. The cluster's egress to dev.azure.com is flaky: Agent.Listener's first
+# connection often times out (HTTP 00:01:40), and when it does the listener removes
+# itself from the pool and exits. Removing the agent on every such exit (the old
+# `trap ... EXIT`) made it flap offline forever. Instead we keep the container alive
+# and re-register + re-run the listener until it catches a good window and stays in
+# "Listening for Jobs"; once connected, the long-poll tolerates intermittent drops.
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
+register() {
+  for attempt in $(seq 1 30); do
+    if ./config.sh --unattended \
+      --agent "${AZP_AGENT_NAME:-$(hostname)}" \
+      --url "${AZP_URL}" \
+      --auth PAT \
+      --token "$(cat "$AZP_TOKEN_FILE")" \
+      --pool "${AZP_POOL:-Default}" \
+      --work "${AZP_WORK:-_work}" \
+      --replace \
+      --acceptTeeEula; then
+      return 0
+    fi
+    echo "config.sh attempt $attempt failed, retrying in 15s..."
+    sleep 15
+  done
+  echo "config.sh failed 30× — will retry the whole cycle"
+  return 1
+}
+
 chmod +x ./run.sh
-./run.sh "$@"
+
+# Supervise: (re)register, then run the listener. If the listener exits (e.g. it
+# self-removed after a first-connect timeout), loop and try again. We never exit the
+# container on a transient failure, so the pod stays Running and the agent recovers
+# without a crashloop or a fresh pod.
+while true; do
+  register || { sleep 10; continue; }
+  echo "Running Azure Pipelines agent..."
+  ./run.sh "$@" || true
+  echo "listener exited; re-registering and restarting in 10s (agent stays in the deployment)..."
+  sleep 10
+done
