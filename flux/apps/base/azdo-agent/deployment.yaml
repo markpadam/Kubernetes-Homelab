@@ -40,6 +40,11 @@ spec:
                   fieldPath: metadata.name
             - name: AZP_WORK
               value: /azp/work
+            - name: STORAGE_DRIVER
+              value: overlay
+          securityContext:
+            capabilities:
+              add: ["MKNOD"]
           resources:
             requests:
               cpu: 500m
@@ -50,6 +55,12 @@ spec:
           volumeMounts:
             - name: work
               mountPath: /azp/work
+            - name: fuse-device
+              mountPath: /dev/fuse
       volumes:
         - name: work
           emptyDir: {}
+        - name: fuse-device
+          hostPath:
+            path: /dev/fuse
+            type: CharDevice
