@@ -3,26 +3,37 @@ kind: ClusterRole
 metadata:
   name: azdo-agent-pipeline
 rules:
-  # Namespace management — needed to create/delete per-build test namespaces
+  # Namespace management
   - apiGroups: [""]
     resources: ["namespaces"]
-    verbs: ["get", "list", "create", "delete"]
-  # Core workload resources
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  # Core workload resources (Secrets for Helm release state + chart Secret template)
   - apiGroups: [""]
-    resources: ["pods", "services", "configmaps", "persistentvolumeclaims"]
-    verbs: ["get", "list", "watch", "create", "delete", "patch"]
-  - apiGroups: ["apps"]
-    resources: ["deployments", "replicasets"]
-    verbs: ["get", "list", "watch", "create", "delete", "patch"]
-  # Read existing namespaces for health checks / rollout status
+    resources: ["pods", "services", "configmaps", "persistentvolumeclaims",
+                "secrets", "serviceaccounts", "endpoints"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: [""]
     resources: ["pods/log", "pods/exec"]
     verbs: ["get", "list"]
-  # Flux HelmReleases — lets pipelines deploy GitOps apps (e.g. Bloods) by applying
-  # a HelmRelease; Flux's helm-controller then renders the chart and owns the
-  # underlying resources, so the agent itself needs no broad workload permissions.
-  - apiGroups: ["helm.toolkit.fluxcd.io"]
-    resources: ["helmreleases"]
+  # Apps (Deployments etc.)
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Jobs (Helm post-install/post-upgrade hook for DB migration)
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Ingresses and NetworkPolicies
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies", "ingressclasses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # HPA (autoscaling)
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # cert-manager Certificates (TLS for ingress)
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates", "certificaterequests", "issuers", "clusterissuers"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
