@@ -34,10 +34,11 @@ spec:
                 secretKeyRef:
                   name: azdo-agent-secret
                   key: azp-pool
+            # Stable name (NOT the pod name) so pod restarts reconnect to the same
+            # agent registration via `config.sh --replace` instead of registering a
+            # brand-new agent each time and leaving stale offline agents behind.
             - name: AZP_AGENT_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
+              value: aks-lab-agent
             - name: AZP_WORK
               value: /azp/work
             - name: STORAGE_DRIVER
