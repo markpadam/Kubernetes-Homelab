@@ -575,6 +575,12 @@ success "Features loaded: ${ENABLED_FEATURES:-none}"
 #   High       3C/5G  per node × 3  → 15 GB cluster  ~18 GB Colima  (16-32 GB Mac, full feature set)
 #   Very High  4C/7G  per node × 3  → 21 GB cluster  ~24 GB Colima  (32 GB Mac, all services + replicas)
 #   Extra High 4C/10G per node × 3  → 30 GB cluster  ~34 GB Colima  (48 GB Mac Pro / workstation)
+#   Maximum    6C/14G per node × 3  → 42 GB cluster  ~44 GB Colima / 20 VM CPU  (dedicated 24C/64 GB Mac Pro)
+#
+# Maximum is for a box dedicated to the lab: it sizes the Colima VM to 20 CPU
+# (not the per-node count) so the 3 node-containers stop fighting over 8 cores —
+# the CPU starvation that makes pod egress to the internet flaky. It leaves ~4
+# CPU / ~20 GB for macOS and the Samba/client Lima VMs.
 if [[ -n "${LAB_RESOURCE_TIER:-}" || "$CI_MODE" == "1" ]]; then
   _tier="${LAB_RESOURCE_TIER:-1}"
   [[ "$CI_MODE" == "1" ]] && log "CI mode: resource tier auto-set to Low (override with LAB_RESOURCE_TIER)"
@@ -586,8 +592,9 @@ else
   printf "    3) High      — 3 CPU / 5 GB × 3 nodes  (15 GB cluster, ~18 GB Colima, full feature set)\n" >&3
   printf "    4) Very High — 4 CPU / 7 GB × 3 nodes  (21 GB cluster, ~24 GB Colima, 32 GB Mac)\n" >&3
   printf "    5) Extra High — 4 CPU /10 GB × 3 nodes  (30 GB cluster, ~34 GB Colima, 48 GB Mac/workstation)\n" >&3
+  printf "    6) Maximum    — 6 CPU /14 GB × 3 nodes  (42 GB cluster, ~44 GB Colima / 20 VM CPU, dedicated 24C/64 GB Mac Pro)\n" >&3
   printf "\n" >&3
-  printf "  Choice [1-5, Enter=2]: " >&3
+  printf "  Choice [1-6, Enter=2]: " >&3
   read -r _tier <&0
 fi
 
@@ -618,6 +625,15 @@ case "${_tier:-2}" in
     SAMBA_CPUS=4; SAMBA_MEM="6G"; SAMBA_DISK="60G"
     CLIENT_CPUS=4; CLIENT_MEM="6G"; CLIENT_DISK="40G"
     success "Resource tier: Extra High  (4 CPU / 10 GB × 3 nodes)"
+    ;;
+  6)
+    # Dedicated 24-thread / 64 GB Mac Pro. COLIMA_CPU sizes the VM to 20 cores
+    # (vs the per-node CPUS) so the 3 node-containers + dockerd stop starving each
+    # other for CPU — the root cause of flaky pod→internet egress on this box.
+    CPUS=6; MEMORY=14336; COLIMA_CPU=20
+    SAMBA_CPUS=4; SAMBA_MEM="6G"; SAMBA_DISK="60G"
+    CLIENT_CPUS=4; CLIENT_MEM="6G"; CLIENT_DISK="40G"
+    success "Resource tier: Maximum  (6 CPU / 14 GB × 3 nodes, 20-CPU Colima VM)"
     ;;
   *)
     CPUS=2; MEMORY=4096
@@ -716,7 +732,10 @@ fi
 # 2 CPU / 2 GB and would trip the cluster bring-up. Do this pre-TUI so the
 # resize prompt (which must stop Colima) can be answered before the TUI owns
 # the terminal — and so the cluster-recreate check below sees a live daemon.
-_NEED_CPU="$CPUS"
+# The Colima VM hosts all node-containers on a shared kernel. By default it gets
+# the per-node CPUS, but a tier may raise COLIMA_CPU to give the VM more real
+# cores than any single node requests (see the Maximum tier).
+_NEED_CPU="${COLIMA_CPU:-$CPUS}"
 _NEED_MEM_GIB=$(lab_colima_need_mem_gib "$MEMORY" "$NODES")
 _do_resize="n"
 if ! lab_docker_up; then
@@ -729,10 +748,10 @@ else
   _have_cpu=$(lab_docker_cpus)
   _have_mem_mib=$(lab_docker_mem_mib)
   _need_mem_mib=$(( MEMORY * NODES ))
-  if { [[ $_have_cpu -gt 0 && $_have_cpu -lt $CPUS ]]; } || { [[ $_have_mem_mib -gt 0 && $_have_mem_mib -lt $_need_mem_mib ]]; }; then
+  if { [[ $_have_cpu -gt 0 && $_have_cpu -lt $_NEED_CPU ]]; } || { [[ $_have_mem_mib -gt 0 && $_have_mem_mib -lt $_need_mem_mib ]]; }; then
     echo -e "  ${YELLOW}${BOLD}[!]${RESET} Colima VM (${_have_cpu} CPU / $(( _have_mem_mib / 1024 )) GB) is smaller than this tier needs (${_NEED_CPU} CPU / ${_NEED_MEM_GIB} GB)." >&3
     if [[ "$CI_MODE" == "1" || "${LAB_KEEP_CLUSTER:-}" == "1" ]]; then
-      [[ $_have_cpu -lt $CPUS ]] && error "Colima has too few CPUs for this tier. Fix: colima stop && colima start --cpu ${_NEED_CPU} --memory ${_NEED_MEM_GIB}"
+      [[ $_have_cpu -lt $_NEED_CPU ]] && error "Colima has too few CPUs for this tier. Fix: colima stop && colima start --cpu ${_NEED_CPU} --memory ${_NEED_MEM_GIB}"
       echo -e "  ${YELLOW}${BOLD}[!]${RESET} Continuing with low memory — may cause K8S_APISERVER_MISSING." >&3
     else
       printf "         Restart Colima at %s CPU / %s GB now? This stops Colima and any running cluster. [y/N] " "$_NEED_CPU" "$_NEED_MEM_GIB" >&3
@@ -744,7 +763,7 @@ else
         lab_wait_docker 120 || error "Colima resized but Docker never became ready (120s)."
         echo -e "  ${GREEN}${BOLD}[✓]${RESET} Colima resized — ${_NEED_CPU} CPU / ${_NEED_MEM_GIB} GB" >&3
       else
-        [[ $_have_cpu -lt $CPUS ]] && error "Cannot continue: Colima has too few CPUs for this tier."
+        [[ $_have_cpu -lt $_NEED_CPU ]] && error "Cannot continue: Colima has too few CPUs for this tier."
         echo -e "  ${YELLOW}${BOLD}[!]${RESET} Continuing with low memory — may cause K8S_APISERVER_MISSING." >&3
       fi
     fi

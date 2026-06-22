@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: azdo-agent-registries
+  namespace: azdo-agent
+data:
+  # buildah/containers registries config for the in-cluster build agent.
+  # Routes mcr.microsoft.com (the .NET base images the Bloods build pulls) through
+  # the Colima-hosted pull-through cache on the minikube bridge gateway, so the big
+  # SDK/runtime layers are fetched once by the well-connected Colima VM and then
+  # served to the pod at LAN speed — instead of every build dragging ~800 MB
+  # through the flaky pod→internet path.
+  #
+  # 192.168.49.1 is the minikube/Colima docker bridge gateway (stable for this
+  # single-host lab); the cache is plain HTTP, hence insecure = true.
+  # Consumed via CONTAINERS_REGISTRIES_CONF in the agent Deployment.
+  registries.conf: |
+    unqualified-search-registries = ["docker.io"]
+
+    [[registry]]
+    location = "mcr.microsoft.com"
+    [[registry.mirror]]
+    location = "192.168.49.1:5002"
+    insecure = true

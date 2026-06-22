@@ -48,6 +48,9 @@ spec:
               value: /azp/work
             - name: STORAGE_DRIVER
               value: overlay
+            # Point buildah at the MCR pull-through cache (see azdo-agent-registries).
+            - name: CONTAINERS_REGISTRIES_CONF
+              value: /opt/agent-registries/registries.conf
           securityContext:
             capabilities:
               add: ["MKNOD"]
@@ -65,6 +68,8 @@ spec:
               mountPath: /dev/fuse
             - name: start-script
               mountPath: /opt/agent-start
+            - name: registries-conf
+              mountPath: /opt/agent-registries
       volumes:
         - name: work
           emptyDir: {}
@@ -76,3 +81,6 @@ spec:
           configMap:
             name: azdo-agent-start
             defaultMode: 0755
+        - name: registries-conf
+          configMap:
+            name: azdo-agent-registries

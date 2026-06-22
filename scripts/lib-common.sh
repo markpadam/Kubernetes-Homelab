@@ -202,6 +202,7 @@ COLIMA
 # Uses --restart=always so containers auto-start whenever Colima comes up.
 #   port 5000 → docker.io (registry-1.docker.io)
 #   port 5001 → ghcr.io
+#   port 5002 → mcr.microsoft.com (the .NET base images the Bloods build pulls)
 lab_registry_mirror_start() {
   local _sock="unix://$HOME/.colima/default/docker.sock"
 
@@ -224,6 +225,7 @@ lab_registry_mirror_start() {
 
   _start_mirror registry-mirror      5000 https://registry-1.docker.io registry-mirror-data
   _start_mirror registry-mirror-ghcr 5001 https://ghcr.io              registry-mirror-ghcr-data
+  _start_mirror registry-mirror-mcr  5002 https://mcr.microsoft.com    registry-mirror-mcr-data
 }
 
 # Configure containerd on every minikube node to use the Colima-hosted
@@ -257,8 +259,9 @@ lab_registry_mirror_configure() {
       restart_needed=true
     }
 
-    _configure_mirror docker.io 5000 https://registry-1.docker.io
-    _configure_mirror ghcr.io   5001 https://ghcr.io
+    _configure_mirror docker.io        5000 https://registry-1.docker.io
+    _configure_mirror ghcr.io          5001 https://ghcr.io
+    _configure_mirror mcr.microsoft.com 5002 https://mcr.microsoft.com
 
     if [[ "$restart_needed" == true ]]; then
       docker exec "$node" systemctl restart containerd 2>/dev/null \
