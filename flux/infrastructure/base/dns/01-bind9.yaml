@@ -234,7 +234,7 @@ spec:
       # Override the volumeMount for zones-data to use a different path
       initContainers:
         - name: copy-zones
-          image: busybox:1.36
+          image: busybox:1.38
           command: ["sh", "-c", "cp /zones-data/* /etc/bind/zones/"]
           volumeMounts:
             - name: zones-data
