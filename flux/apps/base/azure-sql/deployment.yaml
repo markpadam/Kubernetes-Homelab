@@ -47,15 +47,22 @@ spec:
           volumeMounts:
             - name: mssql-data
               mountPath: /var/opt/mssql
+          # SQL Server can take 2-4 min to open 1433 on a loaded lab box; the
+          # startupProbe (up to 5 min) holds liveness off until it has booted.
+          # Without it, liveness killed sqlservr at ~90s — seconds before the
+          # listener came up — and the pod CrashLooped forever (2026-07-06).
+          startupProbe:
+            tcpSocket:
+              port: 1433
+            periodSeconds: 10
+            failureThreshold: 30
           readinessProbe:
             tcpSocket:
               port: 1433
-            initialDelaySeconds: 15
             periodSeconds: 10
           livenessProbe:
             tcpSocket:
               port: 1433
-            initialDelaySeconds: 30
             periodSeconds: 20
       volumes:
         - name: mssql-data
