@@ -1044,13 +1044,18 @@ _enable_argo_workflows() {
   # Strategic merge patch matches the container by name and replaces args entirely,
   # so --secure=false and --auth-mode=server always win regardless of what
   # quick-start-minimal.yaml ships (--type=json append silently lost to --secure=true).
+  # The readinessProbe MUST be switched to HTTP in the same patch: quick-start
+  # ships scheme:HTTPS, and an HTTP server probed over HTTPS never goes Ready —
+  # the patched RS sat 0/1 forever behind the old unpatched pod (2026-07-06).
   kubectl patch deployment argo-server -n "$ARGO_NS" --type=strategic -p '{
     "spec": {"template": {"spec": {"containers": [{
       "name": "argo-server",
-      "args": ["server", "--auth-mode=server", "--secure=false"]
+      "args": ["server", "--auth-mode=server", "--secure=false"],
+      "readinessProbe": {"httpGet": {"path": "/", "port": 2746, "scheme": "HTTP"}}
     }]}}}
   }'
-  kubectl rollout status deployment/argo-server -n "$ARGO_NS" --timeout=120s
+  kubectl rollout status deployment/argo-server -n "$ARGO_NS" --timeout=120s \
+    || error "argo-server rollout did not complete after the --secure=false patch"
   _start_comp_portforwards "argo-workflows"
   success "Argo Workflows ready — http://localhost:2746"
 }
