@@ -6,7 +6,10 @@ metadata:
 spec:
   interval: 10m
   path: ./flux/apps/prd
-  prune: true
+  # prune MUST stay false — see flux/clusters/dev/apps.yaml: the apps overlay
+  # is intentionally empty (lab-feature.sh owns app lifecycles), so a pruning
+  # Kustomization here can only ever delete kubectl-managed components.
+  prune: false
   sourceRef:
     kind: GitRepository
     name: homelab

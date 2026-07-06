@@ -6,7 +6,14 @@ metadata:
 spec:
   interval: 10m
   path: ./flux/apps/dev
-  prune: true
+  # prune MUST stay false: the apps overlay is intentionally empty
+  # (resources: []) — app components are installed by lab-feature.sh with
+  # kubectl, outside Flux's inventory. With prune:true an empty overlay can
+  # only ever DESTROY: on 2026-07-06 a reconcile against the stale inventory
+  # pruned every app component (azurite, azure-sql, service-bus, cosmos-db,
+  # taskflow, blob-explorer, exam-sim, keda-servicebus, argo-workflows)
+  # minutes after they had been re-enabled.
+  prune: false
   sourceRef:
     kind: GitRepository
     name: homelab
