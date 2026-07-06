@@ -207,6 +207,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if origin and origin not in ALLOWED_ORIGINS:
             self._text(403, "Forbidden origin")
             return False
+        # Authenticated dashboard use counts as lab activity for auto-doze
+        # (scripts/doze-lab.sh) — keeps the lab awake while someone browses it.
+        try:
+            Path("/tmp/aks-lab-last-activity").touch()
+        except OSError:
+            pass
         return True
 
     # ── Verb dispatch ───────────────────────────────────────────
@@ -726,6 +732,10 @@ def _start_terminal_ws():
             await ws.send("Unauthorized — reload the dashboard page and retry.\r\n")
             await ws.close(1008, "unauthorized")
             return
+        try:
+            Path("/tmp/aks-lab-last-activity").touch()
+        except OSError:
+            pass
 
         # Find the toolbox pod name
         try:

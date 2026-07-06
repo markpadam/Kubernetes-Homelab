@@ -151,6 +151,37 @@ the cluster absorb the reconnection load on a cold resume.
 
 ---
 
+## Power saving (auto-doze)
+
+An idle lab still burns ~5–6 host cores (QEMU + cluster control loops) — roughly
+60–90 W of electricity around the clock. Auto-doze pauses the lab and sleeps the
+Mac once nothing has used it for a while:
+
+```bash
+./aks-lab doze on              # doze after 2h idle (pause --colima + sleep)
+./aks-lab doze on --hours 4    # longer idle window
+./aks-lab doze on --no-sleep   # pause the lab but leave macOS running
+./aks-lab doze status          # agent state, current activity signals, log tail
+./aks-lab doze off             # disable
+```
+
+“Activity” = an interactive SSH session, a Screen Sharing client, a remote
+kubectl/web connection (`:8443`/`:9980`), any `./aks-lab` invocation, an
+authenticated dashboard request, or a lab operation in flight. The agent checks
+every 15 minutes (`/tmp/aks-lab-doze.log` records each decision) and refuses to
+sleep unless Wake-on-LAN is enabled (`sudo pmset -a womp 1 autorestart 1`).
+
+Waking back up from another machine:
+
+```bash
+./aks-lab wake --wait          # WoL magic packet, wait for SSH
+ssh mac-pro "cd ~/Documents/Kubernetes-Homelab && nohup ./aks-lab resume &"
+```
+
+Resume from a doze takes ~15 minutes on the Mac Pro (Colima cold boot included).
+
+---
+
 ## Troubleshooting playbook
 
 Hard-won fixes for the things that actually go wrong on this stack.

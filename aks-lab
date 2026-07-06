@@ -14,6 +14,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS="$SCRIPT_DIR/scripts"
 PROFILE="${LAB_PROFILE:-aks-lab}"
 
+# Every invocation counts as lab activity for the auto-doze idle clock
+# (scripts/doze-lab.sh). Best-effort — never block a command over it.
+touch /tmp/aks-lab-last-activity 2>/dev/null || true
+
 # Colours
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
@@ -52,6 +56,7 @@ _usage() {
 "
   echo -e "${BOLD}Other:${RESET}"
   echo -e "  wake [--set-mac <MAC>] [--wait]    send Wake-on-LAN magic packet to the lab host"
+  echo -e "  doze [on|off|status]               auto-pause + sleep the Mac after idle hours (power saving)"
   echo -e "  publish                            make the lab reachable from other machines on the LAN"
   echo -e "  dashboard                          open the web dashboard"
   echo -e "  help                               show this message
@@ -215,6 +220,10 @@ case "${1:-}" in
   wake)
     shift
     exec bash "$SCRIPTS/wake-lab.sh" "$@"
+    ;;
+  doze)
+    shift
+    exec bash "$SCRIPTS/doze-lab.sh" "$@"
     ;;
   publish)
     shift
