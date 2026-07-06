@@ -456,7 +456,7 @@ _enable_falco() {
       --set falco.json_output=true \
       --set falcosidekick.enabled=true \
       --set falcosidekick.webui.enabled=true \
-      --wait --timeout=5m || error "Falco helm install failed"
+      --wait --timeout=10m || error "Falco helm install failed"
   fi
   log "Applying Falco UI ingress (https://falco.aks-lab.local)..."
   kubectl apply -f "$REPO_ROOT/flux/infrastructure/base/falco/ingress.yaml" 2>/dev/null || true
