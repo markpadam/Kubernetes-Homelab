@@ -228,9 +228,9 @@ resource "vault_pki_secret_backend_role" "web" {
   allow_subdomains   = true
   allow_bare_domains = false
   max_ttl            = "2592000" # 30 days
-  key_type           = "any"    # cert-manager uses RSA by default
+  key_type           = "any"     # cert-manager uses RSA by default
   key_bits           = 0
-  require_cn         = false    # cert-manager omits CN, uses SANs only
+  require_cn         = false # cert-manager omits CN, uses SANs only
 }
 
 # ── cert-manager Vault policy ─────────────────────────────────────────────────

@@ -147,7 +147,7 @@ if ! check_tcp "$INGRESS_PORT"; then
   fail "Ingress port-forward" "localhost:$INGRESS_PORT not listening"
 else
   pass "Ingress port-forward" "localhost:$INGRESS_PORT"
-  while IFS=$'\t' read -r ns name host; do
+  while IFS=$'\t' read -r _ _ host; do
     [[ -z "$host" ]] && continue
     code=$(check_ingress_host "$host") && pass "$host" "HTTP $code" || fail "$host" "HTTP $code"
   done < <(kubectl get ingress -A --no-headers \

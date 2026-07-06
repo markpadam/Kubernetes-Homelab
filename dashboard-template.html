@@ -829,7 +829,9 @@
     _term.open(document.getElementById('xterm-container'));
     fitAddon.fit();
 
-    var wsUrl = 'ws://localhost:9998';
+    // The PTY server requires the lab token on the handshake (WebSockets are
+    // exempt from the same-origin policy, so it can't rely on cookies).
+    var wsUrl = _withToken('ws://localhost:9998/');
     _termWs = new WebSocket(wsUrl);
     _termWs.onopen = function() {
       _term.write('\r\n\x1b[32mConnected to toolbox pod.\x1b[0m\r\n');

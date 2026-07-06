@@ -871,6 +871,7 @@ _wait_until_ready() {
 #   published | skipped-noip | skipped-sudo | failed
 # shellcheck disable=SC2034  # consumed by the caller's end-banner (resume-lab.sh)
 LAB_PUBLISH_STATUS=""
+# shellcheck disable=SC2034  # every assignment below is read by the caller
 lab_auto_publish() {
   local scripts_dir="$1"
   [[ "${CI_MODE:-0}" == "1" ]] && { LAB_PUBLISH_STATUS="skipped-ci"; return 0; }

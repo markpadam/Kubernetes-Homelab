@@ -272,7 +272,7 @@ if feature_enabled vault && [[ -z "$ONLY_COMPONENT" || "$ONLY_COMPONENT" == "vau
       -dev-listen-address="${VAULT_ADDR#http://}" \
       >> /tmp/vault-dev.log 2>&1 &
     echo $! > /tmp/vault-dev.pid
-    for i in $(seq 1 30); do
+    for _ in $(seq 1 30); do
       curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1 && break
       sleep 1
     done
@@ -323,15 +323,14 @@ fi
 if [[ -z "$ONLY_COMPONENT" ]]; then
   step "Restoring Port-Forwards"
 
+  # Delegate to the shared self-healing helper (lib-common). Killing only the
+  # process bound to the port is not enough: setup/resume start these forwards
+  # via a respawn wrapper (PID file /tmp/lab-pf-<port>.pid), and an orphaned
+  # wrapper would respawn its kubectl every 2s and fight the new forward.
   _start_portforward() {
     local name="$1" port="$2" cmd="$3" log="$4"
-    lsof -ti:"$port" | xargs kill -9 2>/dev/null || true
-    sleep 1
-    eval "$cmd >> $log 2>&1 &"
-    local pid=$!
-    sleep 2
-    if kill -0 "$pid" 2>/dev/null; then
-      success "$name port-forward running (PID $pid) — localhost:$port"
+    if lab_start_port_forward "$name" "$port" "$cmd" "$log"; then
+      success "$name port-forward running — localhost:$port"
     else
       warn "$name port-forward may have failed — check $log"
     fi

@@ -11,6 +11,9 @@ concurrency:
 
 jobs:
   validate:
+    # Public repo + self-hosted runner: never run fork PRs — they would execute
+    # arbitrary workflow/script changes on the lab Mac. Same-repo branches only.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: self-hosted
     timeout-minutes: 30
     env:

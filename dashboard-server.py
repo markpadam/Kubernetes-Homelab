@@ -475,10 +475,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._text(400, "Invalid JSON")
                 return
             track = req.get("track", "CKA")
-            duration = int(req.get("duration_minutes", 120))
+            try:
+                duration = int(req.get("duration_minutes", 120))
+                count = int(req.get("count", 20))
+            except (TypeError, ValueError):
+                self._text(400, "duration_minutes and count must be integers")
+                return
             scenarios = _load_scenarios()
             pool = [s for s in scenarios if track in s.get("exam_track", [])]
-            count = min(req.get("count", 20), len(pool))
+            count = max(0, min(count, len(pool)))
             selected = random.sample(pool, count)
             session_id = str(uuid.uuid4())[:8]
             now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -575,7 +580,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # POST instead of GET — opens an external app, so it's a state change.
         if path == "/api/corp-client/connect":
             try:
-                limactl = "/usr/local/bin/limactl"
+                import shutil
+                limactl = shutil.which("limactl") or next(
+                    (p for p in ("/usr/local/bin/limactl", "/opt/homebrew/bin/limactl")
+                     if os.path.exists(p)),
+                    "limactl",
+                )
                 ip_result = subprocess.run(
                     [limactl, "shell", "corp-client", "ip", "-4", "addr", "show", "lima0"],
                     capture_output=True, text=True, timeout=15,
@@ -665,6 +675,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 WS_PORT = 9998
+# The dashboard page (:9997) is the only legitimate WebSocket client.
+WS_ALLOWED_ORIGINS = {f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}", f"http://[::1]:{PORT}"}
+
+
+def _ws_handshake(ws) -> tuple[str, str]:
+    """Return (origin, token) from the WS handshake, across websockets API
+    generations: >=14 exposes ws.request.{path,headers}; the legacy API uses
+    ws.path / ws.request_headers."""
+    req = getattr(ws, "request", None)
+    if req is not None:
+        path, headers = req.path, req.headers
+    else:
+        path, headers = getattr(ws, "path", ""), getattr(ws, "request_headers", {})
+    origin = headers.get("Origin", "") if headers else ""
+    qs = parse_qs(urlparse(path or "").query)
+    token = (qs.get("token", [""]) or [""])[0]
+    return origin, token
+
 
 def _start_terminal_ws():
     """WebSocket PTY server on WS_PORT. Each connection spawns a kubectl exec
@@ -684,6 +712,21 @@ def _start_terminal_ws():
         return
 
     async def handle(ws):
+        # Same threat model as the HTTP token check: any webpage in the user's
+        # browser can open ws://localhost:9998 (WebSockets are exempt from the
+        # same-origin policy), and this socket hands out a SHELL in the cluster.
+        # Browsers always send Origin on WS handshakes, so reject foreign pages
+        # outright, and require the per-process token (the dashboard appends it
+        # via _withToken, same as the SSE endpoints).
+        origin, token = _ws_handshake(ws)
+        if origin and origin not in WS_ALLOWED_ORIGINS:
+            await ws.close(1008, "forbidden origin")
+            return
+        if not secrets.compare_digest(token, LAB_TOKEN):
+            await ws.send("Unauthorized — reload the dashboard page and retry.\r\n")
+            await ws.close(1008, "unauthorized")
+            return
+
         # Find the toolbox pod name
         try:
             result = subprocess.run(
@@ -752,7 +795,10 @@ def _start_terminal_ws():
     asyncio.run(main())
 
 
-class _IPv6HTTPServer(http.server.HTTPServer):
+# Threading servers: SSE execs (/exec/resume etc.) hold their connection open
+# for minutes; a single-threaded server would freeze every dashboard poll for
+# the duration. Shared state is already lock-protected (_CACHE_LOCK, _lock).
+class _IPv6HTTPServer(http.server.ThreadingHTTPServer):
     address_family = __import__("socket").AF_INET6
 
 
@@ -771,6 +817,6 @@ if __name__ == "__main__":
     except OSError:
         pass
 
-    server = http.server.HTTPServer(("127.0.0.1", PORT), Handler)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"[dashboard] http://localhost:{PORT}", flush=True)
     server.serve_forever()
