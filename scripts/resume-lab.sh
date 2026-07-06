@@ -377,6 +377,27 @@ if feature_enabled vault; then
     | awk '/control plane/{print $NF}' | sed 's/\x1b\[[0-9;]*m//g')
   [[ -z "$_K8S_API_HOST" ]] && _K8S_API_HOST="https://127.0.0.1:8443"
 
+  # The PKI chain resources (root cert, intermediate CSR/sign/import) are
+  # write-only to the Vault provider — a plain `terraform apply` against a
+  # wiped in-memory Vault re-creates the MOUNTS but not the KEYS, leaving a
+  # keyless issuer that 500s every sign request ("unable to fetch
+  # corresponding key for issuer"). Detect that state (no keys on pki_int)
+  # and force-recreate the whole chain with -replace (2026-07-06 incident).
+  _TF_PKI_REPLACE=(
+    -replace=vault_pki_secret_backend_root_cert.root
+    -replace=vault_pki_secret_backend_intermediate_cert_request.int
+    -replace=vault_pki_secret_backend_root_sign_intermediate.int
+    -replace=vault_pki_secret_backend_intermediate_set_signed.int
+  )
+  _vault_pki_keyless() {
+    local n
+    n=$(curl -sf -H "X-Vault-Token: ${VAULT_TOKEN:-root}" \
+      "http://127.0.0.1:8200/v1/pki_int/keys?list=true" 2>/dev/null \
+      | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('data',{}).get('keys',[])))" \
+      2>/dev/null || echo 0)
+    [[ "${n:-0}" -eq 0 ]]
+  }
+
   if curl -sf "http://127.0.0.1:8200/v1/sys/health" >/dev/null 2>&1; then
     success "Vault already running at ${VAULT_ADDR}"
     # Ensure the in-cluster vault-host Service exists even when Vault was already
@@ -391,12 +412,17 @@ if feature_enabled vault; then
       "http://127.0.0.1:8200/v1/auth/kubernetes/config" 2>/dev/null \
       | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('kubernetes_host',''))" \
       2>/dev/null || echo "")
-    if [[ -z "$_VAULT_K8S_HOST" || "$_VAULT_K8S_HOST" != "$_K8S_API_HOST" ]]; then
+    _PKI_REPLACE=()
+    _vault_pki_keyless && _PKI_REPLACE=("${_TF_PKI_REPLACE[@]}")
+    if [[ -z "$_VAULT_K8S_HOST" || "$_VAULT_K8S_HOST" != "$_K8S_API_HOST" || "${#_PKI_REPLACE[@]}" -gt 0 ]]; then
+      [[ "${#_PKI_REPLACE[@]}" -gt 0 ]] \
+        && warn "Vault PKI has no signing key (Vault was wiped) — force-recreating the PKI chain..."
       warn "Vault Kubernetes auth stale or missing (${_VAULT_K8S_HOST:-none} → ${_K8S_API_HOST}) — re-provisioning..."
       terraform -chdir=IaC/terraform init -input=false >>/tmp/vault-terraform-apply.log 2>&1
       terraform -chdir=IaC/terraform apply -auto-approve -input=false \
         -var="minikube_profile=${PROFILE}" \
         -var="minikube_k8s_host=${_K8S_API_HOST}" \
+        "${_PKI_REPLACE[@]+"${_PKI_REPLACE[@]}"}" \
         2>&1 | tee -a /tmp/vault-terraform-apply.log
       success "Vault re-configured"
     fi
@@ -411,9 +437,12 @@ if feature_enabled vault; then
         || warn "colima vault proxy failed — pods may not reach Vault"
       log "Reconfiguring Vault (KV v2, PKI, policies, Kubernetes auth)..."
       terraform -chdir=IaC/terraform init -input=false >>/tmp/vault-terraform-apply.log 2>&1
+      # Freshly (re)started dev Vault = empty: always force-recreate the
+      # write-only PKI chain, or the issuer comes back keyless (see above).
       terraform -chdir=IaC/terraform apply -auto-approve -input=false \
         -var="minikube_profile=${PROFILE}" \
         -var="minikube_k8s_host=${_K8S_API_HOST}" \
+        "${_TF_PKI_REPLACE[@]}" \
         2>&1 | tee /tmp/vault-terraform-apply.log
       success "Vault configured"
       # The -dev server regenerates its Root CA on every restart, so the old
