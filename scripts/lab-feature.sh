@@ -523,6 +523,18 @@ _disable_istio() {
 # For full Cilium-as-only-CNI (the production posture), recreate the cluster
 # with LAB_CNI=cilium ./aks-lab setup — that passes --cni=cilium to minikube.
 _enable_cilium() {
+  # Chained Cilium is structurally broken on this minikube: the nodes run
+  # kindnet + the docker runtime, and installing Cilium as a second CNI
+  # (05-cilium.conflist sorts before 10-kindnet.conflist) splits pod wiring
+  # across two datapaths that both claim the node podCIDR. Pods created
+  # after the install become Cilium endpoints that kubelet (host netns,
+  # kindnet routes) cannot probe — mssql/falcosidekick/argo-server all went
+  # CrashLoop/NotReady with "connection refused" on 2026-07-06 until Cilium
+  # was removed and every post-install pod recreated. Proper support means a
+  # setup-time CNI choice (minikube --cni=cilium), not a chained install.
+  if kubectl get ds kindnet -n kube-system &>/dev/null && [[ "${LAB_CILIUM_FORCE:-0}" != "1" ]]; then
+    error "Cilium cannot be chained onto this kindnet/DinD minikube — it splits pod networking across two CNIs (see 2026-07-06 incident in this function's comments). Set LAB_CILIUM_FORCE=1 to override at your own risk."
+  fi
   helm repo add cilium https://helm.cilium.io &>/dev/null || true
   helm repo update &>/dev/null
   if helm status cilium -n kube-system &>/dev/null; then
