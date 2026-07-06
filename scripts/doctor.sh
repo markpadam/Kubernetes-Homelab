@@ -114,6 +114,23 @@ if lab_docker_up && minikube status -p "$PROFILE" &>/dev/null; then
   else
     bad "Kubernetes API" "not reachable (cluster may be stopped — ./aks-lab resume)"
   fi
+
+  # All 4 control-plane static-pod manifests must exist on the primary node.
+  # kcm/scheduler manifests went missing once (2026-07-06): the cluster looks
+  # "up" (nodes Ready, API serving) but endpoints never reconcile — kube-dns
+  # points at a stale pod IP, all service DNS dies, Flux can't fetch, and no
+  # new pod is ever scheduled. Cheap to check, brutal to diagnose.
+  _manifests=$(docker exec "$PROFILE" ls /etc/kubernetes/manifests/ 2>/dev/null)
+  _missing=""
+  for _m in etcd kube-apiserver kube-controller-manager kube-scheduler; do
+    grep -q "^${_m}.yaml$" <<<"$_manifests" || _missing="${_missing} ${_m}"
+  done
+  if [[ -z "$_missing" ]]; then
+    ok "Control-plane manifests" "all 4 static pods present"
+  else
+    _kver=$(docker exec "$PROFILE" ls /var/lib/minikube/binaries/ 2>/dev/null | head -1)
+    bad "Control-plane manifests" "missing:${_missing} — regenerate: docker exec $PROFILE /var/lib/minikube/binaries/${_kver:-<ver>}/kubeadm init phase control-plane <name> --config /var/tmp/minikube/kubeadm.yaml"
+  fi
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────────────
