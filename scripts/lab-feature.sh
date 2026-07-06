@@ -323,7 +323,7 @@ _enable_monitoring() {
     helm install monitoring prometheus-community/kube-prometheus-stack \
       --namespace monitoring --create-namespace \
       --set grafana.adminPassword="admin123" \
-      --wait --timeout=5m
+      --wait --timeout=5m || error "monitoring (kube-prometheus-stack) helm install failed"
   fi
   [[ -f "$REPO_ROOT/flux/infrastructure/base/monitoring/ingress.yaml" ]] && \
     kubectl apply -f "$REPO_ROOT/flux/infrastructure/base/monitoring/ingress.yaml"
@@ -347,7 +347,7 @@ _enable_metallb() {
     log "Installing MetalLB (L2 load balancer, pool 172.16.3.0/24)..."
     kubectl create namespace metallb-system --dry-run=client -o yaml \
       | kubectl apply --validate=false -f - &>/dev/null
-    helm install metallb metallb/metallb -n metallb-system --wait --timeout=10m
+    helm install metallb metallb/metallb -n metallb-system --wait --timeout=10m || error "MetalLB helm install failed"
   fi
   kubectl wait --for=condition=established \
     crd/ipaddresspools.metallb.io crd/l2advertisements.metallb.io \
@@ -374,7 +374,7 @@ _enable_keda() {
     log "Installing KEDA operator..."
     helm install keda kedacore/keda \
       --namespace keda --create-namespace \
-      --wait --timeout=3m
+      --wait --timeout=3m || error "KEDA helm install failed"
   fi
   success "KEDA ready — ScaledObject and TriggerAuthentication CRDs available"
 }
@@ -395,7 +395,7 @@ _enable_reflector() {
     log "Installing Reflector..."
     helm install reflector emberstack/reflector \
       --namespace reflector --create-namespace \
-      --wait --timeout=2m
+      --wait --timeout=2m || error "Reflector helm install failed"
   fi
   success "Reflector ready — annotate Secrets/ConfigMaps with reflector.v1.k8s.emberstack.com/* to mirror"
 }
@@ -416,7 +416,7 @@ _enable_kyverno() {
     log "Installing Kyverno (takes ~2 min — installs 4 controllers and ~20 CRDs)..."
     helm install kyverno kyverno/kyverno \
       --namespace kyverno --create-namespace \
-      --wait --timeout=5m
+      --wait --timeout=5m || error "Kyverno helm install failed"
   fi
   # Patch all Kyverno validating webhooks to failurePolicy=Ignore so a brief
   # Kyverno restart doesn't block Helm installs of unrelated components.
@@ -456,7 +456,7 @@ _enable_falco() {
       --set falco.json_output=true \
       --set falcosidekick.enabled=true \
       --set falcosidekick.webui.enabled=true \
-      --wait --timeout=5m
+      --wait --timeout=5m || error "Falco helm install failed"
   fi
   log "Applying Falco UI ingress (https://falco.aks-lab.local)..."
   kubectl apply -f "$REPO_ROOT/flux/infrastructure/base/falco/ingress.yaml" 2>/dev/null || true
@@ -482,7 +482,7 @@ _enable_istio() {
     helm install istio-base istio/base \
       --namespace istio-system \
       --set defaultRevision=default \
-      --wait --timeout=2m
+      --wait --timeout=2m || error "istio-base helm install failed"
   fi
   if helm status istiod -n istio-system &>/dev/null; then
     warn "Helm release 'istiod' already exists — skipping install."
@@ -490,7 +490,7 @@ _enable_istio() {
     log "Installing istiod control plane (takes ~2 min)..."
     helm install istiod istio/istiod \
       --namespace istio-system \
-      --wait --timeout=5m
+      --wait --timeout=5m || error "istiod helm install failed"
   fi
   if helm status istio-gateway -n istio-ingress &>/dev/null; then
     warn "Helm release 'istio-gateway' already exists — skipping install."
@@ -501,7 +501,7 @@ _enable_istio() {
     helm install istio-gateway istio/gateway \
       --namespace istio-ingress \
       --set service.type=ClusterIP \
-      --wait --timeout=3m
+      --wait --timeout=3m || error "istio-gateway helm install failed"
   fi
   success "Istio ready — label a namespace 'istio-injection=enabled' to mesh its pods"
 }
@@ -533,7 +533,7 @@ _enable_cilium() {
       --set hubble.enabled=true \
       --set hubble.relay.enabled=true \
       --set hubble.ui.enabled=true \
-      --wait --timeout=5m
+      --wait --timeout=5m || error "Cilium helm upgrade failed"
   else
     log "Installing Cilium + Hubble in overlay mode (takes ~3 min)..."
     helm install cilium cilium/cilium \
@@ -546,7 +546,7 @@ _enable_cilium() {
       --set hubble.relay.enabled=true \
       --set hubble.ui.enabled=true \
       --set 'hubble.metrics.enabled={dns,drop,tcp,flow,icmp,http}' \
-      --wait --timeout=10m
+      --wait --timeout=10m || error "Cilium helm install failed"
   fi
   log "Applying Hubble UI ingress (https://hubble.aks-lab.local)..."
   kubectl apply -f "$REPO_ROOT/flux/infrastructure/base/cilium/ingress.yaml" 2>/dev/null || true
@@ -571,7 +571,7 @@ _enable_argocd() {
     kubectl apply -n argocd --server-side --force-conflicts \
       -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
   fi
-  kubectl wait deployment argocd-server --for=condition=available --namespace=argocd --timeout=300s
+  kubectl wait deployment argocd-server --for=condition=available --namespace=argocd --timeout=300s || error "argocd-server did not become ready"
   if [[ -n "$GITHUB_TOKEN" && -n "$GITHUB_REPO" ]]; then
     kubectl create secret generic argocd-repo-homelab \
       --namespace=argocd --from-literal=type=git \
@@ -603,7 +603,7 @@ _enable_kubernetes_dashboard() {
     log "Installing Kubernetes Dashboard via Helm..."
     helm install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard \
       --namespace kubernetes-dashboard --create-namespace \
-      --wait --timeout=3m
+      --wait --timeout=3m || error "kubernetes-dashboard helm install failed"
   fi
   log "Applying dashboard RBAC and ingress..."
   kubectl apply -k "$REPO_ROOT/flux/infrastructure/base/kubernetes-dashboard/" \
@@ -640,7 +640,7 @@ _enable_rancher() {
     helm install cert-manager jetstack/cert-manager \
       --namespace cert-manager --create-namespace \
       --set crds.enabled=true \
-      --wait --timeout=3m
+      --wait --timeout=3m || error "cert-manager helm install failed (Rancher prerequisite)"
   fi
 
   if helm status rancher -n cattle-system &>/dev/null; then
@@ -657,7 +657,7 @@ _enable_rancher() {
       --set resources.requests.cpu=250m \
       --set resources.limits.memory=2Gi \
       --set auditLog.level=0 \
-      --wait --timeout=10m
+      --wait --timeout=10m || error "Rancher helm install failed"
   fi
 
   log "Applying Rancher ingress..."
@@ -808,7 +808,7 @@ _enable_dex() {
   # Apply the kustomization first (creates the namespace), then overlay the rendered config.
   kubectl apply -k "$REPO_ROOT/flux/infrastructure/base/identity/dex/"
   kubectl apply -f /tmp/dex-config-rendered.yaml
-  kubectl wait deployment dex --for=condition=available --namespace=dex --timeout=120s
+  kubectl wait deployment dex --for=condition=available --namespace=dex --timeout=120s || error "dex did not become ready"
   success "Dex ready — https://dex.aks-lab.local"
 }
 
@@ -876,7 +876,7 @@ Path('/tmp/oauth2-proxy-secret-rendered.yaml').write_text(string.Template(t).saf
   # Apply the kustomization first (creates the namespace), then overlay the rendered secret.
   kubectl apply -k "$REPO_ROOT/flux/infrastructure/base/identity/oauth2-proxy/"
   kubectl apply -f /tmp/oauth2-proxy-secret-rendered.yaml
-  kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s
+  kubectl wait deployment oauth2-proxy --for=condition=available --namespace=oauth2-proxy --timeout=120s || error "oauth2-proxy did not become ready"
   log "Patching SSO annotations onto protected ingresses..."
   _sso_apply_all
   success "OAuth2 Proxy ready — SSO gate at https://oauth2-proxy.aks-lab.local"
@@ -991,8 +991,8 @@ _enable_argo_workflows() {
     kubectl apply -n "$ARGO_NS" --server-side --force-conflicts \
       -f "https://github.com/argoproj/argo-workflows/releases/download/${ARGO_VERSION}/quick-start-minimal.yaml"
   fi
-  kubectl wait deployment workflow-controller --for=condition=available --namespace="$ARGO_NS" --timeout=180s
-  kubectl wait deployment argo-server --for=condition=available --namespace="$ARGO_NS" --timeout=180s
+  kubectl wait deployment workflow-controller --for=condition=available --namespace="$ARGO_NS" --timeout=180s || error "workflow-controller did not become ready"
+  kubectl wait deployment argo-server --for=condition=available --namespace="$ARGO_NS" --timeout=180s || error "argo-server did not become ready"
   # Strategic merge patch matches the container by name and replaces args entirely,
   # so --secure=false and --auth-mode=server always win regardless of what
   # quick-start-minimal.yaml ships (--type=json append silently lost to --secure=true).
@@ -1208,7 +1208,7 @@ do_enable() {
       helm upgrade --install blob-explorer "$REPO_ROOT/helm/blob-explorer" \
         -n blob-explorer \
         --set image.pullPolicy=Never \
-        --wait --timeout 120s
+        --wait --timeout 120s || error "blob-explorer helm install failed"
       _start_comp_portforwards "$id"
       success "$name enabled"
       ;;
@@ -1221,6 +1221,14 @@ do_enable() {
   # Only record the component as enabled if its enable function succeeded.
   # A failed rollout that's recorded would otherwise be "resumed" forever as a
   # broken component. ( `|| _en_rc=$?` keeps this working under set -e too.)
+  #
+  # CAUTION for _enable_* authors: the `|| _en_rc=$?` above suppresses errexit
+  # INSIDE every enable function (bash disables set -e throughout a command
+  # list guarded by ||). A failing helm/kubectl mid-function does NOT abort —
+  # execution continues and the final `success` line returns 0, falsely
+  # marking the component enabled (bit us 2026-07-06: cilium+rancher "PASSED"
+  # while the API server was unreachable). Guard every load-bearing step with
+  # an explicit `|| error "..."` (hard fail) or `|| warn "..."` (soft, deliberate).
   if [[ "${_en_rc:-0}" -ne 0 ]]; then
     warn "$name did not come up cleanly (exit ${_en_rc}) — NOT marking '$id' enabled. Fix and retry: ./aks-lab feature enable $id"
     return "${_en_rc}"

@@ -242,8 +242,19 @@ fi
 step "Checking Docker"
 
 if ! lab_docker_up; then
-  log "Docker daemon not running — starting Colima (reuses its saved CPU/memory sizing)..."
-  colima start || error "Colima failed to start. Run 'colima start' manually and retry."
+  # Two distinct failure states hide behind an unreachable docker daemon:
+  #   1. Colima VM stopped              → `colima start` fixes it.
+  #   2. VM running, lima forwards dead → `colima start` is a NO-OP; the
+  #      docker.sock/port SSH forwards stay wedged and resume times out.
+  #      (Seen 2026-07-06: dockerd + cluster alive inside the VM, hostagent
+  #      ssh mux dead — only a full `colima restart` rebuilds the forwards.)
+  if colima status &>/dev/null; then
+    log "Colima reports running but Docker is unreachable — lima forwards are wedged; restarting Colima..."
+    colima restart || error "Colima restart failed. Try: colima stop && colima start"
+  else
+    log "Docker daemon not running — starting Colima (reuses its saved CPU/memory sizing)..."
+    colima start || error "Colima failed to start. Run 'colima start' manually and retry."
+  fi
   lab_wait_docker 120 || error "Colima started but the Docker daemon never became ready (120s). Check: colima status"
   success "Docker daemon ready"
 else
