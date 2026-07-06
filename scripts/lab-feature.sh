@@ -568,6 +568,42 @@ _enable_cilium() {
 _disable_cilium() {
   kubectl delete -f "$REPO_ROOT/flux/infrastructure/base/cilium/ingress.yaml" 2>/dev/null || true
   helm uninstall cilium -n kube-system 2>/dev/null || true
+  # helm uninstall does NOT clean the nodes: it leaves 05-cilium.conflist
+  # (still sorts before kindnet's), the CILIUM_* iptables chains, and the
+  # cilium_host/cilium_net/cilium_vxlan interfaces whose /24 route claims the
+  # node's entire podCIDR. Worse, pods that were Cilium-wired keep running
+  # with no kindnet /32 host route — unreachable from kubelet (probes refuse)
+  # the moment the Cilium datapath dies. Full playbook from the 2026-07-06
+  # incident: purge node state, then recreate every orphaned pod.
+  local _node
+  for _node in $(minikube node list -p "${LAB_PROFILE:-aks-lab}" 2>/dev/null \
+                   | awk '{print $1}' | tr '[:upper:]' '[:lower:]'); do
+    docker exec "$_node" sh -c '
+      rm -f /etc/cni/net.d/05-cilium.conflist
+      iptables-save | grep -viE cilium | iptables-restore
+      ip6tables-save 2>/dev/null | grep -viE cilium | ip6tables-restore 2>/dev/null
+      ip link del cilium_vxlan 2>/dev/null
+      ip link del cilium_net 2>/dev/null
+      true' 2>/dev/null \
+      || warn "cilium node cleanup failed on ${_node} — check conflist/iptables/interfaces manually"
+  done
+  # Recreate pods left on the dead Cilium datapath (pod IP has no host-scope
+  # /32 route on its node). Skips hostNetwork and finished pods.
+  python3 - <<'PYEOF' 2>/dev/null || warn "orphaned-pod sweep failed — recreate NotReady pods manually"
+import json, subprocess
+def sh(c): return subprocess.run(c, shell=True, capture_output=True, text=True).stdout
+pods = json.loads(sh("kubectl get pods -A -o json"))["items"]
+nodes = [l.split()[0].lower() for l in sh("minikube node list -p aks-lab").splitlines() if l.strip()]
+routes = {n: {l.split()[0] for l in sh(f"docker exec {n} ip route").splitlines() if "scope host" in l} for n in nodes}
+for p in pods:
+    node, ip = p["spec"].get("nodeName",""), p.get("status",{}).get("podIP","")
+    if not ip or p["spec"].get("hostNetwork") or p.get("status",{}).get("phase") in ("Succeeded","Failed") or node not in routes:
+        continue
+    if ip not in routes[node]:
+        ns, name = p["metadata"]["namespace"], p["metadata"]["name"]
+        print(f"  recreating cilium-orphaned pod {ns}/{name}")
+        sh(f"kubectl delete pod -n {ns} {name} --wait=false")
+PYEOF
   success "Cilium disabled — cluster pod networking falls back to the original CNI (kindnet)"
 }
 
