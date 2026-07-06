@@ -7,7 +7,7 @@ metadata:
 spec:
   secretName: {{ .Values.ingress.tlsSecret }}
   issuerRef:
-    name: vault-issuer
+    name: lab-ca
     kind: ClusterIssuer
   commonName: {{ .Values.ingress.host }}
   dnsNames:
@@ -21,7 +21,7 @@ metadata:
   name: incidenthub
   namespace: {{ .Values.namespace }}
   annotations:
-    cert-manager.io/cluster-issuer: vault-issuer
+    cert-manager.io/cluster-issuer: lab-ca
     nginx.ingress.kubernetes.io/auth-url: "https://oauth2-proxy.oauth2-proxy.svc.cluster.local/oauth2/auth"
     nginx.ingress.kubernetes.io/auth-signin: "https://oauth2.aks-lab.local/oauth2/start?rd=$escaped_request_uri"
 spec:

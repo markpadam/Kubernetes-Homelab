@@ -217,6 +217,18 @@ resource "vault_pki_secret_backend_config_urls" "pki_int" {
   ocsp_servers            = ["http://vault.aks-lab.local:8200/v1/pki_int/ocsp"]
 }
 
+# Pin the imported intermediate as the mount's DEFAULT issuer. Importing the
+# signed cert alone does not set one, and with no default every sign request
+# 500s with "could not fetch the CA certificate: no default issuer currently
+# configured" — every *.aks-lab.local certificate then sits NotReady (bit us
+# on the 2026-07-06 reseed). default_follows_latest_issuer keeps the pointer
+# correct across future re-imports.
+resource "vault_pki_secret_backend_config_issuers" "pki_int" {
+  backend                       = vault_mount.pki_int.path
+  default                       = vault_pki_secret_backend_intermediate_set_signed.int.imported_issuers[0]
+  default_follows_latest_issuer = true
+}
+
 # ── Issuance role ─────────────────────────────────────────────────────────────
 # Azure equivalent: a Certificate Manager issuance policy that restricts which
 # CNs and SANs the CA will sign. Only *.aks-lab.local subdomains are allowed —

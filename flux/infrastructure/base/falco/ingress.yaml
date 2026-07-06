@@ -4,7 +4,7 @@ metadata:
   name: falco-ui
   namespace: falco
   annotations:
-    cert-manager.io/cluster-issuer: vault-issuer
+    cert-manager.io/cluster-issuer: lab-ca
 spec:
   ingressClassName: nginx
   tls:
