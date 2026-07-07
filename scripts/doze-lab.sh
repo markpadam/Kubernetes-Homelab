@@ -93,6 +93,33 @@ _active_reason() {
   _sig_operation || _sig_ssh || _sig_screenshare || _sig_remote_clients || _sig_heartbeat
 }
 
+# ── the doze action (shared by the agent tick and `doze now`) ─────────────────
+_do_doze() {
+  local sleep_wanted="$1"
+
+  # Pause only if something is actually running — keeps the log honest and the
+  # re-sleep path (woken by stray WoL, still idle) fast.
+  if colima status &>/dev/null || pgrep -f "vault server -dev" >/dev/null 2>&1; then
+    bash "$SCRIPT_DIR/pause-lab.sh" --colima >> "$DOZE_LOG" 2>&1 \
+      || { _dlog "pause-lab.sh failed — NOT sleeping"; return 1; }
+    _dlog "lab paused"
+  else
+    _dlog "lab already paused"
+  fi
+
+  [[ "$sleep_wanted" == "1" ]] || return 0
+
+  # Never sleep a box we can't wake: require Wake-on-LAN.
+  if ! pmset -g 2>/dev/null | grep -qE "womp +1"; then
+    _dlog "womp is not enabled — skipping sleep (fix: sudo pmset -a womp 1 autorestart 1)"
+    return 0
+  fi
+  _dlog "sleeping the Mac — wake with: ./aks-lab wake"
+  pmset sleepnow >> "$DOZE_LOG" 2>&1 \
+    || osascript -e 'tell application "System Events" to sleep' >> "$DOZE_LOG" 2>&1 \
+    || _dlog "sleep command failed — Mac stays awake (lab is still paused)"
+}
+
 # ── check — the agent tick ────────────────────────────────────────────────────
 cmd_check() {
   # First run (or /tmp cleaned): start the idle clock now instead of dozing
@@ -110,28 +137,20 @@ cmd_check() {
   fi
 
   _dlog "idle >${LAB_DOZE_IDLE_HOURS}h — dozing (pause --colima$( [[ "$LAB_DOZE_SLEEP" == "1" ]] && echo " + sleep"))"
+  _do_doze "$LAB_DOZE_SLEEP"
+}
 
-  # Pause only if something is actually running — keeps the log honest and the
-  # re-sleep path (woken by stray WoL, still idle) fast.
-  if colima status &>/dev/null || pgrep -f "vault server -dev" >/dev/null 2>&1; then
-    bash "$SCRIPT_DIR/pause-lab.sh" --colima >> "$DOZE_LOG" 2>&1 \
-      || { _dlog "pause-lab.sh failed — NOT sleeping"; return 1; }
-    _dlog "lab paused"
-  else
-    _dlog "lab already paused"
-  fi
-
-  [[ "$LAB_DOZE_SLEEP" == "1" ]] || return 0
-
-  # Never sleep a box we can't wake: require Wake-on-LAN.
-  if ! pmset -g 2>/dev/null | grep -qE "womp +1"; then
-    _dlog "womp is not enabled — skipping sleep (fix: sudo pmset -a womp 1 autorestart 1)"
-    return 0
-  fi
-  _dlog "sleeping the Mac — wake with: ./aks-lab wake"
-  pmset sleepnow >> "$DOZE_LOG" 2>&1 \
-    || osascript -e 'tell application "System Events" to sleep' >> "$DOZE_LOG" 2>&1 \
-    || _dlog "sleep command failed — Mac stays awake (lab is still paused)"
+# ── now — doze immediately, ignoring activity ("done for the day") ────────────
+cmd_now() {
+  log "Dozing now: pausing the lab, then sleeping the Mac..."
+  log "Wake later with: ./aks-lab wake --wait  (from another machine)"
+  _dlog "manual doze requested (doze now)"
+  # Reset the idle clock so an accidental wake right after doesn't count old
+  # activity, and detach the sleep so the caller's SSH session ends cleanly.
+  touch "$HEARTBEAT"
+  nohup bash -c "sleep 3; \"$SCRIPT_DIR/doze-lab.sh\" __do-doze-detached" \
+    >/dev/null 2>&1 &
+  success "Doze scheduled — the Mac will sleep in a few moments"
 }
 
 # ── on / off / status ─────────────────────────────────────────────────────────
@@ -214,8 +233,10 @@ cmd_status() {
 
 case "${1:-status}" in
   check)  cmd_check ;;
+  now)    cmd_now ;;
+  __do-doze-detached) _do_doze "$LAB_DOZE_SLEEP" ;;
   on)     shift; cmd_on "$@" ;;
   off)    cmd_off ;;
   status) cmd_status ;;
-  *) echo "Usage: doze-lab.sh [on [--hours N] [--no-sleep] | off | status | check]"; exit 1 ;;
+  *) echo "Usage: doze-lab.sh [on [--hours N] [--no-sleep] | off | now | status | check]"; exit 1 ;;
 esac
