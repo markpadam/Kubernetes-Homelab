@@ -146,10 +146,12 @@ cmd_now() {
   log "Wake later with: ./aks-lab wake --wait  (from another machine)"
   _dlog "manual doze requested (doze now)"
   # Reset the idle clock so an accidental wake right after doesn't count old
-  # activity, and detach the sleep so the caller's SSH session ends cleanly.
+  # activity, and detach the doze so the caller's SSH session ends cleanly.
+  # The ( ... & ) subshell double-fork is required: a plain `nohup ... &`
+  # child stays in this script's job table and dies with the SSH session
+  # (observed 2026-07-07 — the detached doze silently never ran).
   touch "$HEARTBEAT"
-  nohup bash -c "sleep 3; \"$SCRIPT_DIR/doze-lab.sh\" __do-doze-detached" \
-    >/dev/null 2>&1 &
+  ( nohup "$SCRIPT_DIR/doze-lab.sh" __do-doze-detached >/dev/null 2>&1 & )
   success "Doze scheduled — the Mac will sleep in a few moments"
 }
 
@@ -234,7 +236,7 @@ cmd_status() {
 case "${1:-status}" in
   check)  cmd_check ;;
   now)    cmd_now ;;
-  __do-doze-detached) _do_doze "$LAB_DOZE_SLEEP" ;;
+  __do-doze-detached) sleep 3; _dlog "detached doze starting"; _do_doze "$LAB_DOZE_SLEEP" ;;
   on)     shift; cmd_on "$@" ;;
   off)    cmd_off ;;
   status) cmd_status ;;
