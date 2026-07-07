@@ -151,7 +151,7 @@ cmd_now() {
   # child stays in this script's job table and dies with the SSH session
   # (observed 2026-07-07 — the detached doze silently never ran).
   touch "$HEARTBEAT"
-  ( nohup "$SCRIPT_DIR/doze-lab.sh" __do-doze-detached >/dev/null 2>&1 & )
+  ( nohup bash "$SCRIPT_DIR/doze-lab.sh" __do-doze-detached >> "$DOZE_LOG" 2>&1 & )
   success "Doze scheduled — the Mac will sleep in a few moments"
 }
 
