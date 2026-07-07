@@ -238,6 +238,16 @@ if [[ -t 0 || -n "${SSH_TTY:-}" ]]; then
   fi
 fi
 
+# ── Hold a wake assertion while the lab runs ──────────────────────────────────
+# WoL wakes are DarkWakes: macOS grants ~45s maintenance windows and then
+# re-enters sleep unless something asserts PreventSystemSleep — background SSH
+# does NOT. On 2026-07-07 the Mac went back to "Maintenance Sleep" minutes
+# after a wake→resume, mid-verify. caffeinate -s pins the box awake for as
+# long as the lab is up; pause-lab.sh kills it so doze/sleep can proceed.
+pkill -F /tmp/aks-lab-caffeinate.pid 2>/dev/null || true
+( nohup caffeinate -s >/dev/null 2>&1 & echo $! > /tmp/aks-lab-caffeinate.pid )
+log "Wake assertion held (caffeinate -s) — released again by pause/doze"
+
 # ── Ensure Docker is running ──────────────────
 step "Checking Docker"
 

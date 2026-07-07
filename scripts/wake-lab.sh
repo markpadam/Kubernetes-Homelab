@@ -150,6 +150,17 @@ except Exception:
       sleep 5
       if ping -c1 -t2 "$HOST_IP" &>/dev/null; then
         success "Mac Pro is online ($HOST_IP) — took $((i*5))s"
+        # A WoL wake is only a DarkWake: macOS re-sleeps after ~45s unless
+        # something asserts PreventSystemSleep. Grant a 10-minute grace window
+        # so there's time to start `resume` (which then holds its own
+        # assertion for the life of the lab). Best-effort — needs key SSH.
+        if ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
+             "${LAB_SSH_USER:-$(whoami)}@${HOST_IP}" \
+             '( nohup caffeinate -s -t 600 >/dev/null 2>&1 & )' 2>/dev/null; then
+          echo -e "${DIM}  Awake for 10 min — start ./aks-lab resume to keep it up${RESET}"
+        else
+          warn "Could not hold the wake open over SSH — the Mac may re-sleep in ~45s; start resume promptly"
+        fi
         echo -e "${DIM}  SSH: ssh markpadam@${HOST_IP}${RESET}"
         exit 0
       fi

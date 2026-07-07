@@ -51,6 +51,11 @@ if kubectl cluster-info &>/dev/null 2>&1; then
   success "Rancher extension APIService removed — next resume will start cleanly"
 fi
 
+# 0.5) Release the resume-held wake assertion (caffeinate -s) so the Mac is
+#      free to sleep once the lab is down (see resume-lab.sh / doze-lab.sh).
+pkill -F /tmp/aks-lab-caffeinate.pid 2>/dev/null && success "Wake assertion released" || true
+rm -f /tmp/aks-lab-caffeinate.pid
+
 # 1) Host-side port-forwards: the self-healing wrappers (PID files) and any
 #    stray kubectl children. Killing the wrapper stops it respawning.
 for _pf_pid in /tmp/lab-pf-*.pid; do
