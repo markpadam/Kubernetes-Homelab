@@ -54,17 +54,23 @@ _send_wol() {
   if command -v wakeonlan &>/dev/null; then
     wakeonlan "$mac"
   else
-    # Pure-bash fallback: write magic packet via /dev/udp (no extra tools needed).
+    # Pure-python fallback (no extra tools needed).
     # Magic packet = 6×0xFF + 16 repetitions of the 6-byte MAC address.
+    # Send a burst on both discard(9) and echo(7) ports: the lab Mac Pro is
+    # Wi-Fi-only, and a dozing Wi-Fi radio in power-save easily misses a
+    # single datagram.
     local hex="${mac//[:.-]/}"
     python3 - "$hex" <<'PYEOF'
-import socket, sys
+import socket, sys, time
 mac = sys.argv[1]
 payload = bytes.fromhex('FF'*6 + mac*16)
 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
     s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    s.sendto(payload, ('255.255.255.255', 9))
-print(f"Magic packet sent to {':'.join(mac[i:i+2] for i in range(0,12,2))}")
+    for _ in range(3):
+        for port in (9, 7):
+            s.sendto(payload, ('255.255.255.255', port))
+        time.sleep(0.3)
+print(f"Magic packets sent to {':'.join(mac[i:i+2] for i in range(0,12,2))}")
 PYEOF
   fi
 }
@@ -134,6 +140,11 @@ except Exception:
     warn "--wait: no host_ip in .lab-state.json — skipping ping poll"
     warn "Save it with: python3 -c \"import json; s=json.load(open('.lab-state.json')); s['host_ip']='<IP>'; json.dump(s,open('.lab-state.json','w'),indent=2)\""
   else
+    # On the Wi-Fi-only Mac Pro the wake is often delivered by the network's
+    # Bonjour Sleep Proxy reacting to this very ping traffic (the sleeping
+    # radio may never see a broadcast magic packet), so keep pinging AND
+    # re-send the magic packet every ~15s. Deep standby restores the
+    # hibernate image on wake — ~2-3 min is normal.
     log "Waiting for $HOST_IP to respond to ping (up to 3 min)..."
     for i in $(seq 1 36); do
       sleep 5
@@ -142,8 +153,10 @@ except Exception:
         echo -e "${DIM}  SSH: ssh markpadam@${HOST_IP}${RESET}"
         exit 0
       fi
+      (( i % 3 == 0 )) && _send_wol "$MAC" >/dev/null 2>&1
     done
     warn "No ping response after 3 min — WoL may not be enabled on the target Mac."
     echo -e "${DIM}  Enable it (once, while the Mac is on): sudo pmset -a womp 1 autorestart 1${RESET}"
+    echo -e "${DIM}  Wi-Fi-only hosts wake via the Bonjour Sleep Proxy — an Ethernet cable makes WoL bulletproof.${RESET}"
   fi
 fi
