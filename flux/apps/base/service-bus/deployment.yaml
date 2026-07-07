@@ -49,18 +49,27 @@ spec:
               # observed 2026-07-07). 1.5Gi gives the GC room to breathe.
               memory: "1536Mi"
               cpu: "500m"
+          # Startup is SLOW on a cold box: 30s deliberate SQL wait, then it
+          # DROPS and re-CREATEs its SbGateway/SbMessageContainer databases
+          # (60-120s+ against a cold mssql) before binding 5672/5300. The old
+          # liveness budget (60s + 3x20s) killed it mid-CREATE every time, and
+          # each restart re-drops the databases — a guaranteed crash loop
+          # (2026-07-07, ~70 restarts). startupProbe allows up to 7.5 min.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 5300
+            periodSeconds: 10
+            failureThreshold: 45
           readinessProbe:
             httpGet:
               path: /health
               port: 5300
-            initialDelaySeconds: 30
             periodSeconds: 10
-            failureThreshold: 10
           livenessProbe:
             httpGet:
               path: /health
               port: 5300
-            initialDelaySeconds: 60
             periodSeconds: 20
           volumeMounts:
             - name: config
