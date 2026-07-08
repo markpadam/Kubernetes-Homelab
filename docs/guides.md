@@ -24,7 +24,7 @@ The guides below are sequenced so that each one builds on concepts introduced ea
 | 11 | [Service Bus Walkthrough](guides/service-bus-walkthrough.md) | AMQP 1.0 messaging with the Azure Service Bus emulator. Queues, topics, subscriptions, and how the emulator uses SQL Server for state storage. |
 | 12 | [KEDA Service Bus Walkthrough](guides/keda-servicebus-walkthrough.md) | Event-driven autoscaling — how a KEDA ScaledObject reads Service Bus queue depth and scales a deployment from 0 to N pods, the difference from HPA, and how TriggerAuthentication wires the connection string in. |
 | 13 | [Cosmos DB Walkthrough](guides/cosmos-db-walkthrough.md) | Azure Cosmos DB NoSQL API emulation. The Data Explorer UI, CRUD operations, SDK connection strings, and multi-region endpoint simulation. |
-| 14 | [Cilium + Hubble Walkthrough](guides/cilium-walkthrough.md) | Cilium's eBPF dataplane and Hubble flow observability — watch all cluster traffic, write identity-aware NetworkPolicy, enforce L7 HTTP policy on specific paths, and explore the service map UI. |
+| 14 | [Cilium + Hubble Walkthrough](guides/cilium-walkthrough.md) | Cilium's eBPF dataplane and Hubble flow observability — watch all cluster traffic, write identity-aware NetworkPolicy, enforce L7 HTTP policy on specific paths, and explore the service map UI. **Requires a cluster built with `LAB_CNI=cilium`** — chained installs on the default kindnet cluster are blocked (they split pod networking). |
 | 15 | [Istio Walkthrough](guides/istio-walkthrough.md) | Service mesh fundamentals — sidecar injection, mutual TLS, traffic routing, retries, authorization policy, and mesh observability. |
 | 16 | [Falco Walkthrough](guides/falco-walkthrough.md) | Runtime security — watch Falco observe syscalls inside containers, trigger detections deliberately, tune false positives, and forward events to a sink. |
 | 17 | [Kyverno Walkthrough](guides/kyverno-walkthrough.md) | Kubernetes policy engine — passively audit existing workloads, actively reject non-compliant ones, and silently mutate resources into compliance. |
@@ -36,6 +36,8 @@ The guides below are sequenced so that each one builds on concepts introduced ea
 | 23 | [Renovate Walkthrough](guides/renovate-walkthrough.md) | Optional. Self-hosted dependency bot — a CronJob that scans this repo and opens PRs to bump Flux chart versions, Dockerfile base images, and GitHub Actions. Covers the bot-vs-repo config split, the Dependency Dashboard, manager scoping, and self-update via GitOps. |
 
 > **Looking for an end-to-end project?** The [IncidentHub master walkthrough](guides/incidenthub/README.md) ties many of these topics together into a single multi-stage build of one real application, from local .NET app to GitOps delivery, security, and disaster recovery.
+
+> **Running the lab day to day?** [Doze — power saving](guides/doze-power-saving.md) explains how the lab auto-pauses and sleeps the Mac when idle (and how to wake it remotely); [operations.md](operations.md) covers everything else — lifecycle, remote access, component management, troubleshooting.
 
 ---
 

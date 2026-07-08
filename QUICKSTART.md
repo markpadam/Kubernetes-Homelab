@@ -111,6 +111,22 @@ Starts the cluster, restores all port-forwards, restarts Vault, and reopens the 
 
 ---
 
+## Power saving (auto-doze)
+
+The idle lab burns 60–90 W around the clock. Auto-doze pauses it and sleeps the
+Mac after 2 h without activity; wake it remotely when you need it again:
+
+```bash
+./aks-lab doze on            # enable auto-doze (on the Mac Pro, once)
+./aks-lab doze now           # done for the day — pause + sleep immediately
+
+./aks-lab wake --wait        # from another machine: Wake-on-LAN, then resume
+```
+
+Full guide: [docs/guides/doze-power-saving.md](docs/guides/doze-power-saving.md).
+
+---
+
 ## Destroy the lab (full wipe)
 
 ```bash

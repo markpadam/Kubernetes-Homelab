@@ -27,10 +27,12 @@ model see [network-setup](network-setup.md).
 | `./aks-lab feature <…>` | Enable/disable individual components | See [Managing components](#managing-components) |
 | `./aks-lab publish` | (Re)expose the lab to the LAN | Usually automatic — see below |
 | `./aks-lab dashboard` | Open the control dashboard locally | Local browser only — remote needs a tunnel |
+| `./aks-lab doze [on\|off\|now\|status]` | Auto-pause + sleep the Mac after idle hours | See [Power saving](#power-saving-auto-doze) |
+| `./aks-lab wake [--wait]` | Wake-on-LAN the lab host from another machine | Run on the client (MacBook); grants a 10-min wake window |
 
-The usual daily rhythm: **`pause`** when you're done, **`resume`** when you come
-back (or it auto-resumes at login). A full `setup` is only needed for a fresh
-build or after a `teardown`.
+The usual daily rhythm: **`doze now`** (or just walk away — auto-doze pauses and
+sleeps the Mac after 2 h idle), then **`wake` + `resume`** when you come back.
+A full `setup` is only needed for a fresh build or after a `teardown`.
 
 ---
 
@@ -133,7 +135,7 @@ blob-explorer keda-servicebus argo-workflows azdo-agent`. Full reference:
 
 ## Resource tiers & sizing
 
-Setup prompts for a tier (or set `LAB_RESOURCE_TIER=1..5`). **3 nodes is the
+Setup prompts for a tier (or set `LAB_RESOURCE_TIER=1..6`). **3 nodes is the
 supported maximum** on this hardware — a 4th node overloads the API server on a
 cold resume.
 
@@ -144,6 +146,11 @@ cold resume.
 | 3 High | 3 CPU / 5 GB ×3 | 15 GB | ~18 GB | full feature set |
 | 4 Very High | 4 CPU / 7 GB ×3 | 21 GB | ~24 GB | all services + replicas |
 | 5 Extra High | 4 CPU / 10 GB ×3 | 30 GB | ~34 GB | 48 GB Mac Pro |
+| 6 Maximum | 6 CPU / 14 GB ×3 | 42 GB | ~44 GB / 20 VM CPU | dedicated 24-thread / 64 GB Mac Pro |
+
+Tier 6 sizes the Colima VM to 20 real cores (not the per-node count) so the
+three node containers stop starving each other — the root cause of flaky
+pod-to-internet egress on the dedicated box.
 
 Setup **auto-sizes Colima** for the chosen tier. Give Colima real CPU headroom
 on a 12-core Mac Pro — e.g. `colima start --cpu 8 --memory 32` — which also helps
@@ -155,12 +162,13 @@ the cluster absorb the reconnection load on a cold resume.
 
 An idle lab still burns ~5–6 host cores (QEMU + cluster control loops) — roughly
 60–90 W of electricity around the clock. Auto-doze pauses the lab and sleeps the
-Mac once nothing has used it for a while:
+Mac once nothing has used it for a while — or immediately on demand:
 
 ```bash
 ./aks-lab doze on              # doze after 2h idle (pause --colima + sleep)
 ./aks-lab doze on --hours 4    # longer idle window
 ./aks-lab doze on --no-sleep   # pause the lab but leave macOS running
+./aks-lab doze now             # "done for the day" — pause + sleep right away
 ./aks-lab doze status          # agent state, current activity signals, log tail
 ./aks-lab doze off             # disable
 ```
@@ -174,11 +182,20 @@ sleep unless Wake-on-LAN is enabled (`sudo pmset -a womp 1 autorestart 1`).
 Waking back up from another machine:
 
 ```bash
-./aks-lab wake --wait          # WoL magic packet, wait for SSH
+./aks-lab wake --wait          # WoL burst + wait; grants a 10-min wake window
 ssh mac-pro "cd ~/Documents/Kubernetes-Homelab && nohup ./aks-lab resume &"
 ```
 
 Resume from a doze takes ~15 minutes on the Mac Pro (Colima cold boot included).
+
+Two invariants keep the cycle safe: doze **never sleeps a box that can't be
+woken** (requires `womp 1`), and a **running lab pins the Mac awake** — resume
+holds a `caffeinate -s` assertion that pause releases, because a bare WoL wake
+is only a ~45 s macOS *DarkWake* that would otherwise fall back asleep.
+
+**Full guide** — architecture, activity signals, the DarkWake/wake-assertion
+model, Wi-Fi vs Ethernet wake behaviour, troubleshooting:
+**[guides/doze-power-saving.md](guides/doze-power-saving.md)**.
 
 ---
 
@@ -188,7 +205,42 @@ Hard-won fixes for the things that actually go wrong on this stack.
 
 ### `doctor` first
 `./aks-lab doctor` catches the common pre-deploy blockers (Colima stopped or
-undersized, missing `qemu`/`jq`/`socket_vmnet` sudoers, dnsmasq not answering).
+undersized, missing `qemu`/`jq`/`socket_vmnet` sudoers, dnsmasq not answering)
+and — on a running cluster — verifies all four control-plane static-pod
+manifests are present (see below).
+
+### SSH to the Mac Pro times out
+It's probably dozing (auto-doze sleeps the Mac after 2 h idle — see
+[Power saving](#power-saving-auto-doze)). From another machine:
+`./aks-lab wake --wait`, then SSH in within the 10-minute wake window and
+`resume`. Wake takes 5–10 s from light sleep, up to ~3 min from deep standby.
+
+### Cluster looks "up" but nothing reconciles / new pods never schedule
+Symptoms seen together: `kubectl get nodes` all Ready, but Deployments never
+progress, `kube-dns` Endpoints point at a stale pod IP (all service DNS times
+out), and Flux reports `Source artifact not found`. Cause: the
+**kube-controller-manager / kube-scheduler static-pod manifests are missing**
+from `/etc/kubernetes/manifests/` on the control-plane node — `minikube start`
+happily reports such a cluster as healthy. `doctor` flags it; fix with:
+```bash
+docker exec aks-lab sh -c '/var/lib/minikube/binaries/v1.32.0/kubeadm init phase control-plane controller-manager --config /var/tmp/minikube/kubeadm.yaml \
+  && /var/lib/minikube/binaries/v1.32.0/kubeadm init phase control-plane scheduler --config /var/tmp/minikube/kubeadm.yaml'
+```
+Endpoints reconcile within seconds of the controller-manager starting.
+
+### `docker` unreachable but `colima status` says running
+Lima's SSH-forwarded plumbing (docker.sock + the API port) can wedge while the
+VM — and the whole cluster inside it — stays healthy. `colima start` is a
+no-op in this state; only `colima restart` rebuilds the forwards. `resume`
+detects and handles this automatically; run it (or `colima restart`) rather
+than debugging the socket.
+
+### `feature enable cilium` refuses to install
+Deliberate: chained Cilium on this kindnet/DinD minikube splits pod networking
+across two datapaths (kubelet can't probe Cilium-wired pods — random
+CrashLoops, and CoreDNS can be taken down with it). Cilium as the **sole** CNI
+is the supported route: `./aks-lab teardown && LAB_CNI=cilium ./aks-lab setup`.
+`LAB_CILIUM_FORCE=1` overrides the guard at your own risk.
 
 ### Setup hangs at "Starting minikube tunnel"
 A sudo prompt is waiting under the TUI (a very long run can outlive the sudo
@@ -224,8 +276,16 @@ cert-manager can't sign. Check, in order:
 1. **Vault up?** `curl -sf http://127.0.0.1:8200/v1/sys/health`
 2. **`vault-host` service exists?** `kubectl get svc -n vault vault-host` (setup/resume create it → host gateway `host.minikube.internal:8200`).
 3. **ClusterIssuer Ready?** `kubectl get clusterissuer lab-ca -o jsonpath='{.status.conditions[0].message}'`
-4. **PKI intermediate has a key + default issuer?** `vault list pki_int/keys` (must be non-empty) and `vault read pki_int/config/issuers`. If a sign returns 500 "no default issuer", the intermediate was set up keyless — re-run the Vault terraform (`terraform -chdir=IaC/terraform apply`).
-5. **cert-manager backing off?** It backs off after repeated failures; once the above is fixed, force a clean retry: `kubectl delete certificates -A --all` (ingress-shim recreates them).
+4. **PKI intermediate has a key + default issuer?** `vault list pki_int/keys` (must be non-empty) and `vault read pki_int/config/issuers`. A 500 of "no default issuer" or "unable to fetch corresponding key for issuer" means the chain came back keyless after a Vault wipe — a **plain terraform apply will NOT fix it** (the chain resources are write-only to the provider). Resume detects and repairs this automatically; manually, force-recreate the chain:
+   ```bash
+   terraform -chdir=IaC/terraform apply -auto-approve \
+     -var=minikube_profile=aks-lab -var="minikube_k8s_host=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')" \
+     -replace=vault_pki_secret_backend_root_cert.root \
+     -replace=vault_pki_secret_backend_intermediate_cert_request.int \
+     -replace=vault_pki_secret_backend_root_sign_intermediate.int \
+     -replace=vault_pki_secret_backend_intermediate_set_signed.int
+   ```
+5. **cert-manager backing off?** It backs off for up to an hour after repeated failures; once the above is fixed, force a clean retry: `kubectl delete certificates -A --all` (ingress-shim recreates them immediately).
 
 ### Rancher stuck `0/1` / 503 for a long time
 Rancher v2.9+ has a startup deadlock (the `v1.ext.cattle.io` extension API). Setup
@@ -262,6 +322,10 @@ tail -f /tmp/vault-dev.log                               # Vault
 | `/var/log/minikube-tunnel.log` | minikube tunnel (root launchd daemon) |
 | `/var/log/lab-publish.log` | LAN socat forwarder daemon |
 | `/tmp/vault-dev.log` | Vault dev server |
+| `/tmp/aks-lab-doze.log` | auto-doze decisions + pause/sleep output |
+| `/tmp/aks-lab-last-activity` | doze idle-clock heartbeat (touched by every `./aks-lab` call) |
+| `/tmp/aks-lab-caffeinate.pid` | wake assertion held while the lab runs |
+| `~/.aks-lab-doze.conf` | doze settings (idle hours, sleep on/off) |
 | `.lab-state.json` (repo root) | enabled-features state (backed up to `/tmp/lab-state.json.bak` on teardown) |
 | `/tmp/aks-lab-kubeconfig.yaml` | external kubeconfig for other machines |
 | `~/.aks-lab-secrets` | persistent lab secrets (cookie/dex) |

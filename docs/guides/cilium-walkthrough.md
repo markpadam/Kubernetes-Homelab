@@ -2,18 +2,13 @@
 
 A five-stage tour of Cilium's eBPF dataplane and Hubble's flow observability. We'll watch all cluster traffic, write identity-aware NetworkPolicy, enforce L7 policy on specific HTTP paths, and explore the service map UI.
 
-Prerequisites:
-
-```bash
-./aks-lab feature enable cilium
-brew install cilium-cli hubble
-
-cilium status          # all components healthy
-kubectl get pods -n kube-system -l k8s-app=cilium       # agent on every node
-kubectl get pods -n kube-system -l k8s-app=hubble-ui    # UI Running
-```
-
-If you want Cilium as the **sole** CNI (recommended production posture):
+> **⚠️ Cilium requires a setup-time CNI choice on this lab.** Installing Cilium
+> as a *chained* second CNI on the default kindnet cluster splits pod
+> networking across two datapaths — kubelet can't probe Cilium-wired pods, so
+> workloads (including CoreDNS) CrashLoop at random. This bit hard on
+> 2026-07-06, so `feature enable cilium` now **refuses on kindnet clusters**
+> (`LAB_CILIUM_FORCE=1` overrides, at your own risk). Build the cluster with
+> Cilium as the **sole** CNI instead:
 
 ```bash
 ./aks-lab teardown
@@ -21,7 +16,18 @@ LAB_CNI=cilium ./aks-lab setup
 ./aks-lab feature enable cilium     # upgrades minikube's bundled Cilium to current chart
 ```
 
-The walkthrough works either way — overlay mode is fine for learning.
+Prerequisites once the cluster is up:
+
+```bash
+brew install cilium-cli hubble
+
+cilium status          # all components healthy
+kubectl get pods -n kube-system -l k8s-app=cilium       # agent on every node
+kubectl get pods -n kube-system -l k8s-app=hubble-ui    # UI Running
+```
+
+Note the sole-CNI path changes cold-start/resume behaviour and has had less
+soak time on this hardware than kindnet — treat it as an experimental profile.
 
 ---
 
