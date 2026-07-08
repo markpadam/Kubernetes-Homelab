@@ -95,6 +95,11 @@ ANSI      = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 TOKEN_FILE = Path("/tmp/lab-dashboard-token")
 ALLOWED_ORIGINS = {f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}"}
 
+# Endpoints the dashboard page hits on a timer (node metrics 15s, pod status
+# 30s). These must NOT refresh the auto-doze activity heartbeat — see
+# _check_auth.
+PASSIVE_POLL_PATHS = {"/api/node-metrics", "/api/pod-status"}
+
 
 def _load_or_create_token() -> str:
     # Reuse token across server restarts so existing browser tabs keep working
@@ -209,10 +214,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return False
         # Authenticated dashboard use counts as lab activity for auto-doze
         # (scripts/doze-lab.sh) — keeps the lab awake while someone browses it.
-        try:
-            Path("/tmp/aks-lab-last-activity").touch()
-        except OSError:
-            pass
+        # EXCEPT the timer-driven polls: they prove a tab is OPEN somewhere,
+        # not that anyone is using the lab, and counting them held auto-doze
+        # off indefinitely (observed 2026-07-08: "lab used 0m ago" at every
+        # tick for hours from an abandoned tab polling every 15s).
+        if urlparse(self.path).path not in PASSIVE_POLL_PATHS:
+            try:
+                Path("/tmp/aks-lab-last-activity").touch()
+            except OSError:
+                pass
         return True
 
     # ── Verb dispatch ───────────────────────────────────────────
