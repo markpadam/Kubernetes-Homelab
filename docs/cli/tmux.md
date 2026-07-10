@@ -7,6 +7,39 @@ manifest in vim in another, logs streaming in a third.
 The exam gives you a single terminal. tmux lets you split it so you don't lose your place
 switching between editing YAML, running `kubectl`, and watching logs.
 
+## Lab cockpit — `./aks-lab tmux`
+
+Beyond exam practice, this repo ships a ready-made tmux "cockpit" for **driving the
+lab day-to-day from a client machine** (e.g. your MacBook). Launch it with:
+
+```bash
+./aks-lab tmux          # or: scripts/k8s-tmux.sh   (kill it with: scripts/k8s-tmux.sh kill)
+```
+
+It builds (or re-attaches to) a session named **`k8s`** with six windows:
+
+| # | Window | What's in it |
+|---|--------|--------------|
+| 0 | `control` | local repo shell (wake/resume/doze/dashboard — `./aks-lab wake --wait` pre-typed) · live **ASLEEP/UP** lab status · a host ops shell |
+| 1 | `k9s` | `k9s` running on the host (falls back to a live `kubectl get pods -A -w` if k9s isn't installed there) |
+| 2 | `workloads` | `pods -A` · `nodes -o wide`+`top nodes`+`hpa` · `events`, auto-refreshing |
+| 3 | `gitops` | `flux get sources/kustomizations` · `flux logs -A --follow` · a reconcile shell |
+| 4 | `logs` | host log tails: `/tmp/aks-lab-doze.log`, `/var/log/minikube-tunnel.log`, `/tmp/vault-dev.log` + a `kubectl logs` shell |
+| 5 | `services` | web-UI + credential reference (`:9444` ingress, Vault, emulators) and port-forward helpers |
+
+**SSH-native model.** Every cluster/log pane SSHes into the Mac Pro
+(`markpadam@192.168.5.89`) and runs the real `kubectl`/`flux`/`k9s`/`tail` there
+against the native `aks-lab` context — no dependency on `./aks-lab publish`. All
+panes share one multiplexed SSH connection (ControlMaster). Because the lab
+[auto-dozes](../guides/doze-power-saving.md), the panes **self-heal**: while the
+host is asleep they show a "wake me" banner and wait, then connect on their own
+once you run `./aks-lab wake --wait` and resume. The session is built entirely
+with the `tmux` CLI, so it never touches your `~/.tmux.conf` — your own prefix
+and keybindings still apply inside it.
+
+Overrides via env: `LAB_SSH_HOST` (e.g. a Tailscale name), `LAB_SSH_USER`,
+`LAB_TMUX_SESSION`, `LAB_REPO_REMOTE`.
+
 > ⚠️ **Prefix differs between the exam and this repo — read this first.**
 >
 > Every tmux command starts with a **prefix** key, then the command key.

@@ -59,6 +59,7 @@ _usage() {
   echo -e "  doze [on|off|status]               auto-pause + sleep the Mac after idle hours (power saving)"
   echo -e "  publish                            make the lab reachable from other machines on the LAN"
   echo -e "  dashboard                          open the web dashboard"
+  echo -e "  tmux                               open the tmux DevOps cockpit (SSH-native, session 'k8s')"
   echo -e "  help                               show this message
 "
   echo -e "${DIM}Implementation scripts live in scripts/. You can call them directly"
@@ -228,6 +229,10 @@ case "${1:-}" in
   publish)
     shift
     exec bash "$SCRIPTS/lab-publish.sh" "$@"
+    ;;
+  tmux|cockpit)
+    shift
+    exec bash "$SCRIPTS/k8s-tmux.sh" "$@"
     ;;
   dashboard)
     if curl -sf http://localhost:9997/ &>/dev/null; then
