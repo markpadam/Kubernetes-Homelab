@@ -40,6 +40,13 @@ SSH_USER="${LAB_SSH_USER:-$(whoami)}"
 SSH_TGT="${SSH_USER}@${HOST}"
 REPO_REMOTE="${LAB_REPO_REMOTE:-~/Documents/Kubernetes-Homelab}"   # ~ expands on the host
 
+# Non-interactive SSH ("ssh host cmd") runs a NON-login shell that never sources
+# the user's PATH setup, so the host tools (kubectl/flux/minikube — all in
+# /usr/local/bin on the Intel Mac) come back "command not found". Prepend them
+# explicitly for every remote command. Single-quoted so $PATH stays literal here
+# and is expanded on the host. Mirrors the PATH export in scripts/wake-lab.sh.
+REMOTE_ENV='export PATH=/usr/local/bin:/usr/local/sbin:/opt/local/bin:/opt/homebrew/bin:$PATH;'
+
 # SSH connection multiplexing: all panes share ONE authenticated connection, so
 # building ~16 panes doesn't mean ~16 handshakes (or prompts). ControlPersist
 # keeps the master alive briefly after the last pane closes.
@@ -70,9 +77,9 @@ wait_for_host() {
 }
 
 # One-shot remote command (no tty), from the repo dir on the host.
-labrun()   { ssh    "${CM[@]}" "$SSH_TGT" "cd $REPO_REMOTE 2>/dev/null; $1"; }
+labrun()   { ssh    "${CM[@]}" "$SSH_TGT" "$REMOTE_ENV cd $REPO_REMOTE 2>/dev/null; $1"; }
 # One-shot remote command WITH a tty (for anything interactive / full-screen).
-labrun_t() { ssh -t "${CM[@]}" "$SSH_TGT" "cd $REPO_REMOTE 2>/dev/null; $1"; }
+labrun_t() { ssh -t "${CM[@]}" "$SSH_TGT" "$REMOTE_ENV cd $REPO_REMOTE 2>/dev/null; $1"; }
 
 # Refreshing monitor: clear + run + sleep, forever. macOS has no `watch`, so we
 # roll our own. wait_for_host lives inside the loop so a mid-session doze just
