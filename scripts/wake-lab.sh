@@ -49,30 +49,75 @@ _validate_mac() {
   [[ "$1" =~ ^([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}$ ]]
 }
 
+_read_host_ip() {
+  python3 -c "
+import json
+try:
+    print(json.load(open('$STATE_FILE')).get('host_ip',''))
+except Exception:
+    print('')
+" 2>/dev/null
+}
+
+# Broadcast targets for the magic packet: the global broadcast always, plus the
+# subnet-directed broadcast of the interface that routes to the lab host. Many
+# home routers/APs relay a directed broadcast (e.g. 192.168.5.255) onto the
+# Wi-Fi segment more reliably than the all-ones 255.255.255.255.
+_bcast_targets() {
+  echo "255.255.255.255"
+  local ip="${HOST_IP:-}" iface bcast
+  [[ -n "$ip" ]] || return 0
+  iface=$(route -n get "$ip" 2>/dev/null | awk '/interface:/{print $2; exit}')
+  [[ -n "$iface" ]] || return 0
+  bcast=$(ifconfig "$iface" 2>/dev/null | awk '/broadcast/{print $NF; exit}')
+  [[ -n "$bcast" && "$bcast" != "255.255.255.255" ]] && echo "$bcast"
+  return 0
+}
+
 _send_wol() {
-  local mac="$1"
-  if command -v wakeonlan &>/dev/null; then
-    wakeonlan "$mac"
-  else
-    # Pure-python fallback (no extra tools needed).
-    # Magic packet = 6×0xFF + 16 repetitions of the 6-byte MAC address.
-    # Send a burst on both discard(9) and echo(7) ports: the lab Mac Pro is
-    # Wi-Fi-only, and a dozing Wi-Fi radio in power-save easily misses a
-    # single datagram.
-    local hex="${mac//[:.-]/}"
-    python3 - "$hex" <<'PYEOF'
-import socket, sys, time
+  local mac="$1" hex targets
+  hex="${mac//[:.-]/}"
+  targets="$(_bcast_targets | tr '\n' ' ')"
+  # Magic packet = 6×0xFF + 16× the 6-byte MAC. Burst on both discard(9) and
+  # echo(7) ports across every target: the lab Mac Pro is Wi-Fi-only and a
+  # dozing radio in power-save easily misses a single datagram. python3 is a
+  # hard dependency of the lab tooling, so this needs no external `wakeonlan`.
+  LAB_WOL_TARGETS="$targets" python3 - "$hex" <<'PYEOF'
+import os, socket, sys, time
 mac = sys.argv[1]
-payload = bytes.fromhex('FF'*6 + mac*16)
+targets = os.environ.get('LAB_WOL_TARGETS', '').split() or ['255.255.255.255']
+payload = bytes.fromhex('FF' * 6 + mac * 16)
 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
     s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    for _ in range(3):
-        for port in (9, 7):
-            s.sendto(payload, ('255.255.255.255', port))
+    for _ in range(4):
+        for tgt in targets:
+            for port in (9, 7):
+                try:
+                    s.sendto(payload, (tgt, port))
+                except OSError:
+                    pass
         time.sleep(0.3)
-print(f"Magic packets sent to {':'.join(mac[i:i+2] for i in range(0,12,2))}")
+print('Magic packets sent to %s (udp 9+7) → %s'
+      % (', '.join(targets), ':'.join(mac[i:i+2] for i in range(0, 12, 2))))
 PYEOF
-  fi
+}
+
+# Bonjour Sleep Proxy preflight (macOS `dns-sd`). A Wi-Fi Mac asleep can only be
+# woken via a Sleep Proxy — an always-on Apple TV / HomePod / AirPort that
+# relays the wake; a broadcast magic packet never reaches the dozing radio.
+# Returns 0 if a proxy is advertised, 1 if none found, 2 if we can't tell.
+_browse_sleep_proxy() {
+  dns-sd -B _sleep-proxy._udp local. &
+  local dpid=$!
+  sleep 3
+  kill "$dpid" 2>/dev/null || true
+  wait "$dpid" 2>/dev/null || true
+}
+_has_sleep_proxy() {
+  command -v dns-sd >/dev/null 2>&1 || return 2
+  local out
+  out="$(_browse_sleep_proxy)"
+  grep -q '[[:space:]]Add[[:space:]]' <<<"$out"
 }
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
@@ -121,6 +166,28 @@ if [[ -z "$MAC" ]]; then
   sudo pmset -a womp 1 autorestart 1"
 fi
 
+# ── Host IP + wake-feasibility preflight ──────────────────────────────────────
+HOST_IP=$(_read_host_ip)
+
+# If the host is unreachable and there's no Sleep Proxy on the LAN, a Wi-Fi wake
+# will almost certainly fail — say so up front rather than after a 3-min wait.
+_PROXY_MISSING=0
+if [[ -n "$HOST_IP" ]] && ! ping -c1 -t2 "$HOST_IP" &>/dev/null; then
+  if _has_sleep_proxy; then _pr=0; else _pr=$?; fi
+  if [[ "$_pr" -eq 1 ]]; then
+    _PROXY_MISSING=1
+    warn "No Bonjour Sleep Proxy found on the LAN."
+    echo -e "${DIM}  A sleeping Wi-Fi Mac can only be woken via a Sleep Proxy (an always-on"
+    echo -e "  Apple TV / HomePod / AirPort) that relays the wake — a broadcast magic"
+    echo -e "  packet never reaches the dozing radio directly, so this attempt will very"
+    echo -e "  likely fail. Fixes:"
+    echo -e "    • power on an always-on Apple device to act as the proxy, or"
+    echo -e "    • connect the Mac Pro via Ethernet (WoL from sleep needs no proxy), or"
+    echo -e "    • wake it physically this once."
+    echo -e "  (Ignore this if the lab host is on Ethernet.)${RESET}"
+  fi
+fi
+
 # ── Send the magic packet ─────────────────────────────────────────────────────
 log "Sending Wake-on-LAN magic packet → $MAC"
 _send_wol "$MAC"
@@ -128,14 +195,6 @@ success "Magic packet sent"
 
 # ── Optional: wait for host to come online ────────────────────────────────────
 if [[ "$WAIT" == "1" ]]; then
-  HOST_IP=$(python3 -c "
-import json
-try:
-    print(json.load(open('$STATE_FILE')).get('host_ip',''))
-except Exception:
-    print('')
-" 2>/dev/null)
-
   if [[ -z "$HOST_IP" ]]; then
     warn "--wait: no host_ip in .lab-state.json — skipping ping poll"
     warn "Save it with: python3 -c \"import json; s=json.load(open('.lab-state.json')); s['host_ip']='<IP>'; json.dump(s,open('.lab-state.json','w'),indent=2)\""
@@ -168,6 +227,9 @@ except Exception:
     done
     warn "No ping response after 3 min — WoL may not be enabled on the target Mac."
     echo -e "${DIM}  Enable it (once, while the Mac is on): sudo pmset -a womp 1 autorestart 1${RESET}"
+    if [[ "$_PROXY_MISSING" == "1" ]]; then
+      echo -e "${DIM}  No Sleep Proxy was found earlier — that is the most likely cause on Wi-Fi.${RESET}"
+    fi
     echo -e "${DIM}  Wi-Fi-only hosts wake via the Bonjour Sleep Proxy — an Ethernet cable makes WoL bulletproof.${RESET}"
   fi
 fi
