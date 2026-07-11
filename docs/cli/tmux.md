@@ -20,7 +20,7 @@ It builds (or re-attaches to) a session named **`k8s`** with six windows:
 
 | # | Window | What's in it |
 |---|--------|--------------|
-| 0 | `control` | local repo shell (wake/resume/doze/dashboard — `./aks-lab wake --wait` pre-typed) · live **ASLEEP/UP** lab status · a host ops shell |
+| 0 | `control` | interactive action **menu** (wake · resume · pause · doze · verify · feature status · dashboard) — pick a number/letter, press Enter · live **ASLEEP/UP** lab status · a host ops shell |
 | 1 | `k9s` | `k9s` running on the host (falls back to a live `kubectl get pods -A -w` if k9s isn't installed there) |
 | 2 | `workloads` | `pods -A` · `nodes -o wide`+`top nodes`+`hpa` · `events`, auto-refreshing |
 | 3 | `gitops` | `flux get sources/kustomizations` · `flux logs -A --follow` · a reconcile shell |

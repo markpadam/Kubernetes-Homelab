@@ -58,7 +58,9 @@ CM=(-o ControlMaster=auto
     -o StrictHostKeyChecking=accept-new)
 
 # ── Shared pane helpers (used by the `_pane` roles) ──────────────────────────
-C_DIM='\033[2m'; C_CYAN='\033[1;36m'; C_YEL='\033[1;33m'; C_RST='\033[0m'
+# Real ESC bytes (not literal \033) so the colours work in both printf AND the
+# `cat` heredocs used by the menu/banners.
+C_DIM=$'\033[2m'; C_CYAN=$'\033[1;36m'; C_YEL=$'\033[1;33m'; C_GRN=$'\033[1;32m'; C_RST=$'\033[0m'
 
 hint() { printf "\n${C_CYAN}» %s${C_RST}\n\n" "$1"; }
 
@@ -132,6 +134,7 @@ host_shell() { wait_for_host; exec ssh -t "${CM[@]}" "$SSH_TGT" "cd $REPO_REMOTE
 # ── Pane roles (each pane runs one of these via `k8s-tmux.sh _pane <role>`) ───
 role() {
   case "$1" in
+    control)    role_menu ;;
     status)     role_status ;;
     sshops)     hint "host ops shell — e.g.  ./aks-lab verify · ./aks-lab feature status · ./aks-lab refresh"
                 host_shell ;;
@@ -172,37 +175,85 @@ role_status() {
   done
 }
 
-# ── Reference banners (printed into the interactive local shells) ────────────
+# ── Control menu (the control window's left pane) ────────────────────────────
+# Pick a number/letter, press Enter. Local actions (wake, dashboard) run here on
+# the client; lab actions (resume, pause, doze, verify, …) run on the host over
+# the shared SSH connection. Quitting (q) drops you to a plain local shell.
+confirm() { local a; printf "  ${C_YEL}%s [y/N]${C_RST} " "$1"; read -r a; [[ "$a" == [yY]* ]]; }
+
+menu_screen() {
+cat <<EOF
+  ${C_CYAN}AKS-LAB CONTROL${C_RST}   ${C_DIM}$SSH_TGT · session $SESSION · <prefix> 0-5 switch windows${C_RST}
+  ${C_DIM}──────────────────────────────────────────────────────${C_RST}
+   ${C_DIM}Lifecycle${C_RST}
+     ${C_CYAN}1${C_RST}) Wake host      Wake-on-LAN, wait for it        ${C_DIM}[local]${C_RST}
+     ${C_CYAN}2${C_RST}) Resume lab     start Colima + cluster (~15m)
+     ${C_CYAN}3${C_RST}) Pause lab      stop cluster + VMs, keep state
+     ${C_CYAN}4${C_RST}) Doze now       pause + sleep the Mac
+   ${C_DIM}Status / health${C_RST}
+     ${C_CYAN}5${C_RST}) Lab status     minikube · nodes · doze
+     ${C_CYAN}6${C_RST}) Verify health
+     ${C_CYAN}7${C_RST}) Feature status
+   ${C_DIM}Tools${C_RST}
+     ${C_CYAN}8${C_RST}) Refresh manifests
+     ${C_CYAN}9${C_RST}) Open dashboard   localhost:9997                ${C_DIM}[local]${C_RST}
+     ${C_CYAN}d${C_RST}) Doze status
+   ${C_DIM}Shells  (exit / Ctrl-D returns here)${C_RST}
+     ${C_CYAN}h${C_RST}) Host ops shell        ${C_CYAN}l${C_RST}) Local shell
+  ${C_DIM}──────────────────────────────────────────────────────${C_RST}
+     ${C_CYAN}r${C_RST}) redraw     ${C_CYAN}q${C_RST}) quit to local shell
+EOF
+}
+
+# Resume is long-running; start it detached on the host so it survives an SSH
+# drop, then tail its log (Ctrl-C stops watching, not the resume).
+menu_resume() {
+  labrun "nohup ./aks-lab resume >/tmp/lab-resume-menu.log 2>&1 &"
+  printf "\n  ${C_GRN}Resume started on the host (detached).${C_RST}\n"
+  printf "  ${C_DIM}Watching /tmp/lab-resume-menu.log — Ctrl-C stops watching (resume keeps running).${C_RST}\n\n"
+  labrun_t "sleep 1; tail -n +1 -f /tmp/lab-resume-menu.log" || true
+}
+
+role_menu() {
+  cd "$REPO_LOCAL" 2>/dev/null || true
+  local choice
+  while :; do
+    menu_screen
+    printf "  ${C_CYAN}select>${C_RST} "
+    read -r choice || break
+    case "$choice" in
+      1)   "$REPO_LOCAL/aks-lab" wake --wait ;;
+      2)   menu_resume ;;
+      3)   labrun_t "./aks-lab pause" ;;
+      4)   confirm "Pause AND sleep the Mac now? (waking it again needs Wake-on-LAN)" \
+             && labrun_t "./aks-lab doze now" ;;
+      5)   labrun_t "echo '# minikube'; minikube status -p aks-lab 2>&1 | head -8; echo; echo '# nodes'; kubectl get nodes -o wide 2>&1 | head -8; echo; echo '# doze'; ./aks-lab doze status 2>&1 | head -6" ;;
+      6)   labrun_t "./aks-lab verify" ;;
+      7)   labrun_t "./aks-lab feature status" ;;
+      8)   labrun_t "./aks-lab refresh" ;;
+      9)   "$REPO_LOCAL/aks-lab" dashboard ;;
+      d|D) labrun_t "./aks-lab doze status" ;;
+      h|H) wait_for_host; labrun_t "exec \$SHELL -l" ;;
+      l|L) "${SHELL:-/bin/zsh}" -l ;;
+      r|R) continue ;;
+      q|Q) break ;;
+      "")  continue ;;
+      *)   printf "  ${C_YEL}unknown option: %s${C_RST}\n" "$choice" ;;
+    esac
+    case "$choice" in
+      h|H|l|L|r|R|q|Q|"") : ;;
+      *) printf "\n  ${C_DIM}[done] press Enter for the menu…${C_RST}"; read -r _ ;;
+    esac
+  done
+  printf "\n${C_DIM}Menu closed. Reopen with:${C_RST} ${C_CYAN}\"%s\" _pane control${C_RST}\n" "$SELF"
+}
+
+# ── Reference banners (printed into the interactive local shells) ─────────────
 banner() {
   case "$1" in
-    control)     banner_control ;;
     services)    banner_services ;;
     portforward) banner_portforward ;;
   esac
-}
-
-banner_control() {
-cat <<EOF
-
-  AKS-LAB COCKPIT — control                       session: $SESSION
-  host: $SSH_TGT     repo: $REPO_REMOTE
-
-  Lifecycle (run from THIS pane — local repo clone):
-    ./aks-lab wake --wait     wake the Mac Pro (Wake-on-LAN) and wait for ping
-    ssh $SSH_TGT \\
-        'cd $REPO_REMOTE && nohup ./aks-lab resume >/tmp/resume.out 2>&1 &'
-                              resume the lab over SSH after a wake (~15 min)
-    ./aks-lab doze status     is auto-doze armed? when will it sleep?
-    ./aks-lab doze now        pause + sleep the lab now (done for the day)
-    ./aks-lab dashboard       open the web control panel (localhost:9997 tunnel)
-
-  Windows:  0 control · 1 k9s · 2 workloads · 3 gitops · 4 logs · 5 services
-            (<prefix> 0-5 to switch · <prefix> z to zoom a pane)
-
-  right-top  = live lab status      right-bottom = host ops shell
-  A wake command is pre-typed below — press ↵ to run it.
-
-EOF
 }
 
 banner_services() {
@@ -264,9 +315,8 @@ build() {
   p="$(tmux new-session -d -P -F '#{pane_id}' -s "$S" -n control -c "$REPO_LOCAL")"
   q="$(tmux split-window -h -t "$p" -c "$REPO_LOCAL" -P -F '#{pane_id}')"
   r="$(tmux split-window -v -t "$q" -P -F '#{pane_id}')"
-  tmux select-pane -t "$p" -T "control"; tmux select-pane -t "$q" -T "status"; tmux select-pane -t "$r" -T "host-shell"
-  sk  "$p" "\"$SELF\" _banner control"     # print the cheat-sheet, stay in local shell
-  skt "$p" "./aks-lab wake --wait"         # pre-type the wake (no Enter)
+  tmux select-pane -t "$p" -T "menu"; tmux select-pane -t "$q" -T "status"; tmux select-pane -t "$r" -T "host-shell"
+  sk  "$p" "$(run control)"                # interactive action menu (wake/resume/…)
   sk  "$q" "$(run status)"
   sk  "$r" "$(run sshops)"
 
