@@ -118,7 +118,7 @@ step "Checking Cluster"
 if ! kubectl cluster-info &>/dev/null; then
   error "Cluster not reachable — run ./resume-lab.sh first."
 fi
-NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | grep -c Ready || echo 0)
+NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | grep -c Ready || true)
 success "Cluster reachable — ${NODE_COUNT} node(s) ready"
 
 # ── Rebuild images ────────────────────────────

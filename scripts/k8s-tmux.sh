@@ -163,7 +163,7 @@ role_status() {
     printf "${C_DIM}──────────────────────────────────────────────${C_RST}\n"
     if nc -z -G 3 "$HOST" 22 2>/dev/null; then
       printf "SSH   : \033[1;32m✅ reachable\033[0m\n"
-      labrun "printf 'nodes : '; kubectl get nodes --no-headers 2>/dev/null | grep -c Ready || echo 0; \
+      labrun "printf 'nodes : '; kubectl get nodes --no-headers 2>/dev/null | grep -c Ready || true; \
               echo; minikube status -p aks-lab 2>/dev/null | sed -n '1,7p'; \
               echo; ./aks-lab doze status 2>/dev/null | sed -n '1,5p'" 2>/dev/null
     else

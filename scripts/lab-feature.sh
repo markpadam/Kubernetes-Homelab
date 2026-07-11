@@ -1438,8 +1438,8 @@ cmd_status() {
     if [[ -z "$ns" ]]; then
       echo -e "  ${CYAN}◆${RESET} ${BOLD}$id${RESET}  $name — ${DIM}host-managed${RESET}"
     elif kubectl get namespace "$ns" &>/dev/null 2>&1; then
-      local running; running=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | grep -c "Running" || echo 0)
-      local total; total=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | wc -l | tr -d ' ' || echo 0)
+      local running; running=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | grep -c "Running" || true)
+      local total; total=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | wc -l | tr -d ' ' || true)
       if [[ "$running" -eq "$total" && "$total" -gt 0 ]]; then
         echo -e "  ${GREEN}●${RESET} ${BOLD}$id${RESET}  $name — ${GREEN}$running/$total pods running${RESET}"
       else
