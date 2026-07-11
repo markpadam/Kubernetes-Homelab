@@ -131,6 +131,20 @@ else
   INSTALLED+=("Python rich")
 fi
 
+# ── Shell: oh-my-zsh + powerlevel10k (match the workstation prompt) ──────────
+# Idempotent + backs up any existing ~/.zshrc. Touches only the interactive
+# prompt (PATH stays in ~/.zprofile). Opt out with LAB_SKIP_SHELL=1.
+if [[ "${LAB_SKIP_SHELL:-0}" == "1" ]]; then
+  SKIPPED+=("Shell (LAB_SKIP_SHELL=1)")
+else
+  info "Configuring shell (oh-my-zsh + powerlevel10k)..."
+  if bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/setup-shell.sh"; then
+    INSTALLED+=("Shell: oh-my-zsh + powerlevel10k")
+  else
+    warn "Shell setup did not complete (non-fatal) — run ./aks-lab shell to retry."
+  fi
+fi
+
 # ── Summary ─────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}── Prerequisites summary ───────────────────────────────────${RESET}"

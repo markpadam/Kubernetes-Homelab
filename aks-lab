@@ -32,6 +32,7 @@ _usage() {
   echo -e "${BOLD}Setup:${RESET}"
   echo -e "  prereqs                            install Homebrew tools + Python deps"
   echo -e "  doctor                             check prerequisites (read-only) before setup"
+  echo -e "  shell [--force]                    install oh-my-zsh + powerlevel10k prompt (matches workstation)"
   echo -e ""
   echo -e "${BOLD}Lifecycle:${RESET}"
   echo -e "  setup [--all|--minimal|--standard|--verbose|--reconfigure-ado]"
@@ -233,6 +234,10 @@ case "${1:-}" in
   tmux|cockpit)
     shift
     exec bash "$SCRIPTS/k8s-tmux.sh" "$@"
+    ;;
+  shell)
+    shift
+    exec bash "$SCRIPTS/setup-shell.sh" "$@"
     ;;
   dashboard)
     if curl -sf http://localhost:9997/ &>/dev/null; then

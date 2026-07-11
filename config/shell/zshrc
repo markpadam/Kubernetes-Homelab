@@ -1,0 +1,28 @@
+# ~/.zshrc — managed-by: aks-lab-shell (scripts/setup-shell.sh)
+# Matches the workstation prompt: oh-my-zsh + powerlevel10k. Re-run: ./aks-lab shell
+# NOTE: PATH lives in ~/.zprofile (MacPorts + Homebrew) and is intentionally
+# untouched here — this file only configures the interactive prompt / UX.
+
+# --- powerlevel10k instant prompt (keep near the top) -----------------------
+# Anything that prints to the console before this line disables instant prompt.
+if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+fi
+
+# --- oh-my-zsh --------------------------------------------------------------
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="powerlevel10k/powerlevel10k"
+# DevOps stack completions/aliases. zsh-syntax-highlighting must stay LAST.
+plugins=(
+  git kubectl kubectx helm docker docker-compose terraform azure fluxcd
+  zsh-autosuggestions zsh-syntax-highlighting
+)
+source "$ZSH/oh-my-zsh.sh"
+
+# --- history ----------------------------------------------------------------
+setopt append_history share_history hist_ignore_all_dups
+HISTSIZE=10000; SAVEHIST=20000; HISTFILE="$HOME/.zsh_history"
+
+# --- powerlevel10k prompt config --------------------------------------------
+# To reconfigure the look/segments interactively, run: p10k configure
+[[ ! -f "$HOME/.p10k.zsh" ]] || source "$HOME/.p10k.zsh"
