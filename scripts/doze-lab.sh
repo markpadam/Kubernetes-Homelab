@@ -155,6 +155,23 @@ cmd_now() {
   success "Doze scheduled — the Mac will sleep in a few moments"
 }
 
+# A per-user LaunchAgent can only load when this user has a GUI (Aqua) login
+# session — i.e. logged in at the desktop, not sitting at the login window. With
+# no desktop session (e.g. after a reboot with no auto-login, reached only over
+# SSH) the `gui/<uid>` domain doesn't exist and `launchctl bootstrap` silently
+# no-ops, so the agent never runs. Detect that so we can explain it rather than
+# report a bare "not loaded".
+_gui_session_ok() { launchctl print "gui/$(id -u)" &>/dev/null; }
+
+_warn_no_gui() {
+  local owner; owner=$(stat -f '%Su' /dev/console 2>/dev/null)
+  warn "No desktop login session (console owner: ${owner:-unknown}) — the Mac is at the login window."
+  echo -e "  ${DIM}Auto-doze is a per-user LaunchAgent and can't load without a desktop session."
+  echo -e "  Fix: log in to the desktop (Screen Sharing or in person), then re-run this."
+  echo -e "  To make it survive reboots unattended, enable Automatic Login:"
+  echo -e "    System Preferences ▸ Users & Groups ▸ Login Options ▸ Automatic login.${RESET}"
+}
+
 # ── on / off / status ─────────────────────────────────────────────────────────
 cmd_on() {
   local hours="$LAB_DOZE_IDLE_HOURS" do_sleep="$LAB_DOZE_SLEEP"
@@ -206,8 +223,19 @@ PLIST
     || launchctl load "$PLIST_PATH" 2>/dev/null || true
 
   touch "$HEARTBEAT"
-  success "Auto-doze ON — after ${hours}h idle: pause lab$( [[ "$do_sleep" == "1" ]] && echo " + sleep the Mac (wake: ./aks-lab wake)")"
-  echo -e "  ${DIM}Checks every 15 min · log: ${DOZE_LOG} · tune: ./aks-lab doze on --hours N [--no-sleep]${RESET}"
+  if launchctl print "gui/$(id -u)/${PLIST_LABEL}" &>/dev/null; then
+    success "Auto-doze ON — after ${hours}h idle: pause lab$( [[ "$do_sleep" == "1" ]] && echo " + sleep the Mac (wake: ./aks-lab wake)")"
+    echo -e "  ${DIM}Checks every 15 min · log: ${DOZE_LOG} · tune: ./aks-lab doze on --hours N [--no-sleep]${RESET}"
+  elif ! _gui_session_ok; then
+    warn "Config saved to $DOZE_CONF, but the agent could NOT be loaded."
+    _warn_no_gui
+    echo -e "  ${DIM}The plist is staged at $PLIST_PATH — it will load once a desktop session exists.${RESET}"
+    exit 1
+  else
+    warn "Config saved, but launchctl could not load the agent."
+    echo -e "  ${DIM}Try manually: launchctl bootstrap gui/$(id -u) \"$PLIST_PATH\"${RESET}"
+    exit 1
+  fi
 }
 
 cmd_off() {
@@ -220,6 +248,11 @@ cmd_off() {
 cmd_status() {
   if launchctl print "gui/$(id -u)/${PLIST_LABEL}" &>/dev/null; then
     success "Auto-doze agent: loaded (checks every 15 min)"
+  elif ! _gui_session_ok; then
+    warn "Auto-doze agent: not loaded — no desktop login session."
+    _warn_no_gui
+  elif [[ -f "$PLIST_PATH" ]]; then
+    warn "Auto-doze agent: configured but not loaded — reload with ./aks-lab doze on"
   else
     warn "Auto-doze agent: not loaded — enable with ./aks-lab doze on"
   fi
