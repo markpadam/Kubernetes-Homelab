@@ -240,6 +240,13 @@ case "${1:-}" in
     exec bash "$SCRIPTS/setup-shell.sh" "$@"
     ;;
   dashboard)
+    if [[ "${2:-}" == "--tunnel-only" || "${2:-}" == "--ensure" ]]; then
+      # Silently bring up (or reuse) the client→host SSH tunnel; no browser.
+      # No-op on the lab host itself (dashboard is already loopback-local there).
+      [[ -d "$HOME/.minikube/profiles/$PROFILE" ]] && exit 0
+      _ensure_dashboard_tunnel >/dev/null 2>&1
+      exit $?
+    fi
     if curl -sf http://localhost:9997/ &>/dev/null; then
       # Already served locally — the lab host, or a client whose tunnel is up.
       echo -e "${CYAN}${BOLD}[lab]${RESET} Opening http://localhost:9997 ..."

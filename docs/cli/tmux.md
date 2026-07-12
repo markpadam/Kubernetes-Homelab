@@ -37,8 +37,38 @@ once you run `./aks-lab wake --wait` and resume. The session is built entirely
 with the `tmux` CLI, so it never touches your `~/.tmux.conf` — your own prefix
 and keybindings still apply inside it.
 
+**Look & feel.** The cockpit themes itself with a dark teal/slate scheme —
+coloured window tabs, a status bar with a live **`● UP` / `● ASLEEP`** lab badge
+(fed by the status pane), titled/coloured pane borders, and state-coloured
+workload panes (Running green · Pending yellow · Crash/Error red). Powerline
+separators use the profile's MesloLGS NF font. **Mouse is on** so you can click
+panes and scroll logs. All of this is applied _session-scoped_ (no `-g` writes),
+so it stays entirely inside the `k8s` session — nothing leaks into your
+`~/.tmux.conf`, other sessions, or the [exam-sim](../../exam-sim/.tmux.conf)
+practice config. This is the oh-my-tmux look without adopting a global config or
+a plugin manager. Attaching from a terminal without a Nerd Font? Launch with
+`LAB_TMUX_NF=0 ./aks-lab tmux` to drop the powerline glyphs.
+
+**Auto-access on open.** When the cockpit opens and the host is up, it makes the
+lab reachable from this client automatically (in the background — it never blocks
+the attach):
+
+- **Dashboard tunnel** — always. The dashboard (`localhost:9997`) is loopback-only
+  on the host; the cockpit brings up / reuses the passwordless self-healing SSH
+  tunnel (the same one `./aks-lab dashboard` installs), so the browser UI just
+  works. No sudo involved.
+- **LAN publish** (`*.aks-lab.local` + republished ports) — best effort. This needs
+  **sudo on the host**, so the cockpit only runs it silently when host sudo is
+  already passwordless _and_ it isn't published yet (the publish LaunchDaemon
+  persists across reboots, so this is normally a one-time thing). Otherwise the
+  **status pane** shows `LAN: — not published` and you enable it with **`p`** in the
+  control menu, which runs `./aks-lab publish` over an interactive SSH so sudo can
+  prompt once in that pane. Set `LAB_TMUX_AUTOPUBLISH=0` to skip the whole step.
+  For a truly unattended publish, give the host passwordless sudo for it.
+
 Overrides via env: `LAB_SSH_HOST` (e.g. a Tailscale name), `LAB_SSH_USER`,
-`LAB_TMUX_SESSION`, `LAB_REPO_REMOTE`.
+`LAB_TMUX_SESSION`, `LAB_REPO_REMOTE`, `LAB_TMUX_NF` (`0` disables Nerd-Font
+glyphs), `LAB_TMUX_AUTOPUBLISH` (`0` disables auto dashboard-tunnel / LAN publish).
 
 > ⚠️ **Prefix differs between the exam and this repo — read this first.**
 >
