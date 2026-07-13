@@ -9,9 +9,16 @@ components running and nobody using it:
 - **~0.8 core** for the two identity Lima VMs (SambaAD, corp-client)
 - ≈ **60–90 W above idle, 24/7** — in the £150–250/year range at UK rates
 
-Doze eliminates that: after a configurable idle window it **pauses the lab**
-(state-preserving) and **puts the Mac to sleep** (~1–3 W). Waking and resuming
-takes ~15 minutes end to end.
+Doze eliminates most of that: after a configurable idle window it **pauses the
+lab** (state-preserving), reclaiming those cores. By **default it leaves the Mac
+awake** — this Mac Pro also runs **pihole/DNS** for the LAN, which has to stay
+reachable, so pausing the QEMU/cluster load is all we want here.
+
+If you ever repurpose the host and want the deeper ~1–3 W idle, `--sleep` puts
+the Mac to sleep after pausing (waking + resuming then takes ~15 min end to end,
+and requires Wake-on-LAN). See [Keeping the Mac awake for pihole](#keeping-the-mac-awake-for-pihole)
+below — doze not sleeping the Mac is necessary but **not sufficient**; you must
+also stop macOS's own idle-sleep timer.
 
 ---
 
@@ -19,11 +26,11 @@ takes ~15 minutes end to end.
 
 ```bash
 # on the Mac Pro (one-time)
-./aks-lab doze on                 # enable: doze after 2h idle
+./aks-lab doze on                 # enable: pause the lab after 2h idle (Mac stays awake)
 ./aks-lab doze on --hours 4       # …or a longer window
-./aks-lab doze on --no-sleep      # …or pause the lab but keep macOS awake
+./aks-lab doze on --sleep         # …also sleep the Mac after pausing (needs Wake-on-LAN)
 ./aks-lab doze status             # agent state, live activity signals, decision log
-./aks-lab doze now                # "done for the day" — pause + sleep immediately
+./aks-lab doze now                # "done for the day" — pause immediately (sleep too, if --sleep configured)
 ./aks-lab doze off                # disable the agent
 
 # from another machine (e.g. the MacBook), when you want the lab back
@@ -71,13 +78,16 @@ Once every signal has been quiet for the idle window:
 
 1. `pause-lab.sh --colima` — scales down Rancher's crash-prone extension API,
    stops port-forwards, Vault, the dashboard, both Lima VMs, the minikube
-   cluster, and the Colima VM. All state is preserved on disk.
-2. `pmset sleepnow` — but **only if** Wake-on-LAN is enabled (`womp 1`); doze
-   refuses to sleep a box that can't be woken remotely.
+   cluster, and the Colima VM. All state is preserved on disk. **This is the
+   whole action by default** — the Mac stays up so pihole/DNS keeps serving.
+2. `pmset sleepnow` — **only when configured with `--sleep`**, and even then only
+   if Wake-on-LAN is enabled (`womp 1`); doze refuses to sleep a box that can't
+   be woken remotely.
 
-If the Mac gets woken by stray traffic and nobody actually uses it, the next
-15-minute tick finds it idle and puts it straight back to sleep — observed
-working overnight (three stray wakes, each re-slept within a minute).
+If doze *is* configured to sleep and the Mac gets woken by stray traffic while
+nobody uses it, the next 15-minute tick finds it idle and puts it straight back
+to sleep — observed working overnight (three stray wakes, each re-slept within a
+minute).
 
 ### 3. The wake-assertion model (why the Mac doesn't nap mid-use)
 
@@ -104,6 +114,33 @@ the Mac — a *running* lab survives an unexpected sleep completely intact.
 
 ---
 
+## Keeping the Mac awake for pihole
+
+This Mac Pro also runs **pihole as the LAN's DNS server**, so the box must stay
+reachable around the clock — if it sleeps, name resolution breaks for every
+device pointed at it. Two independent things can put it to sleep; **both** have
+to be handled:
+
+1. **Doze** — handled here. Pause-only is the default (`LAB_DOZE_SLEEP=0`), so
+   the agent never runs `pmset sleepnow`. Don't pass `--sleep`.
+2. **macOS's own idle-sleep timer** — *not* doze. When doze pauses the lab,
+   `pause-lab.sh` releases the `caffeinate -s` assertion (that assertion only
+   exists to pin the Mac awake *while the lab runs*). With it gone and the lab
+   idle, macOS can still idle-sleep on its own. Disable system sleep so it
+   can't:
+
+   ```bash
+   # on the Mac Pro
+   sudo pmset -a sleep 0 disksleep 0     # never idle-sleep the machine
+   pmset -g | grep -E ' sleep| womp'     # verify: sleep 0
+   ```
+
+   (Display sleep is fine to leave on — it doesn't suspend the OS or the network.)
+
+Net effect: doze reclaims the ~5–6 idle cores by pausing the cluster, while the
+host keeps serving DNS. Bringing the cluster back is still just
+`./aks-lab resume` — no wake step needed, because the Mac never left.
+
 ## Wake-on-LAN on Wi-Fi vs Ethernet
 
 The Mac Pro currently wakes over **Wi-Fi**, which works but is the fragile
@@ -123,7 +160,7 @@ the Mac Pro's two Ethernet ports in makes WoL bulletproof.
 
 | Path | What |
 |------|------|
-| `~/.aks-lab-doze.conf` | `LAB_DOZE_IDLE_HOURS` (default 2), `LAB_DOZE_SLEEP` (1/0) |
+| `~/.aks-lab-doze.conf` | `LAB_DOZE_IDLE_HOURS` (default 2), `LAB_DOZE_SLEEP` (default 0 — pause only; set to 1 by `doze on --sleep`) |
 | `~/Library/LaunchAgents/local.aks-lab-doze.plist` | the 15-min check agent |
 | `/tmp/aks-lab-doze.log` | every check decision + pause/sleep output |
 | `/tmp/aks-lab-last-activity` | the activity heartbeat file |

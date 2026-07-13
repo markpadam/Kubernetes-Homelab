@@ -37,7 +37,7 @@ The guides below are sequenced so that each one builds on concepts introduced ea
 
 > **Looking for an end-to-end project?** The [IncidentHub master walkthrough](guides/incidenthub/README.md) ties many of these topics together into a single multi-stage build of one real application, from local .NET app to GitOps delivery, security, and disaster recovery.
 
-> **Running the lab day to day?** [Doze — power saving](guides/doze-power-saving.md) explains how the lab auto-pauses and sleeps the Mac when idle (and how to wake it remotely); [operations.md](operations.md) covers everything else — lifecycle, remote access, component management, troubleshooting.
+> **Running the lab day to day?** [Doze — power saving](guides/doze-power-saving.md) explains how the lab auto-pauses when idle (the Mac stays awake for pihole/DNS by default; `--sleep` to also sleep it, then wake it remotely); [operations.md](operations.md) covers everything else — lifecycle, remote access, component management, troubleshooting.
 
 ---
 

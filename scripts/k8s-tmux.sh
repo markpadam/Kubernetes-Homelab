@@ -248,7 +248,7 @@ cat <<EOF
      ${C_CYAN}1${C_RST}) Wake host      Wake-on-LAN, wait for it        ${C_DIM}[local]${C_RST}
      ${C_CYAN}2${C_RST}) Resume lab     start Colima + cluster (~15m)
      ${C_CYAN}3${C_RST}) Pause lab      stop cluster + VMs, keep state
-     ${C_CYAN}4${C_RST}) Doze now       pause + sleep the Mac
+     ${C_CYAN}4${C_RST}) Doze now       pause the lab now (Mac stays awake)
    ${C_DIM}Status / health${C_RST}
      ${C_CYAN}5${C_RST}) Lab status     minikube · nodes · doze
      ${C_CYAN}6${C_RST}) Verify health
@@ -286,7 +286,7 @@ role_menu() {
       1)   "$REPO_LOCAL/aks-lab" wake --wait ;;
       2)   menu_resume ;;
       3)   labrun_t "./aks-lab pause" ;;
-      4)   confirm "Pause AND sleep the Mac now? (waking it again needs Wake-on-LAN)" \
+      4)   confirm "Pause the lab now? (Mac stays awake for pihole/DNS unless doze is configured with --sleep)" \
              && labrun_t "./aks-lab doze now" ;;
       5)   labrun_t "echo '# minikube'; minikube status -p aks-lab 2>&1 | head -8; echo; echo '# nodes'; kubectl get nodes -o wide 2>&1 | head -8; echo; echo '# doze'; ./aks-lab doze status 2>&1 | head -6" ;;
       6)   labrun_t "./aks-lab verify" ;;

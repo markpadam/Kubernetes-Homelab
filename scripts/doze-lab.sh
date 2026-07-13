@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# doze-lab.sh — auto-doze: pause the lab and sleep the Mac after idle hours.
+# doze-lab.sh — auto-doze: pause the lab after idle hours (Mac stays awake by
+# default; sleeping is opt-in via --sleep).
 #
 # The lab burns ~5-6 host cores 24/7 while idle (QEMU + cluster control loops),
 # which on the Mac Pro is 60-90W of electricity for nothing. This agent checks
 # every 15 minutes; once the lab has seen no activity for LAB_DOZE_IDLE_HOURS
-# it runs `pause-lab.sh --colima` and puts the Mac to sleep. Wake it from
+# it runs `pause-lab.sh --colima`. By default it then LEAVES THE MAC AWAKE —
+# this host also serves pihole/DNS for the LAN, which must stay reachable. Pass
+# `--sleep` to also sleep the Mac after pausing, in which case wake it from
 # another machine with `./aks-lab wake` (Wake-on-LAN — pmset womp must be 1,
-# which `doze on` verifies), then `./aks-lab resume`.
+# which `doze on --sleep` verifies), then `./aks-lab resume`.
 #
-#   ./aks-lab doze on [--hours N] [--no-sleep]   install + start the agent
+#   ./aks-lab doze on [--hours N] [--sleep]      install + start the agent
 #   ./aks-lab doze off                           stop + remove the agent
 #   ./aks-lab doze status                        config, signals, last decisions
 #   ./aks-lab doze check                         one evaluation (the agent's tick)
@@ -38,7 +41,9 @@ PLIST_PATH="$HOME/Library/LaunchAgents/${PLIST_LABEL}.plist"
 
 # Defaults — overridden by ~/.aks-lab-doze.conf (written by `doze on`).
 LAB_DOZE_IDLE_HOURS=2
-LAB_DOZE_SLEEP=1
+# Sleeping the Mac is OFF by default: this host also runs pihole/DNS for the LAN,
+# which must stay reachable. Opt back into sleep-after-pause with `doze on --sleep`.
+LAB_DOZE_SLEEP=0
 # shellcheck source=/dev/null
 [[ -f "$DOZE_CONF" ]] && source "$DOZE_CONF"
 
@@ -142,8 +147,12 @@ cmd_check() {
 
 # ── now — doze immediately, ignoring activity ("done for the day") ────────────
 cmd_now() {
-  log "Dozing now: pausing the lab, then sleeping the Mac..."
-  log "Wake later with: ./aks-lab wake --wait  (from another machine)"
+  if [[ "$LAB_DOZE_SLEEP" == "1" ]]; then
+    log "Dozing now: pausing the lab, then sleeping the Mac..."
+    log "Wake later with: ./aks-lab wake --wait  (from another machine)"
+  else
+    log "Dozing now: pausing the lab (the Mac stays awake for pihole/DNS)..."
+  fi
   _dlog "manual doze requested (doze now)"
   # Reset the idle clock so an accidental wake right after doesn't count old
   # activity, and detach the doze so the caller's SSH session ends cleanly.
@@ -152,7 +161,7 @@ cmd_now() {
   # (observed 2026-07-07 — the detached doze silently never ran).
   touch "$HEARTBEAT"
   ( nohup bash "$SCRIPT_DIR/doze-lab.sh" __do-doze-detached >> "$DOZE_LOG" 2>&1 & )
-  success "Doze scheduled — the Mac will sleep in a few moments"
+  success "Doze scheduled$( [[ "$LAB_DOZE_SLEEP" == "1" ]] && echo " — the Mac will sleep in a few moments" || echo " — the lab is pausing now (Mac stays awake)")"
 }
 
 # A per-user LaunchAgent can only load when this user has a GUI (Aqua) login
@@ -178,7 +187,8 @@ cmd_on() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --hours)    hours="${2:?--hours needs a number}"; shift 2 ;;
-      --no-sleep) do_sleep=0; shift ;;
+      --sleep)    do_sleep=1; shift ;;
+      --no-sleep) do_sleep=0; shift ;;   # kept for back-compat; pause-only is now the default
       *) warn "unknown flag: $1"; shift ;;
     esac
   done
@@ -224,8 +234,8 @@ PLIST
 
   touch "$HEARTBEAT"
   if launchctl print "gui/$(id -u)/${PLIST_LABEL}" &>/dev/null; then
-    success "Auto-doze ON — after ${hours}h idle: pause lab$( [[ "$do_sleep" == "1" ]] && echo " + sleep the Mac (wake: ./aks-lab wake)")"
-    echo -e "  ${DIM}Checks every 15 min · log: ${DOZE_LOG} · tune: ./aks-lab doze on --hours N [--no-sleep]${RESET}"
+    success "Auto-doze ON — after ${hours}h idle: pause lab$( [[ "$do_sleep" == "1" ]] && echo " + sleep the Mac (wake: ./aks-lab wake)" || echo " (Mac stays awake — pihole/DNS keeps serving)")"
+    echo -e "  ${DIM}Checks every 15 min · log: ${DOZE_LOG} · tune: ./aks-lab doze on --hours N [--sleep]${RESET}"
   elif ! _gui_session_ok; then
     warn "Config saved to $DOZE_CONF, but the agent could NOT be loaded."
     _warn_no_gui
@@ -273,5 +283,5 @@ case "${1:-status}" in
   on)     shift; cmd_on "$@" ;;
   off)    cmd_off ;;
   status) cmd_status ;;
-  *) echo "Usage: doze-lab.sh [on [--hours N] [--no-sleep] | off | now | status | check]"; exit 1 ;;
+  *) echo "Usage: doze-lab.sh [on [--hours N] [--sleep] | off | now | status | check]"; exit 1 ;;
 esac

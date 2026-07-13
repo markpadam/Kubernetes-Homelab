@@ -27,7 +27,7 @@ model see [network-setup](network-setup.md).
 | `./aks-lab feature <…>` | Enable/disable individual components | See [Managing components](#managing-components) |
 | `./aks-lab publish` | (Re)expose the lab to the LAN | Usually automatic — see below |
 | `./aks-lab dashboard` | Open the control dashboard locally | Local browser only — remote needs a tunnel |
-| `./aks-lab doze [on\|off\|now\|status]` | Auto-pause + sleep the Mac after idle hours | See [Power saving](#power-saving-auto-doze) |
+| `./aks-lab doze [on\|off\|now\|status]` | Auto-pause the lab after idle hours (Mac stays awake for pihole/DNS; `--sleep` to also sleep it) | See [Power saving](#power-saving-auto-doze) |
 | `./aks-lab wake [--wait]` | Wake-on-LAN the lab host from another machine | Run on the client (MacBook); grants a 10-min wake window |
 
 The usual daily rhythm: **`doze now`** (or just walk away — auto-doze pauses and
@@ -165,10 +165,10 @@ An idle lab still burns ~5–6 host cores (QEMU + cluster control loops) — rou
 Mac once nothing has used it for a while — or immediately on demand:
 
 ```bash
-./aks-lab doze on              # doze after 2h idle (pause --colima + sleep)
+./aks-lab doze on              # after 2h idle: pause --colima (Mac stays awake for pihole/DNS)
 ./aks-lab doze on --hours 4    # longer idle window
-./aks-lab doze on --no-sleep   # pause the lab but leave macOS running
-./aks-lab doze now             # "done for the day" — pause + sleep right away
+./aks-lab doze on --sleep      # also sleep the Mac after pausing (needs Wake-on-LAN)
+./aks-lab doze now             # "done for the day" — pause right away
 ./aks-lab doze status          # agent state, current activity signals, log tail
 ./aks-lab doze off             # disable
 ```

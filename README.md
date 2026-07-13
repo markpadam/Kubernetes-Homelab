@@ -183,8 +183,8 @@ After setup, run `./aks-lab verify` to confirm every component and ingress is ac
 ./aks-lab verify         # post-setup health check (exits non-zero if anything is broken)
 ./aks-lab pause          # stop cluster + identity VMs + helpers (keeps all state)
 ./aks-lab resume         # resume after pause or Mac restart
-./aks-lab doze on        # power saving: auto-pause + sleep the Mac after idle hours
-./aks-lab doze now       # "done for the day" — pause + sleep immediately
+./aks-lab doze on        # power saving: auto-pause the lab after idle hours (Mac stays awake for pihole/DNS; --sleep to also sleep it)
+./aks-lab doze now       # "done for the day" — pause immediately
 ./aks-lab wake --wait    # Wake-on-LAN the lab host (run from another machine)
 ./aks-lab resize         # shrink node memory after the cluster settles
 ./aks-lab teardown       # full wipe — cluster, VMs, state, hosts
