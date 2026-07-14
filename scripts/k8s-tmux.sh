@@ -41,7 +41,7 @@ fi
 HOST="${HOST:-192.168.5.89}"
 SSH_USER="${LAB_SSH_USER:-$(whoami)}"
 SSH_TGT="${SSH_USER}@${HOST}"
-REPO_REMOTE="${LAB_REPO_REMOTE:-~/Documents/Kubernetes-Homelab}"   # ~ expands on the host
+REPO_REMOTE="${LAB_REPO_REMOTE:-~/Documents/gitRepos/markpadam/Kubernetes-Homelab}"   # ~ expands on the host
 
 # `./aks-lab publish` installs this persistent LaunchDaemon on the host; its
 # presence is our "LAN publish is set up" signal (see autostart_access / status).
