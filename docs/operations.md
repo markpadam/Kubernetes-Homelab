@@ -183,7 +183,7 @@ Waking back up from another machine:
 
 ```bash
 ./aks-lab wake --wait          # WoL burst + wait; grants a 10-min wake window
-ssh mac-pro "cd ~/Documents/Kubernetes-Homelab && nohup ./aks-lab resume &"
+ssh mac-pro "cd ~/Documents/gitRepos/markpadam/Kubernetes-Homelab && nohup ./aks-lab resume &"
 ```
 
 Resume from a doze takes ~15 minutes on the Mac Pro (Colima cold boot included).

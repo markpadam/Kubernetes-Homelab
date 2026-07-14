@@ -35,7 +35,7 @@ also stop macOS's own idle-sleep timer.
 
 # from another machine (e.g. the MacBook), when you want the lab back
 ./aks-lab wake --wait             # Wake-on-LAN + wait until the host answers
-ssh markpadam@<mac-pro> "cd ~/Documents/Kubernetes-Homelab && nohup ./aks-lab resume &"
+ssh markpadam@<mac-pro> "cd ~/Documents/gitRepos/markpadam/Kubernetes-Homelab && nohup ./aks-lab resume &"
 ```
 
 Prerequisites (already set on the lab Mac Pro):
