@@ -10,9 +10,14 @@
 # ImagePullBackOff. This test exists to catch that class of bug on purpose,
 # under repetition, instead of by accident days later.
 #
-# Usage: ./aks-lab soak-test [--cycles N]
+# Usage: ./aks-lab soak-test [--cycles N] [--ignore-failures id1,id2,...]
 #
-#   --cycles N   number of pause/resume cycles to run (default: 10)
+#   --cycles N              number of pause/resume cycles to run (default: 10)
+#   --ignore-failures <ids> comma-separated verify component IDs that don't
+#                           count against a cycle (e.g. a known-broken,
+#                           pause/resume-unrelated component like renovate's
+#                           own credential problem) — a cycle only fails if
+#                           verify reports a failure OUTSIDE this list.
 #
 # Stops immediately on the first cycle that fails verify (or whose pause/
 # resume step itself errors) and leaves the lab in that broken state for
@@ -37,13 +42,17 @@ fail_log(){ echo -e "${RED}${BOLD}[✗]${RESET} $*"; }
 
 LOG_FILE="/tmp/aks-lab-soak-test.log"
 CYCLES=10
+IGNORE_FAILURES=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --cycles) CYCLES="${2:?--cycles needs a number}"; shift 2 ;;
+    --ignore-failures) IGNORE_FAILURES="${2:?--ignore-failures needs a comma-separated list}"; shift 2 ;;
     *) warn "unknown flag: $1"; shift ;;
   esac
 done
 [[ "$CYCLES" =~ ^[0-9]+$ && "$CYCLES" -ge 1 ]] || { fail_log "--cycles must be a positive integer"; exit 1; }
+IGNORE_LIST=",${IGNORE_FAILURES},"
+_is_ignored() { [[ "$IGNORE_LIST" == *",$1,"* ]]; }
 
 DOZE_WAS_LOADED=0
 DOZE_HOURS=2
@@ -105,11 +114,29 @@ for ((i = 1; i <= CYCLES; i++)); do
   if ./aks-lab verify > "$verify_out" 2>&1; then
     verify_summary=$(grep -o '✓ All [0-9]* checks passed' "$verify_out" | tail -1)
   else
-    verify_summary=$(grep -o '✗ [0-9]* failed.*' "$verify_out" | tail -1)
-    fail_log "Cycle $i: verify FAILED — $verify_summary"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') CYCLE_FAIL $i verify: $verify_summary" >> "$LOG_FILE"
-    grep '•' "$verify_out" | tee -a "$LOG_FILE"
-    exit 1
+    # verify failed overall — but a failure only counts against this cycle if
+    # its component ID isn't in --ignore-failures (e.g. a known-broken,
+    # pause/resume-unrelated component). Strip ANSI color codes, then the
+    # leading bullet, to get each "id: description" failure line.
+    ESC=$'\x1b'
+    unignored=()
+    ignored_seen=()
+    while IFS= read -r fline; do
+      clean=$(printf '%s' "$fline" | sed "s/${ESC}\[[0-9;]*m//g" | sed -E 's/^[[:space:]]*•[[:space:]]*//')
+      fid="${clean%%:*}"
+      if _is_ignored "$fid"; then ignored_seen+=("$clean"); else unignored+=("$clean"); fi
+    done < <(grep '•' "$verify_out")
+
+    if [[ ${#unignored[@]} -eq 0 && ${#ignored_seen[@]} -gt 0 ]]; then
+      verify_summary="OK (ignored known failures: ${ignored_seen[*]})"
+      warn "Cycle $i: verify's only failures are in --ignore-failures (${IGNORE_FAILURES}) — treating as pass"
+    else
+      verify_summary=$(grep -o '✗ [0-9]* failed.*' "$verify_out" | tail -1)
+      fail_log "Cycle $i: verify FAILED — $verify_summary"
+      echo "$(date '+%Y-%m-%d %H:%M:%S') CYCLE_FAIL $i verify: $verify_summary" >> "$LOG_FILE"
+      printf '%s\n' "${unignored[@]}" | tee -a "$LOG_FILE"
+      exit 1
+    fi
   fi
 
   cycle_dur=$(( $(date +%s) - cycle_start ))

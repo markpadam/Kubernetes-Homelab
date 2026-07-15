@@ -43,7 +43,8 @@ _usage() {
   echo -e "                                     re-apply manifests on running cluster"
   echo -e "  teardown [--delete-images]         full wipe"
   echo -e "  verify                             post-setup health check (exits 1 on failure)"
-  echo -e "  soak-test [--cycles N]             repeat pause/resume N times (default 10), stop on first"
+  echo -e "  soak-test [--cycles N] [--ignore-failures id1,id2]"
+  echo -e "                                     repeat pause/resume N times (default 10), stop on first"
   echo -e "                                     failure — catches flaky pause/resume, not component bugs"
   echo -e "  resize [--yes|--worker-gb N|--master-pct N|--restore]"
   echo -e "                                     shrink node memory once cluster settles
