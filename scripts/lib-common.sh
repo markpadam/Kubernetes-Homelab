@@ -569,17 +569,25 @@ lab_rancher_restore() {
       || warn "rancher-webhook not ready yet — Rancher may take longer to start"
   fi
 
-  # 2) Scale the Rancher server back up; if it isn't Available (its pod likely
-  #    FATAL'd against the previously-absent webhook), restart it to retry now.
-  #    Also ensure progressDeadlineSeconds is large enough to accommodate the
-  #    900s readiness probe delay (chart default 600s is too short).
+  # 2) Scale the Rancher server back up. progressDeadlineSeconds is bumped so
+  #    Kubernetes doesn't mark the rollout Failed before Rancher's slow first
+  #    boot (up to ~20 min) completes. If the pod FATALs against a
+  #    not-yet-ready webhook, kubelet's own restartPolicy already retries the
+  #    same pod in place once the webhook is up — no extra action needed.
+  #    (Used to also force `kubectl rollout restart` whenever the deployment
+  #    wasn't Available within a 5s `kubectl wait` — which is never enough
+  #    time for Rancher to start, so that fired on EVERY resume regardless of
+  #    real failure, creating a second, redundant ReplicaSet that fought the
+  #    first one for resources. Root-caused via the 2026-07-15 soak-test's
+  #    cycle 5, where the redundant pod crash-looped on its startup probe for
+  #    26+ minutes straight. Removed rather than just re-tuning the timeout —
+  #    the progressDeadlineSeconds patch + kubelet's native restart already
+  #    cover the case this was trying to handle.)
   if kubectl get deploy rancher -n cattle-system &>/dev/null; then
     [[ "$(kubectl get deploy rancher -n cattle-system -o jsonpath='{.spec.replicas}' 2>/dev/null)" == "0" ]] \
       && kubectl scale deploy rancher -n cattle-system --replicas=1 &>/dev/null
     kubectl patch deploy rancher -n cattle-system --type=merge \
       -p='{"spec":{"progressDeadlineSeconds":1200}}' &>/dev/null || true
-    kubectl wait deploy rancher -n cattle-system --for=condition=available --timeout=5s &>/dev/null \
-      || kubectl rollout restart deploy rancher -n cattle-system &>/dev/null || true
   fi
 
   # 3) Re-apply the v2.9+ extension-API deadlock fix (publishNotReadyAddresses).
