@@ -39,7 +39,7 @@ Everything runs inside a **3-node Minikube cluster** (Docker driver, with the Do
  │                                                                          │
  │   ┌─────────────┐   ┌──────────────────┐   ┌──────────────────────┐   │
  │   │  Dashboard  │   │  Vault Dev Server │   │   GitHub (Flux src)  │   │
- │   │  :9997      │   │  :8200  (process) │   │   markpadam/homelab  │   │
+ │   │  :9997      │   │  :8200  (process) │   │  Kubernetes-Homelab  │   │
  │   └──────┬──────┘   └────────┬─────────┘   └──────────┬───────────┘   │
  │          │                   │                          │ sync 1m       │
  │ ┌────────┴──────────────────┬┴──────────────────────── ┴─────────────┐ │
