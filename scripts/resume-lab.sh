@@ -310,6 +310,11 @@ if ! lab_wait_nodes_ready "$PROFILE" 420; then
 fi
 success "Cluster up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes ready"
 
+# minikube start reconciles the metrics-server addon back to stock (losing the
+# hostNetwork/args patch and probe tolerances), so re-apply the fragile-
+# component tuning on every resume — see lab_tune_fragile_components.
+lab_tune_fragile_components
+
 lab_registry_mirror_configure "$PROFILE" \
   || warn "Containerd mirror configuration failed — nodes will pull docker.io/ghcr.io images directly"
 

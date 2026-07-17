@@ -1181,10 +1181,13 @@ if feature_enabled metallb; then
     warn "MetalLB already deployed — skipping install"
   elif [[ "$_MLB_STATUS" == "failed" ]]; then
     kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply --validate=false -f -
-    helm upgrade metallb metallb/metallb -n metallb-system --wait --timeout=10m
+    # frrk8s.enabled defaults to true (chart >= 0.15) but the lab is L2-only —
+    # the FRR daemons add constant netlink traffic (implicated in the VM's
+    # rtnl-lock meltdowns) and do nothing without BGP peers.
+    helm upgrade metallb metallb/metallb -n metallb-system --set frrk8s.enabled=false --wait --timeout=10m
   else
     kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply --validate=false -f -
-    helm install metallb metallb/metallb -n metallb-system --wait --timeout=10m
+    helm install metallb metallb/metallb -n metallb-system --set frrk8s.enabled=false --wait --timeout=10m
   fi
   kubectl wait --for=condition=established \
     crd/ipaddresspools.metallb.io crd/l2advertisements.metallb.io \
@@ -1321,23 +1324,12 @@ _minikube_addon_retry volumesnapshots     || warn "volumesnapshots addon failed 
 _minikube_addon_retry csi-hostpath-driver || warn "csi-hostpath-driver addon failed — default StorageClass may not be set. Run: minikube addons enable csi-hostpath-driver -p $PROFILE"
 _minikube_addon_retry metrics-server      || warn "metrics-server addon failed — 'kubectl top' and HPA won't work. Run: minikube addons enable metrics-server -p $PROFILE"
 
-# hostNetwork=true lets metrics-server reach kubelet IPs directly.
-# Also set --kubelet-request-timeout=30s because the master kubelet can be
-# slow to respond (>10s default) when the cluster is under load.
-kubectl patch deployment metrics-server -n kube-system --type=json \
-  -p '[
-    {"op":"add","path":"/spec/template/spec/hostNetwork","value":true},
-    {"op":"replace","path":"/spec/template/spec/containers/0/args","value":[
-      "--cert-dir=/tmp",
-      "--secure-port=4443",
-      "--kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname",
-      "--kubelet-use-node-status-port",
-      "--metric-resolution=60s",
-      "--kubelet-insecure-tls",
-      "--kubelet-request-timeout=30s"
-    ]}
-  ]' \
-  2>/dev/null || true
+# metrics-server addon patch (hostNetwork + kubelet args) plus relaxed probe /
+# leader-election tolerances for the components this VM's load spikes kill —
+# shared with resume, see lab_tune_fragile_components in lib-common.sh.
+# kube-state-metrics doesn't exist yet; the second call after the monitoring
+# install covers it.
+lab_tune_fragile_components
 
 # minikube sets kubelet cacheTTL=0s (no caching) and webhook auth, so every
 # scrape triggers a TokenReview that can take 30-60s under load. Fix: enable
@@ -1404,6 +1396,7 @@ if feature_enabled monitoring; then
 
   log "Applying Grafana ingress..."
   kubectl apply -k flux/infrastructure/base/monitoring/ || warn "Grafana ingress apply failed"
+  lab_tune_fragile_components   # kube-state-metrics exists now — relax its probes
   success "Monitoring stack installed"
 else
   log "Skipping Step 5 — Monitoring not selected"

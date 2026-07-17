@@ -155,35 +155,58 @@ os.execvp("vault", ["vault", "server", "-dev", "-dev-listen-address=0.0.0.0:8200
 }
 
 # Start a socat TCP proxy inside the colima VM so in-cluster pods can reach the
-# Mac host Vault. Pods cannot reach the QEMU slirp gateway (host.minikube.internal)
-# through double-NAT, but CAN reach the colima Docker bridge gateway. socat
-# listens on <bridge_gateway>:8200 inside the colima VM and forwards to the slirp
-# gateway where Vault binds on port 8200.
-# No-op if socat is already listening on :8200 in the VM.
+# Mac host Vault. Pods cannot reach a host gateway directly through double-NAT,
+# but CAN reach the colima Docker bridge gateway. socat listens on
+# <bridge_gateway>:8200 inside the colima VM and forwards to whichever host
+# gateway actually serves Vault — probed at call time, because the working
+# gateway differs by colima network config (the QEMU slirp gateway went dead
+# for the default profile after its network/DNS change on 2026-07-15; the
+# vmnet gateway 192.168.106.1 was the one that worked on 2026-07-17).
+# A listener that fails the end-to-end probe is treated as stale and replaced —
+# "something is listening on :8200" is NOT proof the forward path works.
 # $1 = minikube profile (control-plane container name, default $PROFILE)
 lab_vault_colima_proxy_start() {
   local profile="${1:-${PROFILE:-aks-lab}}"
-  local bridgegw slirpgw
+  local bridgegw slirpgw vmnetgw gw target=""
 
   bridgegw=$(docker exec "$profile" ip route show default 2>/dev/null \
              | awk '{print $3}' | head -1)
   [[ -n "$bridgegw" ]] || { warn "colima proxy: cannot determine bridge gateway"; return 1; }
 
-  # No-op if already listening
-  colima ssh -- sh -c "ss -tlnp 2>/dev/null | grep -q ':8200'" 2>/dev/null && return 0
+  # No-op only if an existing listener actually forwards to a live Vault.
+  colima ssh -- sh -c \
+    "curl -s --max-time 4 http://${bridgegw}:8200/v1/sys/health | grep -q initialized" \
+    2>/dev/null && return 0
 
+  # Probe candidate host gateways for a live Vault, most-likely first.
   slirpgw=$(docker exec "$profile" \
             sh -c 'grep host.minikube.internal /etc/hosts 2>/dev/null' \
             | awk '{print $1}' | head -1)
-  [[ -n "$slirpgw" ]] || slirpgw="192.168.10.2"
+  vmnetgw=$(colima ssh -- sh -c \
+            "ip -4 addr show col0 2>/dev/null | awk '/inet /{print \$2}'" 2>/dev/null \
+            | sed 's|\.[0-9]*/.*|.1|' | head -1)
+  for gw in "$vmnetgw" "$slirpgw" 192.168.106.1 192.168.10.2 host.lima.internal; do
+    [[ -n "$gw" ]] || continue
+    if colima ssh -- sh -c \
+         "curl -s --max-time 4 http://${gw}:8200/v1/sys/health | grep -q initialized" \
+         2>/dev/null; then
+      target="$gw"; break
+    fi
+  done
+  [[ -n "$target" ]] || { warn "colima proxy: no host gateway serves Vault :8200"; return 1; }
 
   colima ssh << COLIMA 2>/dev/null
-nohup socat TCP-LISTEN:8200,bind=${bridgegw},fork,reuseaddr TCP:${slirpgw}:8200 >/tmp/socat-vault.log 2>&1 &
+kill \$(cat /tmp/socat-vault.pid 2>/dev/null) 2>/dev/null
+pkill -f "socat TCP-LISTEN:8200" 2>/dev/null
+sleep 1
+nohup socat TCP-LISTEN:8200,bind=${bridgegw},fork,reuseaddr TCP:${target}:8200 >/tmp/socat-vault.log 2>&1 &
 echo \$! >/tmp/socat-vault.pid
 COLIMA
 
   sleep 1
-  colima ssh -- sh -c "ss -tlnp 2>/dev/null | grep -q ':8200'" 2>/dev/null \
+  colima ssh -- sh -c \
+    "curl -s --max-time 4 http://${bridgegw}:8200/v1/sys/health | grep -q initialized" \
+    2>/dev/null \
     || { warn "colima vault proxy failed to start — pods may not reach Vault"; return 1; }
   return 0
 }
@@ -499,6 +522,59 @@ lab_stabilise_workers() {
     if ! kubectl get --raw=/readyz &>/dev/null 2>&1; then
       docker pause "$w" 2>/dev/null || true           # this worker overloads the API — keep it out
     fi
+  done
+  return 0
+}
+
+# The stock probes on metrics-server, KEDA and kube-state-metrics are far too
+# tight for this VM (timeoutSeconds=1, KEDA readiness every 3s): any load spike
+# past ~200 fails three probes in a row, the kubelet kills a healthy-but-slow
+# pod, and the restart churn feeds the load further (measured 120-170 restarts
+# each over 2 days). Relax to 10s timeout / 5 failures / 10s period. (KEDA
+# 2.20 has no leader-election timing flags — only --leader-elect and
+# --leader-election-id — so its lease-loss-under-load exits can only be
+# mitigated by keeping churn down.) Also carries the metrics-server addon
+# patch (hostNetwork +
+# kubelet args): minikube's addon manager reconciles that deployment back to
+# stock on every start, so setup-time patching alone does not survive a
+# restart. Idempotent, best-effort (feature-gated targets may not exist).
+# Shared by setup + resume. $* ignored. Always returns 0.
+lab_tune_fragile_components() {
+  # hostNetwork=true lets metrics-server reach kubelet IPs directly;
+  # --kubelet-request-timeout=30s because the master kubelet can take >10s
+  # to respond when the cluster is under load.
+  kubectl patch deployment metrics-server -n kube-system --type=json \
+    -p '[
+      {"op":"add","path":"/spec/template/spec/hostNetwork","value":true},
+      {"op":"replace","path":"/spec/template/spec/containers/0/args","value":[
+        "--cert-dir=/tmp",
+        "--secure-port=4443",
+        "--kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname",
+        "--kubelet-use-node-status-port",
+        "--metric-resolution=60s",
+        "--kubelet-insecure-tls",
+        "--kubelet-request-timeout=30s"
+      ]}
+    ]' \
+    >/dev/null 2>&1 || true
+
+  local tolerant='[
+    {"op":"replace","path":"/spec/template/spec/containers/0/livenessProbe/timeoutSeconds","value":10},
+    {"op":"replace","path":"/spec/template/spec/containers/0/livenessProbe/failureThreshold","value":5},
+    {"op":"replace","path":"/spec/template/spec/containers/0/livenessProbe/periodSeconds","value":10},
+    {"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/timeoutSeconds","value":10},
+    {"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/failureThreshold","value":5},
+    {"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/periodSeconds","value":10}
+  ]'
+  local t ns obj
+  for t in \
+    "kube-system deployment/metrics-server" \
+    "keda deployment/keda-operator" \
+    "keda deployment/keda-operator-metrics-apiserver" \
+    "keda deployment/keda-admission-webhooks" \
+    "monitoring deployment/monitoring-kube-state-metrics"; do
+    ns=${t%% *}; obj=${t#* }
+    kubectl -n "$ns" patch "$obj" --type=json -p "$tolerant" >/dev/null 2>&1 || true
   done
   return 0
 }

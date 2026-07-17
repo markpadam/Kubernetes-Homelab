@@ -20,4 +20,4 @@ spec:
   dependsOn:
     - name: infrastructure
   wait: true
-  timeout: 5m
+  timeout: 15m
