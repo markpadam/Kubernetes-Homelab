@@ -201,7 +201,7 @@ kubectl exec -n toolbox deploy/toolbox -- \
 
 **Production DNS flow for ACR:** in a real Azure environment with Private Endpoints:
 
-```
+```text
 Docker client resolves myregistry.azurecr.io
   → CNAME: myregistry.privatelink.azurecr.io
   → Azure Private DNS zone (linked to VNet)

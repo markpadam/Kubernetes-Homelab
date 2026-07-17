@@ -12,7 +12,7 @@ The full picture: **Ingress annotation → cert-manager → Vault Kubernetes aut
 
 Every HTTPS service in the lab is backed by a certificate chain with three layers:
 
-```
+```text
 Vault Root CA  (pki mount)
   └── Vault Intermediate CA  (pki_int mount)
         └── Leaf cert for *.aks-lab.local   ← issued by cert-manager
@@ -79,6 +79,7 @@ vault policy read cert-manager
 ```
 
 The policy output:
+
 ```hcl
 path "pki_int/sign/web" {
   capabilities = ["create", "update"]
@@ -124,7 +125,7 @@ kubectl get clusterissuer lab-ca -o yaml
 
 **Authentication flow:**
 
-```
+```text
 cert-manager controller starts
   → reads its service account JWT from /var/run/secrets/kubernetes.io/serviceaccount/token
   → POST http://host.minikube.internal:8200/v1/auth/kubernetes/login
@@ -196,7 +197,8 @@ kubectl get secret taskflow-tls -n taskapp \
 ```
 
 Expected output:
-```
+
+```text
 Subject: CN = taskflow.aks-lab.local
 Issuer: CN = aks-lab.local Intermediate CA
 Not Before: <issuance time>
@@ -255,7 +257,7 @@ echo | openssl s_client -connect localhost:9444 \
 
 **The trust chain from browser to certificate:**
 
-```
+```text
 Browser sees: https://taskflow.aks-lab.local:9444
   → TLS handshake: NGINX presents leaf cert + intermediate cert
   → Browser builds chain: leaf → intermediate → root

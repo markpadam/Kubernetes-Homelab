@@ -15,7 +15,7 @@ This means pods in the cluster can resolve both `sqlserver.corp.internal` and `m
 
 ## Architecture
 
-```
+```text
 Pod DNS query
     ↓
 CoreDNS (kube-system)
@@ -87,6 +87,7 @@ All zones and records are defined in a single source-of-truth file: `flux/infras
 Values prefixed with `svc:name/namespace` are resolved to ClusterIPs at apply time — you don't need to look up IPs manually.
 
 To add or change a record:
+
 1. Edit `flux/infrastructure/base/dns/dns-config.yaml`
 2. Run `./IaC/dns/apply-dns-config.sh` (or click **Apply DNS** in the dashboard)
 3. Commit the change

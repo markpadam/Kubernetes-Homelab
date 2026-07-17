@@ -109,7 +109,7 @@ sqlcmd -S localhost,1433 -U sa -P 'AksLab!SqlDev1' -C \
 
 **Connection string formats:**
 
-```
+```text
 # ADO.NET / Entity Framework Core
 Server=mssql.azure-sql.svc.cluster.local,1433;Database=master;User Id=sa;Password=AksLab!SqlDev1;TrustServerCertificate=True;
 

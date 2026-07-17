@@ -13,7 +13,7 @@ A multi-tier Task Manager that exercises every part of your Minikube lab:
 
 ## Architecture
 
-```
+```text
 Browser
   │
   ▼
@@ -44,17 +44,20 @@ kubectl get pods -n taskapp -w
 Once all pods are Running:
 
 **Via Ingress (recommended):**
-```
+
+```text
 http://taskapp.local
 ```
 
 **Via LoadBalancer (requires minikube tunnel):**
+
 ```bash
 kubectl get svc frontend -n taskapp
 # Use the EXTERNAL-IP shown
 ```
 
 **Via port-forward (no tunnel needed):**
+
 ```bash
 kubectl port-forward svc/frontend 8081:80 -n taskapp
 # Open http://localhost:8081
@@ -65,23 +68,27 @@ kubectl port-forward svc/frontend 8081:80 -n taskapp
 ## Validate Each Lab Feature
 
 ### ✅ Multi-node — pods spread across nodes
+
 ```bash
 kubectl get pods -n taskapp -o wide
 ```
 
 ### ✅ Persistent Storage — data survives pod restarts
+
 ```bash
 kubectl delete pod -l app=postgres -n taskapp
 # App still works after postgres restarts
 ```
 
 ### ✅ Load Balancing — backend has 2 replicas
+
 ```bash
 # The pod name shown in the UI changes as requests round-robin
 kubectl get pods -n taskapp -l app=backend
 ```
 
 ### ✅ HPA — auto-scales backend under load
+
 ```bash
 kubectl get hpa -n taskapp
 # Generate load with:
@@ -90,6 +97,7 @@ kubectl run -it --rm load --image=busybox -n taskapp -- \
 ```
 
 ### ✅ Ingress — hostname-based routing
+
 ```bash
 curl http://taskapp.local/api/health
 ```

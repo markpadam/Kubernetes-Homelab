@@ -28,6 +28,7 @@ Installed by default. Azure equivalent: Azure Monitor + Azure Managed Grafana + 
 | Doc | Namespace | Purpose |
 |-----|-----------|---------|
 | [dns.md](services/dns.md) | `dns-lab` | Bind9 + CoreDNS — simulates ADDS split-brain DNS |
+| [metallb.md](services/metallb.md) | `metallb-system` | L2 load balancer — gives `LoadBalancer` Services real IPs (`172.16.3.0/24`), as Azure Load Balancer does on AKS |
 | [registry-mirror.md](services/registry-mirror.md) | Colima VM | docker.io pull-through cache — eliminates Docker Hub rate limits and speeds up image pulls |
 | [vault.md](services/vault.md) | Mac host | HashiCorp Vault dev server — simulates Azure Key Vault + private CA |
 | [cert-manager.md](services/cert-manager.md) | `cert-manager` | TLS certificate lifecycle — issues, renews and revokes HTTPS certs via Vault PKI |

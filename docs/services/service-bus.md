@@ -22,12 +22,14 @@ Both ports are forwarded to `localhost` by `./aks-lab resume` / `./aks-lab setup
 ## Connection Strings
 
 **In-cluster:**
-```
+
+```text
 Endpoint=sb://servicebus.service-bus.svc.cluster.local;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;
 ```
 
 **From Mac host (via port-forward):**
-```
+
+```text
 Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;
 ```
 
@@ -53,6 +55,7 @@ To add queues or topics, edit `flux/apps/base/service-bus/config.yaml` and commi
 `servicebus.service-bus.svc.cluster.local` — standard in-cluster DNS.
 
 Bind9 also serves:
+
 - `servicebus.corp.internal` → Service Bus ClusterIP
 - `myservicebus.privatelink.servicebus.windows.net` → Service Bus ClusterIP
 - `myeventhub.privatelink.servicebus.windows.net` → Service Bus ClusterIP (Event Hub shares the Service Bus protocol)

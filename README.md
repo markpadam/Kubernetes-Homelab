@@ -81,6 +81,7 @@ Components are individually toggleable at setup time or live from the dashboard.
 |-----------|-----------------|:-------:|
 | 3-node Minikube (Docker) | AKS node pool | ✅ |
 | NGINX Ingress Controller | AKS managed ingress | ✅ |
+| MetalLB (L2, `172.16.3.0/24` pool) | Azure Load Balancer — `LoadBalancer` service IPs | ✅ |
 | CSI hostpath StorageClass | managed-csi | ✅ |
 | bind9 + CoreDNS stub zones | ADDS DNS via Cato SDN | ✅ |
 | Flux (GitOps) | Azure GitOps (Flux extension) | ✅ |
@@ -133,8 +134,7 @@ Dex + OAuth2 Proxy ship enabled by default with a **static admin user** (`admin@
 
 ## Quick Start
 
-> **Colima VM memory** — the 3-node cluster needs at least **12 GB** (Low) · **14 GB** (Standard, default) · **18 GB** (High) · **24 GB** (Very High — 32 GB Mac).  
-> Start Colima with enough memory before running, e.g. `colima start --memory 14`. The script warns you if there isn't enough.
+> **Colima VM memory** — you don't need to pre-start Colima. `./aks-lab setup` sizes the VM for the tier you pick: it starts Colima if it's down, and offers to restart it if it's smaller than the tier needs. Budget roughly **12 GB** (Low) · **14 GB** (Standard, default) · **18 GB** (High) · **24 GB** (Very High) · **34 GB** (Extra High) · **44 GB** (Maximum) of VM memory — see [docs/system-requirements.md](docs/system-requirements.md) for the full table.
 
 ```bash
 # Clone the repo (--recurse-submodules also fetches the ADO bicep/pipelines repo)
@@ -144,8 +144,8 @@ cd Kubernetes-Homelab
 # Install all required tools (first time only — skips anything already present)
 ./aks-lab prereqs
 
-# Start Colima with enough memory for the Standard preset, then provision
-colima start --memory 48
+# Check prerequisites (read-only), then provision — setup sizes Colima for you
+./aks-lab doctor
 ./aks-lab setup
 ```
 
@@ -155,8 +155,6 @@ colima start --memory 48
 The setup script prompts for a component preset, then builds everything. The **dashboard opens automatically** at `http://localhost:9997` when done.
 
 Watch the setup flow: [installer.mov](https://github.com/markpadam/Kubernetes-Homelab/releases/download/v1.0.0/installer.mov)
-
-<video src="https://github.com/markpadam/Kubernetes-Homelab/releases/download/v1.0.0/installer.mov" controls title="AKS Homelab setup walkthrough"></video>
 
 | Preset | What you get | Time |
 |--------|-------------|------|
@@ -293,6 +291,7 @@ vim flux/infrastructure/base/dns/dns-config.yaml
 | AKS Istio service mesh add-on | Istio (upstream) |
 | Azure CNI Powered by Cilium | Cilium + Hubble (opt-in via `LAB_CNI=cilium`) |
 | Cross-namespace secret share (no Azure peer) | Reflector |
+| Azure Load Balancer (`LoadBalancer` service IPs) | MetalLB (L2 mode, `172.16.3.0/24` pool) |
 | managed-csi StorageClass | CSI hostpath driver |
 | Azure DevOps self-hosted agent on AKS | Azure Pipelines agent pod in Minikube |
 

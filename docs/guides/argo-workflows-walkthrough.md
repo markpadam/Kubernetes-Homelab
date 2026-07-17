@@ -4,7 +4,7 @@ A progressive, seven-stage guide to Kubernetes-native workflow orchestration —
 
 **Azure equivalent:** Azure Logic Apps (orchestration) / Azure Container Apps Jobs (per-step containers)  
 **Namespace:** `argo`  
-**UI:** http://localhost:2746
+**UI:** <http://localhost:2746>
 
 ---
 
@@ -122,6 +122,7 @@ kubectl get workflow "$WFNAME" -n argo -o yaml | grep -A5 "status:"
 ```
 
 **Key fields:**
+
 - `generateName` — creates a unique name on each submit (like `hello-world-xxxxx`)
 - `entrypoint` — the template to call first
 - `templates` — the library of steps this workflow defines
@@ -198,6 +199,7 @@ kubectl get pods -n argo -l workflows.argoproj.io/workflow="$WFNAME" \
 ```
 
 **Step group rules:**
+
 - Items inside the same `- -` group run **in parallel**
 - The next `- -` group only starts after all items in the previous group succeed
 - This gives you parallel fan-out with synchronised fan-in — the Azure equivalent is Logic Apps parallel branches with a join
@@ -379,6 +381,7 @@ kubectl get workflow -n argo -w
 ```
 
 **In the Argo Server UI:**
+
 1. Go to `http://localhost:2746`
 2. Click **Workflow Templates** in the left sidebar
 3. Click `data-pipeline`
@@ -414,6 +417,7 @@ open http://localhost:2746
 **Workflow detail view:**
 
 Click any workflow to see:
+
 - **Graph tab** — visual DAG of all steps with colour-coded phase (blue=running, green=succeeded, red=failed)
 - **Timeline tab** — Gantt chart showing step start/end times and parallelism
 - **Logs tab** — real-time streaming logs from all step containers (select step from dropdown)
@@ -471,6 +475,6 @@ kubectl delete workflow -n argo --field-selector=status.phase=Failed
 | Logic Apps definition (saved) | `WorkflowTemplate` |
 | Logic Apps recurrence trigger | `CronWorkflow` |
 | Container Apps Job | Per-step pod (created by workflow-controller) |
-| Logic Apps monitoring blade | Argo Server UI — http://localhost:2746 |
+| Logic Apps monitoring blade | Argo Server UI — <http://localhost:2746> |
 | Run history | `kubectl get workflow -n argo` |
 | Activity log / step output | `kubectl logs -n argo -l workflows.argoproj.io/workflow=<name>` |

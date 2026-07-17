@@ -17,8 +17,15 @@
 #   .7  Argo Workflows (2746)
 #   .8  Toolbox SSH (22)
 #   .9  Azurite blob storage (10000-10002)
-#  .10  Kubernetes Dashboard (443)
-# .11-254  Available
+#  .10  Reserved — Kubernetes Dashboard (443); it is ingress-routed today and
+#       claims no pool IP. Do not reuse without checking the dashboard manifest.
+#  .11  Exam Simulator SSH (22)
+# .12-254  Available
+#
+# autoAssign is false, so every LoadBalancer here must name its IP via
+# spec.loadBalancerIP. Two services naming the same IP do NOT share it without
+# a matching metallb.universe.tf/allow-shared-ip annotation — the second one
+# just sits <pending>. Keep this table in sync when adding a LoadBalancer.
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:

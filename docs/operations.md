@@ -125,6 +125,7 @@ blob-explorer keda-servicebus argo-workflows azdo-agent`. Full reference:
 [lab-features](lab-features.md).
 
 **Re-apply manifests** without a teardown:
+
 ```bash
 ./aks-lab refresh                # re-apply all manifests on the running cluster
 ./aks-lab refresh --only grafana # just one component
@@ -204,31 +205,37 @@ model, Wi-Fi vs Ethernet wake behaviour, troubleshooting:
 Hard-won fixes for the things that actually go wrong on this stack.
 
 ### `doctor` first
+
 `./aks-lab doctor` catches the common pre-deploy blockers (Colima stopped or
 undersized, missing `qemu`/`jq`/`socket_vmnet` sudoers, dnsmasq not answering)
 and — on a running cluster — verifies all four control-plane static-pod
 manifests are present (see below).
 
 ### SSH to the Mac Pro times out
+
 It's probably dozing (auto-doze sleeps the Mac after 2 h idle — see
 [Power saving](#power-saving-auto-doze)). From another machine:
 `./aks-lab wake --wait`, then SSH in within the 10-minute wake window and
 `resume`. Wake takes 5–10 s from light sleep, up to ~3 min from deep standby.
 
 ### Cluster looks "up" but nothing reconciles / new pods never schedule
+
 Symptoms seen together: `kubectl get nodes` all Ready, but Deployments never
 progress, `kube-dns` Endpoints point at a stale pod IP (all service DNS times
 out), and Flux reports `Source artifact not found`. Cause: the
 **kube-controller-manager / kube-scheduler static-pod manifests are missing**
 from `/etc/kubernetes/manifests/` on the control-plane node — `minikube start`
 happily reports such a cluster as healthy. `doctor` flags it; fix with:
+
 ```bash
 docker exec aks-lab sh -c '/var/lib/minikube/binaries/v1.32.0/kubeadm init phase control-plane controller-manager --config /var/tmp/minikube/kubeadm.yaml \
   && /var/lib/minikube/binaries/v1.32.0/kubeadm init phase control-plane scheduler --config /var/tmp/minikube/kubeadm.yaml'
 ```
+
 Endpoints reconcile within seconds of the controller-manager starting.
 
 ### `docker` unreachable but `colima status` says running
+
 Lima's SSH-forwarded plumbing (docker.sock + the API port) can wedge while the
 VM — and the whole cluster inside it — stays healthy. `colima start` is a
 no-op in this state; only `colima restart` rebuilds the forwards. `resume`
@@ -236,6 +243,7 @@ detects and handles this automatically; run it (or `colima restart`) rather
 than debugging the socket.
 
 ### `feature enable cilium` refuses to install
+
 Deliberate: chained Cilium on this kindnet/DinD minikube splits pod networking
 across two datapaths (kubelet can't probe Cilium-wired pods — random
 CrashLoops, and CoreDNS can be taken down with it). Cilium as the **sole** CNI
@@ -243,14 +251,17 @@ is the supported route: `./aks-lab teardown && LAB_CNI=cilium ./aks-lab setup`.
 `LAB_CILIUM_FORCE=1` overrides the guard at your own risk.
 
 ### Setup hangs at "Starting minikube tunnel"
+
 A sudo prompt is waiting under the TUI (a very long run can outlive the sudo
 cache; the keepalive normally prevents this). Type your password in the setup
 terminal. If it's wedged, `Ctrl-C` and re-run `setup` — it skips what's done.
 
 ### Resume: API server crash-loops / `kubectl` connection refused
+
 Cold multi-node restarts can overload the API server. Resume now **staggers**
 the workers (pause → let the control-plane settle → re-add one at a time). If you
 ever hit it manually:
+
 ```bash
 docker pause aks-lab-m02 aks-lab-m03            # quiet the API
 # wait for: kubectl get --raw=/readyz
@@ -259,24 +270,30 @@ docker unpause aks-lab-m02; sleep 20; docker unpause aks-lab-m03   # one at a ti
 ```
 
 ### Web UIs unreachable after a resume (HTTP 000 / connection reset)
+
 The minikube tunnel runs as **root** and goes stale when the API port changes on
 restart; a user-level `pkill` can't replace it. Resume now uses `sudo pkill`.
 Manually:
+
 ```bash
 sudo pkill -f 'minikube tunnel'   # launchd respawns it fresh against the new port
 ```
 
 ### Web UIs show a cert warning / `curl` says "unable to get local issuer certificate"
+
 The certs are real (Vault-issued); the **Vault root CA** just isn't trusted yet.
 Browsers use the keychain — import `aks-lab.local Root CA` once. `curl` uses its
 own bundle, so it needs `-k` regardless.
 
 ### TLS certs stuck `False` (`kubectl get certificates -A`)
+
 cert-manager can't sign. Check, in order:
+
 1. **Vault up?** `curl -sf http://127.0.0.1:8200/v1/sys/health`
 2. **`vault-host` service exists?** `kubectl get svc -n vault vault-host` (setup/resume create it → host gateway `host.minikube.internal:8200`).
 3. **ClusterIssuer Ready?** `kubectl get clusterissuer lab-ca -o jsonpath='{.status.conditions[0].message}'`
 4. **PKI intermediate has a key + default issuer?** `vault list pki_int/keys` (must be non-empty) and `vault read pki_int/config/issuers`. A 500 of "no default issuer" or "unable to fetch corresponding key for issuer" means the chain came back keyless after a Vault wipe — a **plain terraform apply will NOT fix it** (the chain resources are write-only to the provider). Resume detects and repairs this automatically; manually, force-recreate the chain:
+
    ```bash
    terraform -chdir=IaC/terraform apply -auto-approve \
      -var=minikube_profile=aks-lab -var="minikube_k8s_host=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')" \
@@ -285,23 +302,28 @@ cert-manager can't sign. Check, in order:
      -replace=vault_pki_secret_backend_root_sign_intermediate.int \
      -replace=vault_pki_secret_backend_intermediate_set_signed.int
    ```
+
 5. **cert-manager backing off?** It backs off for up to an hour after repeated failures; once the above is fixed, force a clean retry: `kubectl delete certificates -A --all` (ingress-shim recreates them immediately).
 
 ### Rancher stuck `0/1` / 503 for a long time
+
 Rancher v2.9+ has a startup deadlock (the `v1.ext.cattle.io` extension API). Setup
 and resume break it automatically (publish the extension service's not-ready
 endpoint + delete the stale APIService). It still takes ~10–15 min to go Ready
 (long probe delays). Manually:
+
 ```bash
 kubectl patch svc imperative-api-extension -n cattle-system -p '{"spec":{"publishNotReadyAddresses":true}}'
 kubectl delete apiservice v1.ext.cattle.io
 ```
 
 ### Lima VMs report wrong status / pause skips them
+
 Fixed (Lima 2.x emits NDJSON; status detection updated). Verify directly:
 `limactl list`.
 
 ### Useful one-liners
+
 ```bash
 kubectl get nodes
 kubectl get pods -A | grep -vE 'Running|Completed'      # anything unhealthy

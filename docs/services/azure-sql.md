@@ -31,17 +31,20 @@ Stored in the `mssql-secret` Kubernetes Secret (committed — these are not real
 ## Connection Strings
 
 **In-cluster:**
-```
+
+```text
 Server=mssql.azure-sql.svc.cluster.local,1433;Database=master;User Id=sa;Password=AksLab!SqlDev1;TrustServerCertificate=True;
 ```
 
 **ADO.NET (in-cluster):**
-```
+
+```text
 Data Source=mssql.azure-sql.svc.cluster.local,1433;Initial Catalog=master;User ID=sa;Password=AksLab!SqlDev1;TrustServerCertificate=True;
 ```
 
 **From Mac host (via port-forward):**
-```
+
+```text
 Server=localhost,1433;Database=master;User Id=sa;Password=AksLab!SqlDev1;TrustServerCertificate=True;
 ```
 

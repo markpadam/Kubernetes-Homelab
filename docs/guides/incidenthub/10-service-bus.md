@@ -86,7 +86,7 @@ The Worker has **no Service** — nothing connects *to* it. It only connects *ou
 
 File an incident in the Web UI. In the Worker logs:
 
-```
+```text
 Received message: {"incidentId":42,"title":"Server room AC failure","severity":"high"}
 ```
 

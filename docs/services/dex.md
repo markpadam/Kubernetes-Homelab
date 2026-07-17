@@ -21,7 +21,7 @@ Dex is a lightweight OpenID Connect (OIDC) identity provider deployed in the clu
 
 ## How it fits in the auth chain
 
-```
+```text
 User browser
     │
     ▼

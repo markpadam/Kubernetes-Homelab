@@ -23,7 +23,7 @@ OAuth2 Proxy is a reverse proxy that sits in front of cluster web services and e
 
 OAuth2 Proxy is used in **forward auth mode**. It does not proxy traffic directly — instead, NGINX calls it as a sub-request for every incoming request via the `auth-url` annotation.
 
-```
+```text
 Incoming request → NGINX Ingress
                        │
                        ├─ Sub-request → OAuth2 Proxy /oauth2/auth

@@ -36,7 +36,7 @@ exit
 
 Back in the log terminal you should see something like:
 
-```
+```text
 Notice A shell was spawned in a container with an attached terminal
   (evt_type=execve user=root container_id=... image=alpine ...)
 ```
@@ -60,7 +60,7 @@ exit
 
 In the Falco log:
 
-```
+```text
 Warning Sensitive file opened for reading by non-trusted program
   (file=/etc/shadow proc=cat ...)
 ```

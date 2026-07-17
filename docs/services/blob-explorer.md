@@ -24,7 +24,7 @@ Blob Explorer is deployed via Flux as a Helm chart from the local `helm/blob-exp
 
 The Azurite connection string is set in `helm/blob-explorer/values.yaml`:
 
-```
+```text
 DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=<well-known-key>;BlobEndpoint=http://azurite.azure-storage.svc.cluster.local:10000/devstoreaccount1;
 ```
 

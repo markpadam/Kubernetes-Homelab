@@ -151,7 +151,7 @@ flux reconcile kustomization apps
 
 The repository has three layers:
 
-```
+```text
 flux/clusters/dev/
 ├── apps.yaml               ← Flux Kustomization: watches flux/apps/dev/
 └── infrastructure.yaml     ← Flux Kustomization: watches flux/infrastructure/dev/
@@ -208,7 +208,7 @@ kubectl kustomize flux/infrastructure/dev/
 
 This stage demonstrates the full GitOps loop from editor to cluster.
 
-**Example: change the TaskFlow replica count**
+### Example: change the TaskFlow replica count
 
 ```bash
 # Find the backend deployment manifest

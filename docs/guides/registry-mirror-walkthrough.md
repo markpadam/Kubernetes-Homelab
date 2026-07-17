@@ -12,13 +12,13 @@ Prerequisites: a running lab (`./aks-lab resume` or `./aks-lab setup`).
 
 Docker Hub imposes rate limits on anonymous pulls: 100 pulls per 6 hours per source IP. A three-node lab cluster working through a deployment-heavy guide can exhaust that budget in a single session. When it happens, image pulls start failing with:
 
-```
+```text
 toomanyrequests: You have reached your pull rate limit.
 ```
 
 There is a second problem specific to this lab's network path. Traffic from cluster pods flows:
 
-```
+```text
 pod → containerd → minikube node container → Colima VM → QEMU NAT → home router → Docker Hub
 ```
 
@@ -34,6 +34,7 @@ docker exec aks-lab cat /etc/containerd/certs.d/docker.io/hosts.toml
 ```
 
 Expected output:
+
 ```toml
 server = "https://registry-1.docker.io"
 
@@ -42,6 +43,7 @@ server = "https://registry-1.docker.io"
 ```
 
 Verify all three nodes are configured:
+
 ```bash
 for node in $(minikube node list -p aks-lab | awk '{print $1}' | tr '[:upper:]' '[:lower:]'); do
   echo -n "$node: "
@@ -109,6 +111,7 @@ docker exec aks-lab-m02 journalctl -u containerd -n 20 --no-pager | grep -i redi
 ```
 
 Clean up:
+
 ```bash
 kubectl delete pod cache-test
 ```

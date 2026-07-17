@@ -13,6 +13,7 @@ A progressive, six-stage guide to understanding the Azure Cosmos DB emulator —
 > Windows engine under a compatibility layer and works on this hardware.
 >
 > Two consequences run through this whole guide:
+>
 > - The endpoint is **HTTPS with a self-signed certificate** (the classic emulator
 >   has no HTTP mode). SDK clients must use **Gateway connection mode** and either
 >   trust the emulator cert or disable TLS verification (`connection_verify=False`).
@@ -93,20 +94,21 @@ kubectl exec -n toolbox deploy/toolbox -- \
 ```
 
 **Navigate the Data Explorer:**
+
 1. Open `https://localhost:8081/_explorer/index.html` in a browser (accept the cert warning)
 2. Click **New Database** — create `labdb` (fixed throughput, 400 RU/s is the minimum)
 3. Inside `labdb`, click **New Container** — create `products` with partition key `/category`
 4. Click **Items** → **New Item** — add a document:
 
-```json
-{
-  "id": "prod-001",
-  "category": "electronics",
-  "name": "Wireless Headphones",
-  "price": 79.99,
-  "inStock": true
-}
-```
+   ```json
+   {
+     "id": "prod-001",
+     "category": "electronics",
+     "name": "Wireless Headphones",
+     "price": 79.99,
+     "inStock": true
+   }
+   ```
 
 5. Click **Execute Query** and run: `SELECT * FROM c WHERE c.category = 'electronics'`
 
@@ -320,7 +322,7 @@ kubectl exec -n toolbox deploy/toolbox -- \
 
 **The multi-region pattern:** in production, Cosmos DB with multi-region writes publishes multiple endpoints — one per region. Each region has a separate DNS name in the `privatelink.documents.azure.com` zone:
 
-```
+```text
 mycosmosdb.privatelink.documents.azure.com          → West Europe endpoint
 mycosmosdb-eastus.privatelink.documents.azure.com   → East US endpoint
 ```

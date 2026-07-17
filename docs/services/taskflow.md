@@ -10,7 +10,7 @@ TaskFlow is a three-tier demo application that demonstrates a standard Kubernete
 
 ## Architecture
 
-```
+```text
 Browser → Nginx (frontend) → Node.js (backend) → PostgreSQL
               :80                  :3000               :5432
 ```

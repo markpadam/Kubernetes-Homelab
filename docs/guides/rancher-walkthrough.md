@@ -129,6 +129,7 @@ helm search repo bitnami/nginx
 ```
 
 **In the Rancher UI:**
+
 1. Navigate to **Apps** → **Charts**
 2. Search for a chart (e.g., `nginx`)
 3. Click **Install** → choose namespace → configure values → click **Install**
@@ -215,6 +216,7 @@ kubectl get bundles -A
 **Configure Fleet to watch this repo (optional exploration):**
 
 In the Rancher UI:
+
 1. Navigate to **Continuous Delivery** (Fleet)
 2. Click **Git Repos** → **Add Repository**
 3. Enter the repo URL: `https://github.com/markpadam/Kubernetes-Homelab`

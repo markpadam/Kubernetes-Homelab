@@ -12,11 +12,15 @@
 
 ## Quick Reference
 
-| Mac RAM | Colima --memory | Cluster tier | What fits |
-|---------|-----------------|--------------|-----------|
-| 8 GB    | 4–5             | Low / 1-node | Core cluster + 3–4 lightweight services |
-| 16 GB   | 12–14           | Standard     | Full lab minus Istio + Cilium |
-| 32 GB   | 18–24           | High / Very High | Everything including Istio, Cilium, Falco |
+| Mac RAM | Colima VM memory | Cluster tier | What fits |
+|---------|------------------|--------------|-----------|
+| 8 GB    | 4–5              | Low / 1-node | Core cluster + 3–4 lightweight services |
+| 16 GB   | 12–14            | Low / Standard | Full lab minus Istio + Cilium |
+| 32 GB   | 18–24            | High / Very High | Everything including Istio, Cilium, Falco |
+| 48 GB   | ~34              | Extra High | Everything, with headroom for replica scaling |
+| 64 GB (dedicated) | ~44    | Maximum | Everything + identity VMs, no CPU contention |
+
+Setup sizes the Colima VM for you — these are the numbers it will ask for.
 
 ---
 
@@ -26,7 +30,7 @@
 
 A 16 GB MacBook can run the full default lab comfortably with one caveat: the heavy optional services (Istio, Cilium, Falco together) push memory usage to the limit. Enable them one at a time and monitor pressure.
 
-- **Colima VM RAM**: `colima start --memory 12` (minimum for Standard tier)
+- **Colima VM RAM**: ~14 GB — the 12 GB cluster plus ~2 GB of VM/daemon overhead. Drop to the Low tier (~12 GB VM) if that leaves macOS too tight.
 - **Cluster tier**: Standard (2 CPU / 4 GB per node × 3 nodes = 12 GB)
 - **Swap**: `colima start --swap 2` adds 2 GB swap; buys headroom for brief spikes, but sustained swap use causes latency and pod evictions
 
@@ -34,9 +38,33 @@ A 16 GB MacBook can run the full default lab comfortably with one caveat: the he
 
 You can run the entire lab including all optional components without compromise.
 
-- **Colima VM RAM**: `colima start --memory 18` leaves headroom for macOS and Chrome
+- **Colima VM RAM**: ~18 GB leaves headroom for macOS and Chrome
 - **Cluster tier**: High (3 CPU / 5 GB per node) or Very High (4 CPU / 7 GB per node)
 - **All optional services** — Istio, Cilium, Falco, Kyverno, Reflector — can run simultaneously
+
+### Dedicated host — 48–64 GB Mac Pro
+
+For a box that exists to run the lab, the two top tiers trade host headroom for cluster capacity.
+
+- **Extra High** (4 CPU / 10 GB per node, ~34 GB VM) — 48 GB workstation. Everything runs with room to scale replica counts.
+- **Maximum** (6 CPU / 14 GB per node, ~44 GB VM) — dedicated 24-thread / 64 GB Mac Pro. This tier also sizes the Colima VM to **20 CPUs** rather than the per-node count, so the three node-containers and dockerd stop competing for cores — the CPU starvation behind flaky pod-to-internet egress. It leaves roughly 4 CPU / 20 GB for macOS and the Samba/corp-client Lima VMs.
+
+A 4th node was tried and rejected: the API server can't absorb all four reconnecting on a cold restart, which makes `resume` unreliable. **3 nodes is the supported maximum** at every tier.
+
+---
+
+## Resource tiers
+
+Setup prompts for one of six tiers, or takes `LAB_RESOURCE_TIER=1..6` to skip the prompt. Each is per-node × 3 nodes.
+
+| # | Tier | Per node | Cluster total | Colima VM | Target host |
+|:-:|------|----------|---------------|-----------|-------------|
+| 1 | Low | 2 CPU / 3 GB | 9 GB | ~12 GB | 16 GB Mac, stays snappy |
+| 2 | Standard *(default)* | 2 CPU / 4 GB | 12 GB | ~14 GB | 16 GB Mac, recommended |
+| 3 | High | 3 CPU / 5 GB | 15 GB | ~18 GB | 16–32 GB Mac, full feature set |
+| 4 | Very High | 4 CPU / 7 GB | 21 GB | ~24 GB | 32 GB Mac, all services + replicas |
+| 5 | Extra High | 4 CPU / 10 GB | 30 GB | ~34 GB | 48 GB Mac Pro / workstation |
+| 6 | Maximum | 6 CPU / 14 GB | 42 GB | ~44 GB (20-CPU VM) | Dedicated 24-core / 64 GB Mac Pro |
 
 ---
 
@@ -47,6 +75,7 @@ An 8 GB Mac can host a cut-down version of the lab. Expect trade-offs.
 **Colima VM RAM**: `colima start --memory 4` or `--memory 5` (macOS needs ~3 GB headroom)
 
 **Recommended setup**:
+
 ```bash
 LAB_NODES=1 LAB_RESOURCE_TIER=1 ./aks-lab setup --minimal
 ```
@@ -67,6 +96,7 @@ A single-node cluster with Low tier (2 CPU / 3 GB) leaves 1–2 GB for the macOS
 | **Total** | **~1.8 GB** | Leaves ~1 GB free buffer |
 
 **What will not fit on 8 GB**:
+
 - Istio (istiod alone needs ~500 MB; sidecars add ~50 MB per pod)
 - Cilium (kernel eBPF maps + Hubble UI ~400 MB)
 - Falco (eBPF probe + falcosidekick ~350 MB)
@@ -93,7 +123,7 @@ These are approximate working-set figures observed on a 3-node cluster. Actual u
 | Flux controllers (×4) | flux-system | 250 MB |
 | storage-provisioner | kube-system | 30 MB |
 
-**Control-plane overhead: ~840 MB**
+Control-plane overhead: **~840 MB**
 
 ### Optional components
 
@@ -140,7 +170,7 @@ Kubernetes does not evenly distribute memory pressure. When a node runs low, the
 
 This is the most common failure mode when deploying everything at once. Kyverno installs fine, but if it restarts (due to memory pressure from a subsequent install), its validating webhook intercepts all resource creation and returns errors:
 
-```
+```text
 failed calling webhook "validate.kyverno.svc-fail"
 dial tcp <ip>:443: connect: connection refused
 ```
@@ -224,20 +254,34 @@ Total Colima VM RAM required: **~10 GB** (7 GB nodes + 3 GB Colima/OS overhead).
 ```bash
 ./aks-lab test-all              # full run (~45–60 min)
 ./aks-lab test-all --skip-heavy # skip Istio + Cilium (~30 min)
-./aks-lab test-all --no-setup   # run against existing cluster (--no-setup)
+./aks-lab test-all --no-setup   # run against the existing cluster
 ```
+
+| Flag | Effect |
+|------|--------|
+| `--no-setup` | Test the existing cluster instead of building one from scratch |
+| `--no-resize` | Skip the post-setup worker resize |
+| `--skip-heavy` | Skip Istio + Cilium |
+| `--skip <id1,id2>` | Skip named components |
+| `--from <id>` | Resume the run from a component, skipping everything before it |
+| `--dry-run` | Print the plan without touching the cluster |
+| `--timeout <sec>` | Per-component timeout |
 
 ---
 
 ## Colima VM Settings
 
-Start Colima with `--memory` and `--swap` flags matched to your Mac's RAM:
+`./aks-lab setup` sizes the Colima VM for the tier you pick — it starts Colima if it's
+down, and prompts to restart it at the right size if it's already running but too small.
+You only need this section if you want to set the VM up by hand.
 
 | Mac RAM | `--memory` | `--swap` |
 |---------|-----------|---------|
 | 8 GB    | 4–5       | 2       |
-| 16 GB   | 12–13     | 2       |
-| 32 GB   | 18–20     | 2       |
+| 16 GB   | 12–14     | 2       |
+| 32 GB   | 18–24     | 2       |
+| 48 GB   | ~34       | 2       |
+| 64 GB (dedicated) | ~44 | 2     |
 
 ```bash
 # Example — 16 GB Mac, Standard tier

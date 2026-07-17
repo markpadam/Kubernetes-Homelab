@@ -3,6 +3,7 @@
 This guide shows KEDA scaling a message processor deployment from **zero to N pods** as messages accumulate in a Service Bus queue, then back to zero once the queue drains.
 
 **What you'll see:**
+
 1. The `message-processor` deployment sitting at 0 pods (no idle cost)
 2. KEDA detecting messages in `queue.1` and scaling up replicas
 3. Processors consuming messages and completing
@@ -68,7 +69,8 @@ kubectl logs -n keda-servicebus job/servicebus-producer -f
 ```
 
 Expected output:
-```
+
+```text
 [producer] Sending 20 messages to 'queue.1'...
 [producer] Done — 20 messages enqueued
 ```
@@ -106,7 +108,8 @@ kubectl logs -n keda-servicebus -l app=message-processor -f
 ```
 
 Expected output:
-```
+
+```text
 [processor] Connected — listening on queue 'queue.1'
 [processor] Received: {"id":1,"task":"job-1","timestamp":"..."}
 [processor] Completed after 3000ms
@@ -147,14 +150,17 @@ To send a different number of messages, edit `MESSAGE_COUNT` in `producer-job.ya
 ### KEDA not scaling up
 
 Check the KEDA operator logs for connection errors:
+
 ```bash
 kubectl logs -n keda deploy/keda-operator --tail=100
 ```
 
 Common causes with the emulator:
+
 - **Service Bus not running** — `./aks-lab feature enable service-bus` and wait for the pod to be Ready
 - **Azure SQL not running** — Service Bus depends on it; check `kubectl get pods -n azure-sql`
 - **Management endpoint unreachable** — KEDA's azure-servicebus scaler queries the emulator's management API (port 5300 on the `servicebus` service). Verify connectivity:
+
   ```bash
   kubectl run curl-test --image=curlimages/curl --restart=Never --rm -it -- \
     curl -s http://servicebus.service-bus.svc.cluster.local:5300/
@@ -165,6 +171,7 @@ Common causes with the emulator:
 ```bash
 kubectl describe pod -n keda-servicebus -l app=message-processor
 ```
+
 Most likely cause: image not loaded into Minikube. Re-run `minikube image load aks-lab/keda-servicebus:latest`.
 
 ### ScaledObject shows READY=False
@@ -172,6 +179,7 @@ Most likely cause: image not loaded into Minikube. Re-run `minikube image load a
 ```bash
 kubectl describe scaledobject servicebus-scaler -n keda-servicebus
 ```
+
 Check the `Conditions` section. A `False` ready state usually means KEDA can't authenticate to the trigger source — verify the secret exists and the connection string is correct.
 
 ---

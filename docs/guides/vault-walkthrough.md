@@ -312,7 +312,7 @@ exit
 
 This stage ties every previous stage together. The sequence is:
 
-```
+```text
 Pod starts
   → reads SA token from /var/run/secrets/kubernetes.io/serviceaccount/token
   → DNS: resolves host.minikube.internal → 192.168.65.254
@@ -382,7 +382,7 @@ kubectl run secret-reader --rm -it --restart=Never \
 
 In production, an application using the Azure SDK reads secrets from a URL like:
 
-```
+```text
 https://mykeyvault.vault.azure.net/secrets/sql-password
 ```
 
@@ -390,7 +390,7 @@ The lab simulates this by making `mykeyvault.privatelink.vaultcore.azure.net` re
 
 ### The DNS path for a private-link vault name
 
-```
+```text
 Pod resolves mykeyvault.privatelink.vaultcore.azure.net
   → CoreDNS: no local record → check custom config
   → privatelink.vaultcore.azure.net:53 { forward . 10.96.0.200 }

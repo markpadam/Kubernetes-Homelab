@@ -33,7 +33,7 @@ After joining, SSSD bridges Linux PAM/NSS to AD Kerberos/LDAP. AD users can log 
 
 The `/etc/hosts` file on `corp-client` points cluster service hostnames to `192.168.64.1` (the Mac host, which runs the NGINX ingress port-forward on port 9980):
 
-```
+```text
 192.168.64.1  taskflow.aks-lab.local
 192.168.64.1  grafana.aks-lab.local
 192.168.64.1  argocd.aks-lab.local

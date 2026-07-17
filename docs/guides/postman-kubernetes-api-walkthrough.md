@@ -99,13 +99,13 @@ Save the token — you will paste it into Postman in the next stage.
 
 The API server presents a TLS certificate signed by the cluster's own CA. Postman does not know this CA, so it will reject the connection by default. You have two options:
 
-**Option A — Disable SSL verification (quick, not recommended for habit-forming)**
+### Option A — Disable SSL verification (quick, not recommended for habit-forming)
 
 In Postman: Settings → General → SSL certificate verification → Off
 
 This works but trains bad habits. Use it only to get started quickly.
 
-**Option B — Import the CA certificate (correct approach)**
+### Option B — Import the CA certificate (correct approach)
 
 ```bash
 # Extract the CA cert from your kubeconfig (it is base64-encoded)
@@ -120,6 +120,7 @@ openssl x509 -in /tmp/k8s-ca.crt -noout -subject -issuer
 ```
 
 In Postman:
+
 1. Open **Settings** → **Certificates** → **CA Certificates**
 2. Toggle **CA Certificates** on
 3. Click **Select File** and choose `/tmp/k8s-ca.crt`
@@ -154,11 +155,12 @@ Set the environment as active (top-right dropdown in Postman).
 
 **Verify the setup with a single test request:**
 
-```
+```text
 GET {{K8S_SERVER}}/version
 ```
 
 Expected response (200 OK):
+
 ```json
 {
   "major": "1",
@@ -189,7 +191,7 @@ These endpoints do **not** require authentication — they are designed to be ca
 | `/version` | Build version and platform |
 | `/metrics` | Prometheus metrics (requires auth) |
 
-```
+```text
 GET {{K8S_SERVER}}/healthz
 # Response: ok
 
@@ -202,12 +204,13 @@ GET {{K8S_SERVER}}/readyz
 
 Drill into individual readiness checks:
 
-```
+```text
 GET {{K8S_SERVER}}/readyz?verbose=true
 ```
 
 Expected response body (200 OK):
-```
+
+```text
 [+] ping ok
 [+] log ok
 [+] etcd ok
@@ -220,7 +223,7 @@ healthz check passed
 
 Each `[+]` line is a named sub-check. If etcd is unreachable, `etcd ok` becomes `[-] etcd failed`.
 
-```
+```text
 GET {{K8S_SERVER}}/livez?verbose=true
 
 # Test a specific check individually
@@ -237,11 +240,12 @@ GET {{K8S_SERVER}}/readyz?exclude=etcd
 
 Before you can query a resource, you need to know its API group and version. The API server publishes a machine-readable index.
 
-```
+```text
 GET {{K8S_SERVER}}/api
 ```
 
 Response — the core API group:
+
 ```json
 {
   "kind": "APIVersions",
@@ -250,11 +254,12 @@ Response — the core API group:
 }
 ```
 
-```
+```text
 GET {{K8S_SERVER}}/apis
 ```
 
 Response — all named API groups (abridged):
+
 ```json
 {
   "kind": "APIGroupList",
@@ -269,7 +274,7 @@ Response — all named API groups (abridged):
 
 Drill into the resources available in the core `v1` group:
 
-```
+```text
 GET {{K8S_SERVER}}/api/v1
 ```
 
@@ -291,7 +296,7 @@ This returns an `APIResourceList` — every resource kind in the core group, whe
 
 Similarly for the apps group:
 
-```
+```text
 GET {{K8S_SERVER}}/apis/apps/v1
 ```
 
@@ -305,11 +310,12 @@ GET {{K8S_SERVER}}/apis/apps/v1
 
 ### Namespaces
 
-```
+```text
 GET {{K8S_SERVER}}/api/v1/namespaces
 ```
 
 Response — an items array, one entry per namespace:
+
 ```json
 {
   "kind": "NamespaceList",
@@ -323,30 +329,36 @@ Response — an items array, one entry per namespace:
 ```
 
 Get a single namespace:
-```
+
+```text
 GET {{K8S_SERVER}}/api/v1/namespaces/kube-system
 ```
 
 ### Pods
 
 All pods across all namespaces:
-```
+
+```text
 GET {{K8S_SERVER}}/api/v1/pods
 ```
 
 Pods in a specific namespace:
-```
+
+```text
 GET {{K8S_SERVER}}/api/v1/namespaces/{{K8S_NAMESPACE}}/pods
 ```
 
 Filter by label using a query parameter:
-```
+
+```text
 GET {{K8S_SERVER}}/api/v1/namespaces/kube-system/pods?labelSelector=tier%3Dcontrol-plane
 ```
+
 (`tier=control-plane` URL-encoded — returns etcd, kube-apiserver, kube-scheduler)
 
 Get a single pod by name (replace `<pod-name>`):
-```
+
+```text
 GET {{K8S_SERVER}}/api/v1/namespaces/kube-system/pods/<pod-name>
 ```
 
@@ -361,29 +373,31 @@ GET {{K8S_SERVER}}/api/v1/namespaces/kube-system/pods/<pod-name>
 
 ### Deployments (apps group)
 
-```
+```text
 GET {{K8S_SERVER}}/apis/apps/v1/deployments
 ```
 
 Deployments in a namespace:
-```
+
+```text
 GET {{K8S_SERVER}}/apis/apps/v1/namespaces/{{K8S_NAMESPACE}}/deployments
 ```
 
 ### Services
 
-```
+```text
 GET {{K8S_SERVER}}/api/v1/namespaces/{{K8S_NAMESPACE}}/services
 ```
 
 ### ConfigMaps
 
-```
+```text
 GET {{K8S_SERVER}}/api/v1/namespaces/kube-system/configmaps
 ```
 
 Read the CoreDNS config directly:
-```
+
+```text
 GET {{K8S_SERVER}}/api/v1/namespaces/kube-system/configmaps/coredns
 ```
 
@@ -399,7 +413,7 @@ GET {{K8S_SERVER}}/api/v1/namespaces/kube-system/configmaps/coredns
 
 Logs are a subresource — append `/log` to the pod URL:
 
-```
+```text
 GET {{K8S_SERVER}}/api/v1/namespaces/kube-system/pods/<pod-name>/log
 ```
 
@@ -414,11 +428,13 @@ Useful query parameters for logs:
 | `timestamps` | `true` | Prepend RFC3339 timestamps |
 
 Example — last 20 lines of the CoreDNS pod:
-```
+
+```text
 GET {{K8S_SERVER}}/api/v1/namespaces/kube-system/pods/<coredns-pod>/log?tailLines=20&timestamps=true
 ```
 
 Find the CoreDNS pod name first:
+
 ```bash
 kubectl get pod -n kube-system -l k8s-app=kube-dns -o name
 ```
@@ -427,12 +443,13 @@ kubectl get pod -n kube-system -l k8s-app=kube-dns -o name
 
 Events are a first-class resource — they are how the cluster surfaces `kubectl describe` warnings:
 
-```
+```text
 GET {{K8S_SERVER}}/api/v1/namespaces/kube-system/events
 ```
 
 Filter for only Warning events:
-```
+
+```text
 GET {{K8S_SERVER}}/api/v1/namespaces/kube-system/events?fieldSelector=type%3DWarning
 ```
 
@@ -440,7 +457,7 @@ GET {{K8S_SERVER}}/api/v1/namespaces/kube-system/events?fieldSelector=type%3DWar
 
 This is the API behind `kubectl auth can-i`. It accepts a POST with an action and returns whether your token is allowed:
 
-```
+```text
 POST {{K8S_SERVER}}/apis/authorization.k8s.io/v1/selfsubjectaccessreviews
 Content-Type: application/json
 
@@ -458,6 +475,7 @@ Content-Type: application/json
 ```
 
 Response:
+
 ```json
 {
   "status": {
@@ -468,6 +486,7 @@ Response:
 ```
 
 Test something your token is not allowed to do:
+
 ```json
 {
   "spec": {
@@ -481,6 +500,7 @@ Test something your token is not allowed to do:
 ```
 
 Response:
+
 ```json
 { "status": { "allowed": false, "denied": true } }
 ```

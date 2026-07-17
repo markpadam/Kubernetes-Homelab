@@ -10,7 +10,7 @@ The full picture: **browser → NGINX Ingress → frontend (Nginx) → backend (
 
 **Goal:** understand what TaskFlow is and how its three tiers map to Kubernetes primitives.
 
-```
+```text
 Browser
   ↓ HTTP→HTTPS / :9444
 NGINX Ingress (taskflow.aks-lab.local)
@@ -226,6 +226,7 @@ curl -s https://taskflow.aks-lab.local:9444/api/tasks
 ```
 
 **The ConfigMap-as-code pattern:** the HTML is stored in a Kubernetes ConfigMap rather than baked into an image. This means:
+
 - Frontend changes can be applied with `kubectl apply` and a pod restart — no image build, no push, no Flux sync wait
 - The same ConfigMap drives both replicas — content is always consistent
 
@@ -274,6 +275,7 @@ kubectl get pods -n taskapp -l app=backend -w
 ```
 
 **How the HPA works:**
+
 1. The Metrics Server (running in `kube-system`) scrapes CPU usage from each pod every 15 seconds
 2. The HPA controller polls Metrics Server every 15 seconds and computes: `desired = ceil(current / target × current_replicas)`
 3. If desired > current, it patches the Deployment's `replicas` field — Kubernetes schedules the new pods
@@ -327,7 +329,7 @@ kubectl exec -n taskapp postgres-0 -- \
 
 **The full request path for `POST /api/tasks`:**
 
-```
+```text
 Browser POST https://taskflow.aks-lab.local:9444/api/tasks
   → Minikube tunnel → NGINX Ingress pod
   → Ingress checks auth-url (OAuth2 Proxy, if SSO enabled)

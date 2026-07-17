@@ -23,6 +23,7 @@ Dev mode means Vault starts pre-initialised and unsealed with an in-memory stora
 A KV v2 (versioned key-value) secrets engine is mounted at `kv/`. The equivalent Azure resource is the secrets store within a Key Vault instance.
 
 A placeholder secret is seeded at `kv/azure-services/placeholder` to initialise the path hierarchy. Real application secrets go alongside it, e.g.:
+
 - `kv/azure-services/storage-connection-string`
 - `kv/azure-services/sql-password`
 - `kv/azure-services/servicebus-primary-key`
@@ -32,6 +33,7 @@ A placeholder secret is seeded at `kv/azure-services/placeholder` to initialise 
 Vault's Kubernetes auth backend is enabled at `kubernetes/`. It allows pods to authenticate using their Kubernetes service account JWT — no passwords or static credentials needed in pod specs. This is the equivalent of AKS Workload Identity + Azure Managed Identity.
 
 **Flow:**
+
 1. Pod presents its service account JWT to Vault's login endpoint
 2. Vault calls the Kubernetes TokenReview API (using the `vault-reviewer` service account in `kube-system`) to validate the token
 3. Vault issues a short-lived Vault token scoped to the `azure-services` policy
@@ -40,12 +42,14 @@ Vault's Kubernetes auth backend is enabled at `kubernetes/`. It allows pods to a
 ## Access Policy
 
 The `azure-services` policy grants:
+
 - `read` on `kv/data/azure-services/*` — read secret values
 - `list` on `kv/metadata/azure-services/*` — list secret names
 
 ## Vault Role
 
 The `azure-services` role binds any service account in the following namespaces to the `azure-services` policy:
+
 - `taskapp`
 - `blob-explorer`
 - `azure-storage`
@@ -99,6 +103,7 @@ The `web` role on `pki_int` constrains cert-manager to issuing only `*.aks-lab.l
 ### Revocation
 
 Vault publishes live revocation data at:
+
 - **CRL:** `http://vault.aks-lab.local:8200/v1/pki_int/crl`
 - **OCSP:** `http://vault.aks-lab.local:8200/v1/pki_int/ocsp`
 

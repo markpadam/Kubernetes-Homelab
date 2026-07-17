@@ -23,22 +23,26 @@ No authentication is configured. The registry is open and accessible to any pod 
 ## Using the Registry
 
 **Tag and push an image from the Mac:**
+
 ```bash
 docker tag my-image localhost:5000/my-image:latest
 docker push localhost:5000/my-image:latest
 ```
 
 **Reference the image from a Kubernetes manifest:**
+
 ```yaml
 image: registry.container-registry.svc.cluster.local:5000/my-image:latest
 ```
 
 **List repositories:**
+
 ```bash
 curl http://localhost:5000/v2/_catalog
 ```
 
 **List tags for an image:**
+
 ```bash
 curl http://localhost:5000/v2/my-image/tags/list
 ```
@@ -48,6 +52,7 @@ curl http://localhost:5000/v2/my-image/tags/list
 `registry.container-registry.svc.cluster.local` — standard in-cluster DNS.
 
 Bind9 also serves:
+
 - `registry.corp.internal` → registry ClusterIP
 - `myregistry.privatelink.azurecr.io` → registry ClusterIP
 

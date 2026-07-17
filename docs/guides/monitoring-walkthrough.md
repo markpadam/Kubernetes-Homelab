@@ -12,7 +12,7 @@ The full picture: **node-exporter + kube-state-metrics expose metrics → Promet
 
 Prometheus does not use a static list of IP addresses. Instead, the Prometheus Operator watches `ServiceMonitor` and `PodMonitor` custom resources. Each `ServiceMonitor` selects a set of Kubernetes `Services` by label and tells Prometheus which port and path to scrape. When a Service's endpoints change (pods come and go), Prometheus automatically updates its target list.
 
-```
+```text
 ServiceMonitor (label selector: app=node-exporter)
   → matches Service: monitoring-prometheus-node-exporter
   → Service resolves to Endpoints (one per node)

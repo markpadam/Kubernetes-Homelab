@@ -16,7 +16,7 @@ This solves two problems specific to this lab:
 
 ## Architecture
 
-```
+```text
 Pod on any node
   └─ containerd (docker.io mirror: http://192.168.49.1:5000)
        ├─ cache HIT  → registry:2 in Colima          (fast, no internet)
@@ -81,14 +81,16 @@ DOCKER_HOST=unix://$HOME/.colima/default/docker.sock \
 
 ## Troubleshooting
 
-**Mirror container not running**
+### Mirror container not running
+
 ```bash
 DOCKER_HOST=unix://$HOME/.colima/default/docker.sock docker start registry-mirror
 ```
 
-**Node not using the mirror (hosts.toml missing)**
+### Node not using the mirror (hosts.toml missing)
 
 Re-run configure (idempotent):
+
 ```bash
 source scripts/lib-common.sh
 lab_registry_mirror_configure aks-lab
@@ -97,6 +99,7 @@ lab_registry_mirror_configure aks-lab
 **Cache miss still going to internet** — expected on first pull of any image. Subsequent pulls of the same tag are served from cache.
 
 **Disk pressure in Colima** — the volume grows unboundedly. To flush it:
+
 ```bash
 DOCKER_HOST=unix://$HOME/.colima/default/docker.sock docker stop registry-mirror
 DOCKER_HOST=unix://$HOME/.colima/default/docker.sock docker rm registry-mirror

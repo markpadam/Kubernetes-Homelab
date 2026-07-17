@@ -25,7 +25,7 @@ In this lab, Alertmanager is configured with a `null` receiver — alerts are vi
 
 ## How Alerts Flow
 
-```
+```text
 Prometheus evaluates PrometheusRule every 15s
   → condition met (e.g., pod not ready for > 1m)
   → Prometheus pushes alert to Alertmanager at http://monitoring-kube-prometheus-alertmanager:9093

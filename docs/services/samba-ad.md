@@ -44,7 +44,7 @@ Both users are members of the `lab-users` group.
 
 CoreDNS is patched at setup/resume time to forward `corp.internal` queries to the SambaAD VM IP:
 
-```
+```text
 corp.internal:53 {
   forward . <samba-ad-ip>
 }

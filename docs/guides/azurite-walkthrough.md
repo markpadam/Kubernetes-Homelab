@@ -51,7 +51,7 @@ kubectl get pvc azurite-data -n azure-storage
 
 The full in-cluster connection string:
 
-```
+```text
 DefaultEndpointsProtocol=http;
 AccountName=devstoreaccount1;
 AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;
@@ -71,7 +71,7 @@ TableEndpoint=http://azurite.azure-storage.svc.cluster.local:10002/devstoreaccou
 
 **Production equivalent:**
 
-```
+```text
 DefaultEndpointsProtocol=https;AccountName=mystorageaccount;AccountKey=<real key>;EndpointSuffix=core.windows.net
 ```
 
@@ -244,7 +244,7 @@ kubectl get configmap bind9-zones -n dns-lab \
 
 **Production DNS flow:** in a real Azure environment with Private Endpoints:
 
-```
+```text
 App resolves mystorageaccount.blob.core.windows.net
   → CNAME: mystorageaccount.privatelink.blob.core.windows.net
   → Azure Private DNS zone (linked to VNet)

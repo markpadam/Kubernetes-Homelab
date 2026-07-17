@@ -12,7 +12,7 @@ cert-manager is the Kubernetes-native certificate lifecycle controller. It watch
 
 Certificates are issued by a two-tier PKI hosted in HashiCorp Vault:
 
-```
+```text
 Vault Root CA (pki)
   └── Vault Intermediate CA (pki_int)
         └── Leaf certs for *.aks-lab.local   ← issued by cert-manager

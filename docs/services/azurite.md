@@ -21,12 +21,14 @@ Port-forwarded to `localhost` by `./aks-lab resume` / `./aks-lab setup`.
 ## Connection Strings
 
 **In-cluster (pod-to-pod):**
-```
+
+```text
 DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite.azure-storage.svc.cluster.local:10000/devstoreaccount1;QueueEndpoint=http://azurite.azure-storage.svc.cluster.local:10001/devstoreaccount1;TableEndpoint=http://azurite.azure-storage.svc.cluster.local:10002/devstoreaccount1;
 ```
 
 **From Mac host (via port-forward):**
-```
+
+```text
 DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;
 ```
 

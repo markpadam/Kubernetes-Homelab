@@ -59,7 +59,7 @@ The lab uses a modular component system. Each component can be enabled or disabl
 
 ## Dashboard toggles
 
-The lab dashboard (http://localhost:9997) has a **Lab Management** section at the bottom. Each component has a toggle switch:
+The lab dashboard (<http://localhost:9997>) has a **Lab Management** section at the bottom. Each component has a toggle switch:
 
 - **Turning on** an already-disabled component applies its manifests and starts its port-forwards.
 - **Turning off** shows a confirmation modal then deletes the namespace and stops its port-forwards.
@@ -118,6 +118,7 @@ Some components require others to be enabled first:
 `.lab-state.json` is created in the repo root by `./aks-lab feature init` and updated on every enable/disable. It is git-ignored — each developer has their own feature selection.
 
 Example:
+
 ```json
 {
   "version": 1,

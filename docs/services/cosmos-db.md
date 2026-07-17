@@ -33,12 +33,14 @@ Stored in the `cosmosdb-secret` Kubernetes Secret.
 ## Connection Strings
 
 **In-cluster:**
-```
+
+```text
 AccountEndpoint=http://cosmosdb.cosmos-db.svc.cluster.local:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==;
 ```
 
 **From Mac host (via port-forward):**
-```
+
+```text
 AccountEndpoint=http://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==;
 ```
 
@@ -47,6 +49,7 @@ AccountEndpoint=http://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIW
 `cosmosdb.cosmos-db.svc.cluster.local` — standard in-cluster DNS.
 
 Bind9 also serves:
+
 - `cosmosdb.corp.internal` → Cosmos DB ClusterIP
 - `mycosmosdb.privatelink.documents.azure.com` → Cosmos DB ClusterIP
 - `mycosmosdb-eastus.privatelink.documents.azure.com` → Cosmos DB ClusterIP (secondary-region endpoint pattern)

@@ -19,7 +19,7 @@ The lab runs two DNS servers:
 
 Every pod has `/etc/resolv.conf` pointing at CoreDNS. CoreDNS handles most queries itself, but delegates specific zones to Bind9:
 
-```
+```text
 Pod DNS query
   ↓
 CoreDNS
@@ -53,7 +53,7 @@ kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}'
 
 The relevant section for direct resolution:
 
-```
+```text
 .:53 {
     kubernetes cluster.local in-addr.arpa ip6.arpa {
        pods insecure
@@ -93,6 +93,7 @@ kubectl exec -n toolbox deploy/toolbox -- nslookup google.com
 ```
 
 **What you learn:** CoreDNS handles three categories of queries without Bind9:
+
 1. `*.cluster.local` — Kubernetes service discovery, answered from the cluster's service registry
 2. `host.minikube.internal` — a static `hosts` plugin entry pointing at the Mac host
 3. Everything public — forwarded to the node's upstream resolver (your home router or ISP)
@@ -115,7 +116,7 @@ kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}' | \
 
 You will see blocks like:
 
-```
+```text
 corp.internal:53 {
     errors
     cache 30
@@ -224,7 +225,7 @@ kubectl get configmap bind9-zones -n dns-lab \
 
 A zone file looks like this:
 
-```
+```text
 $TTL 300
 @   IN  SOA ns1.corp.internal. admin.corp.internal. (
             2024010101  ; Serial
