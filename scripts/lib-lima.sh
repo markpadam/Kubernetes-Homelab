@@ -70,10 +70,15 @@ _lima_stop()   { limactl stop "$1" 2>/dev/null || true; }
 # though the VM actually comes up: cap the wait with --timeout, swallow the
 # exit code, and report success iff the VM is Running afterwards. This is
 # what lets resume survive a "another hostagent may already be running" race.
+# Keeps stderr rather than discarding it: when the VM genuinely fails to come up
+# (bad sudoers perms, missing socket_vmnet, ...) limactl's reason is the only
+# clue, and swallowing it leaves the caller staring at a bare exit 1.
 _lima_start()  {
-  local name="$1" timeout="${2:-240}"
-  limactl start --timeout "${timeout}s" "$name" >/dev/null 2>&1 || true
-  [[ "$(_lima_status "$name")" == "Running" ]]
+  local name="$1" timeout="${2:-240}" err
+  err=$(limactl start --timeout "${timeout}s" "$name" 2>&1 >/dev/null) || true
+  [[ "$(_lima_status "$name")" == "Running" ]] && return 0
+  [[ -n "$err" ]] && printf '%s\n' "$err" | tail -20 >&2
+  return 1
 }
 _lima_delete() { limactl delete --force "$1" 2>/dev/null || true; }
 

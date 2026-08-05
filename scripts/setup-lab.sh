@@ -308,7 +308,9 @@ _at_exit() {
     printf '\033[2J'       # clear visible screen
     printf '\033[H'        # cursor to row 1 col 1
   } >&5 2>/dev/null || true
-  stty sane < /dev/tty 2>/dev/null || true
+  # Grouped so a detached run (no controlling terminal) can't leak bash's own
+  # "/dev/tty: Device not configured" into the log — see resume-lab.sh.
+  { stty sane < /dev/tty; } 2>/dev/null || true
 
   local pass=${_CHECKS_PASS:-0}
   local fail=${_CHECKS_FAIL:-0}
@@ -2782,7 +2784,7 @@ if [[ "$_WAS_TUI" == "1" ]]; then
   {
     printf '\033[?1049l\033[?25h\033[0m\r\n'
   } >&5 2>/dev/null || true
-  stty sane < /dev/tty 2>/dev/null || true
+  { stty sane < /dev/tty; } 2>/dev/null || true
   sleep 0.3
 fi
 

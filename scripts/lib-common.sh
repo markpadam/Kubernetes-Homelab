@@ -521,6 +521,9 @@ lab_stabilise_workers() {
     done
     if ! kubectl get --raw=/readyz &>/dev/null 2>&1; then
       docker pause "$w" 2>/dev/null || true           # this worker overloads the API — keep it out
+      # Say so: the pause outlives this run, and a silently quarantined worker
+      # reads downstream as an unexplained NotReady node.
+      warn "worker ${w} destabilised the API — left PAUSED (docker unpause ${w} to re-add)"
     fi
   done
   return 0

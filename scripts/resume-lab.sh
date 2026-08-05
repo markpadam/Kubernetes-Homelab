@@ -111,7 +111,10 @@ _at_exit() {
     printf '\033[2J'
     printf '\033[H'
   } >&5 2>/dev/null || true
-  stty sane < /dev/tty 2>/dev/null || true
+  # Group the redirect so a detached run (no controlling terminal) can't leak
+  # bash's own "/dev/tty: Device not configured" onto the tail of the log —
+  # `2>/dev/null` on the command alone is applied after the failing open.
+  { stty sane < /dev/tty; } 2>/dev/null || true
 
   local pass=${_CHECKS_PASS:-0}
   local fail=${_CHECKS_FAIL:-0}
@@ -306,6 +309,12 @@ fi
 log "Waiting for nodes to be Ready (repairs worker control-plane hosts entry if needed)..."
 if ! lab_wait_nodes_ready "$PROFILE" 420; then
   kubectl get nodes 2>/dev/null || true
+  # A worker quarantined by lab_stabilise_workers stays paused after the run
+  # ends, and a later resume that skips the start path (cluster "already
+  # running") never unpauses it — so it can never reach Ready and this gate
+  # just burns its full 7 min. Name the container instead.
+  PAUSED_NODES=$(docker ps --filter "name=^/${PROFILE}-m" --filter "status=paused" --format '{{.Names}}' 2>/dev/null | tr '\n' ' ')
+  [[ -n "${PAUSED_NODES// /}" ]] && warn "paused node container(s): ${PAUSED_NODES}— 'docker unpause' them, then re-run resume"
   error "Nodes did not all reach Ready within 7 min. Check: kubectl get nodes ; minikube logs -p $PROFILE"
 fi
 success "Cluster up — $(kubectl get nodes --no-headers | wc -l | tr -d ' ') nodes ready"
