@@ -63,6 +63,11 @@ gh pr list   --repo <owner/repo> --label renovate    # the update PRs
 gh issue list --repo <owner/repo> --label renovate   # the Dependency Dashboard
 ```
 
+## Troubleshooting
+
+- **No PRs and no Dependency Dashboard issue after enabling** — almost always means `RENOVATE_DRY_RUN` is still set. A dry run logs `DRY-RUN: Would create PR` and the Job still exits `0`, so nothing in `kubectl get jobs` flags it. Check: `kubectl -n renovate get secret renovate-env -o jsonpath='{.data.RENOVATE_DRY_RUN}' | base64 -d` — non-empty means dry run.
+- **A run completes but still opens nothing, and dry-run is confirmed off** — check the log for `"result": "external-host-error"`. Renovate aborts the whole scan on a single failed/slow request to a registry (`docker.io`, `quay.io`, `mcr.microsoft.com`) rather than act on a partial read. It's a deliberate safety behavior, not a failure, and retries cleanly on the next schedule. If it happens on most runs, the cluster's egress path is likely slower than Renovate's ~2.5s connect timeout — raise it in `renovate.json` with `"hostRules": [{ "timeout": 30000 }]`.
+
 ## Operating
 
 - **Schedule** lives in `flux/apps/base/renovate/cronjob.yaml` (`schedule: "0 2 * * *"`). Change it and commit — Flux reconciles it.

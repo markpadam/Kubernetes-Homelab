@@ -118,6 +118,7 @@ Components are individually toggleable at setup time or live from the dashboard.
 | KEDA Service Bus Demo | Event-driven processor — scales 0→5 pods from Service Bus queue depth | ☐ |
 | Argo Workflows | Kubernetes-native workflow engine | ☐ |
 | Azure DevOps Agent | Self-hosted Pipelines agent — run real ADO YAML pipelines in the cluster | ☐ |
+| Renovate *(optional)* | Self-hosted dependency bot — CronJob that PRs Flux chart / base-image / Action bumps | ☐ |
 
 ### Identity Stack
 

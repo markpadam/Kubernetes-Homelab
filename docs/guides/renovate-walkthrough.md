@@ -87,6 +87,23 @@ gh pr list --repo <owner/repo> --label renovate
 
 **What you learn:** a Renovate run is idempotent and stateless — it reconciles GitHub to "one PR per pending update." Re-running never duplicates PRs; it refreshes the existing ones.
 
+### Two outcomes that look like success but aren't
+
+The Job exits `0` (`Complete`) even on a run that did nothing useful — `kubectl get jobs` alone won't tell you. Check the `result` field in the `Repository finished` JSON at the end of the log:
+
+- **`"result": "done"` while every line still reads `DRY-RUN: Would create PR`** — the run is healthy, but `RENOVATE_DRY_RUN` is still set, so nothing lands on GitHub. This is easy to miss for a long time: there's nothing to watch in the cluster between runs, and a dry run reports success just like a live one. This lab's own instance ran nightly in dry-run for a month before anyone checked GitHub and found zero PRs and no Dependency Dashboard. Check it directly:
+
+  ```bash
+  kubectl -n renovate get secret renovate-env -o jsonpath='{.data.RENOVATE_DRY_RUN}' | base64 -d; echo
+  # non-empty ("full") = dry run. Empty = live.
+  ```
+
+- **`"result": "external-host-error"`** — a single slow or failed request to an external registry (`docker.io`, `quay.io`, `mcr.microsoft.com` are the ones this repo's images touch) made Renovate abort the *entire* scan rather than open PRs from a partial dependency read. This is deliberate, not a bug: better to skip a night than open a PR based on an incomplete picture. It self-heals on the next scheduled run. If it happens most runs rather than occasionally — e.g. because the cluster's egress path (Colima/QEMU → host → gateway) adds enough latency that Renovate's own connect timeout (~2.5s) is tighter than what a home network reliably delivers — raise it globally in `renovate.json`:
+
+  ```jsonc
+  "hostRules": [{ "timeout": 30000 }]
+  ```
+
 ---
 
 ## Stage 4 — The Dependency Dashboard
